@@ -177,8 +177,7 @@ class MusicCopyCard(Card):
 
     def shutdown(self) -> None:
         if self.busy():
-            self.worker.cancel.set()
-            self.worker.wait(30000)
+            self.worker.cancel.set()           # (quitting waits for every task together: resilience.stop_all)
 
 
 __all__ = ["MusicCopyCard"]

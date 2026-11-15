@@ -825,3 +825,18 @@ def test_controlled_folder_access_is_recognized(monkeypatch, tmp_path):
     assert not cfa.blocked(denied, protected / "photo.jpg")                       # Wick is allowed
     cfa._cache[1].update(on=False, apps=[])
     assert not cfa.blocked(denied, protected / "photo.jpg")                       # turned off
+
+
+def test_a_crash_is_only_reported_after_a_session_that_never_ended(tmp_path, monkeypatch):
+    """crash.txt can hold harmless Windows exception notes too: only a session that didn't reach its normal end
+    (its marker still there) counts as a crash, and it's reported once."""
+    from wick.gui import resilience
+
+    monkeypatch.setattr(resilience, "crash_path", lambda: tmp_path / "crash.txt")
+    (tmp_path / "crash.txt").write_text("Windows fatal exception: code 0xe0000001\n", encoding="utf-8")
+    assert resilience.previous_crash() == ""                          # ended normally: no marker
+    (tmp_path / "session-running").write_text("1", encoding="utf-8")
+    (tmp_path / "crash.txt").write_text("Fatal Python error: Segmentation fault\n", encoding="utf-8")
+    assert "Segmentation fault" in resilience.previous_crash()
+    assert (tmp_path / "crash-previous.txt").exists() and not (tmp_path / "crash.txt").exists()
+    assert resilience.previous_crash() == ""                          # once

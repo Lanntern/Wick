@@ -703,6 +703,9 @@ class MainWindow(QMainWindow):
                     self.done.emit(updates.check(), "")
                 except updates.CheckFailed as e:
                     self.done.emit(None, str(e))
+                except Exception as e:  # noqa: BLE001 - say it couldn't check, never leave "Checking…" up
+                    log.exception("Update check failed")
+                    self.done.emit(None, f"{type(e).__name__}: {e}")
 
         def finished(release, error: str) -> None:
             settings_page = self.built("app_settings")
@@ -1044,21 +1047,14 @@ class MainWindow(QMainWindow):
                 self.cleanup.stop_all()
             for page in [p for p in (self.built("converter"), self.built("metadata")) if p is not None]:
                 page.stop()
-                for th in (page.job_thread, page.scan_thread):
-                    if th is not None:
-                        th.wait(30000)
-            for t in (self.compress.job_thread, self.compress.scan_thread):
-                if t is not None:
-                    t.wait(30000)
-        if getattr(self, "_update_check", None) is not None and self._update_check.isRunning():
-            self._update_check.wait(20000)       # a network request, at most its timeout
-        if getattr(self, "_recompress", None) is not None and self._recompress.isRunning():
-            self._recompress.cancel.set()
-            self._recompress.wait(30000)
         self.watch.shutdown()
         if getattr(self, "_game_watcher", None) is not None:
             self._game_watcher.stop()
         self.home.stop()
+        from . import resilience
+
+        self.setEnabled(False)                 # (nothing new starts while the rest stops)
+        resilience.stop_all(self)              # every task at once, one short deadline (never a frozen window)
         self.save_settings()
         self.qsettings.setValue("geometry", self.saveGeometry())
         if self.tray is not None:

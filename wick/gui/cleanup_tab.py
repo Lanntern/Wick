@@ -129,9 +129,7 @@ class CleanupTab(Page):
 
     def stop_all(self) -> None:
         for s in self._built.values():
-            s.stop()
-            if s.worker is not None:
-                s.worker.wait(30000)
+            s.stop()                           # (quitting waits for them all together: resilience.stop_all)
 
     def scan_common(self) -> None:
         from ..cleanup.common import ScanResult, shared_inventory

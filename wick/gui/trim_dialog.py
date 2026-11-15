@@ -158,8 +158,10 @@ class TrimDialog(QDialog):
             self.picture.setPixmap(QPixmap.fromImage(img))
 
     def done(self, result: int) -> None:
+        from .resilience import outlive
+
         for w in list(self._workers):
-            w.wait(2000)
+            outlive(w)                    # (a frame still being read finishes on its own; no wait)
         super().done(result)
 
 

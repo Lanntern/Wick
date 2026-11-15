@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -30,6 +31,7 @@ class WatchJobThread(QThread):
     def __init__(self, groups: list[tuple[list[str], Settings]], parent=None):
         super().__init__(parent)
         self.groups = groups  # files that share options (same watched folder preset)
+        self.cancel = threading.Event()
 
     def run(self) -> None:
         from .. import power
@@ -40,6 +42,8 @@ class WatchJobThread(QThread):
     def _run_all(self) -> None:
         outputs, done, failed, saved = [], 0, 0, 0
         for paths, s in self.groups:
+            if self.cancel.is_set():
+                break
             try:
                 o, d, f, b = self._run_group(paths, s)
             except Exception as e:  # noqa: BLE001 - say so, and keep watching
@@ -63,7 +67,7 @@ class WatchJobThread(QThread):
                 self.log.emit(f"Skipped {e.path.name}: {p.reason}")
         if not items:
             return [], 0, 0, 0
-        results, _ = run_job(items, s, Path(paths[0]).parent, tool="watch")
+        results, _ = run_job(items, s, Path(paths[0]).parent, tool="watch", cancel=self.cancel)
         outputs = []
         for r in results:
             if r.status == DONE:
@@ -387,5 +391,5 @@ class WatchTab(Page):
     def shutdown(self) -> None:
         self.music.shutdown()
         self.watcher.stop()
-        if self.job is not None:
-            self.job.wait(30000)
+        if self.job is not None and self.job.isRunning():
+            self.job.cancel.set()              # (the file being compressed keeps its original)

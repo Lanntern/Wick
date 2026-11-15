@@ -1,6 +1,7 @@
 """Small, UI-independent model for simultaneous work. Unknown progress stays unknown."""
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -13,6 +14,7 @@ class Activity:
     elapsed: float = 0
     page: str = "home"
     section: int | None = None
+    stop: Callable[[], None] | None = field(default=None, compare=False, repr=False)   # asks the task to stop
 
 
 def overall(tasks: list[Activity]) -> tuple[float | None, bool]:
