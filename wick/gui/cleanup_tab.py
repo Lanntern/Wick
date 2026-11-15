@@ -50,7 +50,7 @@ class CleanupTab(Page):
         self.picker.hide()
         self.body.addWidget(self.tabs)
         self.body.addWidget(self.picker, 0, Qt.AlignLeft)
-        common = button("Scan common checks…", "", "broom", "Run several checks with one shared folder listing")
+        common = button("Scan Several Tools…", "", "broom", "Run several tools on the same folders in one pass")
         common.clicked.connect(self.scan_common)
         self.body.addLayout(hbox(common, text("Choose folders or drives, then review results in each tool.",
                                              Type.FOOTNOTE, secondary=True, wrap=True), None))

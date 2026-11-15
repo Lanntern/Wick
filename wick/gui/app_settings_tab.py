@@ -281,6 +281,11 @@ class AppSettingsTab(Page):
         card.lay.addWidget(setting_row("Copy diagnostics", "Versions, encoders and the latest log lines, for a bug "
                                                            "report. Log lines can include file names, so have a look "
                                                            "before sharing.", copy))
+        card.lay.addWidget(separator())
+        report = button("Report a Problem…", "", None, "Copy the diagnostics, then open the bug report form on GitHub")
+        report.clicked.connect(self._report_problem)
+        card.lay.addWidget(setting_row("Report a problem", "Opens the bug report form on GitHub, with the diagnostics "
+                                                           "already copied for you to paste in.", report))
         col.addWidget(card)
 
         # about
@@ -458,6 +463,19 @@ class AppSettingsTab(Page):
         from .file_model import open_in_file_manager
 
         open_in_file_manager(str(log_file() if log_file().exists() else log_dir()))
+
+    def _report_problem(self) -> None:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from ..log import diagnostics
+        from ..updates import REPO
+
+        QGuiApplication.clipboard().setText(diagnostics())
+        QDesktopServices.openUrl(QUrl(f"https://github.com/{REPO}/issues/new?template=bug_report.yml"))
+        inform(self, "The bug report form is opening in your browser",
+               "The diagnostics are copied: paste them into the form's Diagnostics box. Have a look first; log "
+               "lines can include file names.")
 
     def _copy_diagnostics(self) -> None:
         from ..log import diagnostics
