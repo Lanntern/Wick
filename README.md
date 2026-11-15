@@ -17,6 +17,8 @@ Point Wick at a folder, or right-click one in File Explorer. It shows how much s
 touches anything, then stores each file in a smaller format. Your originals go to the Recycle Bin, and History
 can put them back.
 
+<p align="center"><img src="docs/screenshots/compress.png" width="800" alt="The Compress page: photos from a folder, each with what it would become and how much the folder could save"></p>
+
 ## What it does
 
 | Page | Use it to |
@@ -28,6 +30,8 @@ can put them back.
 | **Clean Up** | Find duplicates, similar photos, old installers, caches, build folders and Windows leftovers |
 | **Watch Folders** | Compress new files as they arrive, from the tray |
 | **History** | Undo any run, or a single file |
+
+<p align="center"><img src="docs/screenshots/cleanup.png" width="800" alt="Clean Up's Duplicates tool: identical copies grouped, the copy that stays marked, the others ready to move to the Recycle Bin"></p>
 
 ## What it shrinks
 

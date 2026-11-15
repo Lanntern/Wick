@@ -62,6 +62,8 @@ def bin_size(drive: Path) -> int:
             if ctypes.windll.shell32.SHQueryRecycleBinW(str(drive), ctypes.byref(info)) == 0:
                 return int(info.i64Size)
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("space.bin_size")
             pass
         return 0
     from .cleanup.common import folder_size
@@ -92,6 +94,8 @@ def measure(overview, roots: list[Path], cancel: threading.Event | None = None) 
         on_drive = [c for c in found.items if same_drive(c.path, drive)]
         b.sizes[CACHES], b.counts[CACHES] = sum(c.size for c in on_drive), len(on_drive)
     except Exception:  # noqa: BLE001 - a breakdown without caches is still useful
+        from wick.log import ignored
+        ignored("space.measure")
         pass
     b.sizes[BIN] = bin_size(drive)
     return b

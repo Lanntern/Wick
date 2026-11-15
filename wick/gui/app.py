@@ -48,6 +48,9 @@ def main(argv: list[str] | None = None) -> int:
 
     setup_log()
     _report_unexpected_errors()
+    from . import resilience
+
+    crashed_before = resilience.install()
     app.setWindowIcon(app_icon())
     from . import style
 
@@ -75,9 +78,28 @@ def main(argv: list[str] | None = None) -> int:
         QTimer.singleShot(0, done)
     if paths or target:
         win.receive_paths(paths, not background, preset, convert_to, target)
+    if crashed_before and not background:
+        QTimer.singleShot(1200, lambda: _mention_crash(win))
     code = app.exec()
     lock.unlock()
+    resilience.exit_now_if_stuck(code)   # (a task that never stopped: end here, not in a crash at shutdown)
+    resilience.end_cleanly()
     return code
+
+
+def _mention_crash(win) -> None:
+    """Once, after a session that ended in a crash: say so, and where the details are."""
+    from .dialogs import choose
+    from .resilience import crash_path
+
+    saved = crash_path().with_name("crash-previous.txt")
+    if choose(win, "Wick closed unexpectedly last time",
+              "Nothing you had finished was lost; a job that was running can be resumed from its page. If it "
+              f"keeps happening, the details ({saved}) help find the cause: please attach them to a bug report.",
+              "OK", "Show Details"):
+        from .file_model import open_in_file_manager
+
+        open_in_file_manager(str(saved))
 
 
 def _report_unexpected_errors() -> None:
@@ -167,6 +189,8 @@ def _user() -> str:
 
         return "".join(c for c in getpass.getuser() if c.isalnum()) or "user"
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.app._user")
         return "user"
 
 

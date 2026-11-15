@@ -150,6 +150,8 @@ def _display_size(entry: FileEntry) -> tuple[int, int] | None:
             if int(im.getexif().get(0x0112, 1) or 1) in (5, 6, 7, 8):
                 w, h = h, w
     except Exception:  # noqa: BLE001 - no EXIF, or a format Pillow doesn't read: as stored
+        from wick.log import ignored
+        ignored("gui.preview._display_size")
         pass
     return w, h
 

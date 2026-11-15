@@ -2356,3 +2356,111 @@ def test_undo_from_the_result_bar_and_turn_on_banner(win, tmp_path, no_dialogs):
     page.job_status.undo_btn.click()                                  # (the confirmation is answered Yes)
     assert _wait(lambda: not any(p.exists() for p in made), 60)
     assert (folder / "photo.jpg").exists() and page.job_status.isHidden()
+
+
+def test_tasks_can_be_stopped_from_the_tasks_panel(win):
+    """Every running task can be stopped from the panel; it shows "Stopping…" until it ends."""
+    import threading
+
+    from PySide6.QtCore import QThread
+
+    from wick.activity import Activity
+
+    class Slow(QThread):
+        def __init__(self, parent):
+            super().__init__(parent)
+            self.cancel = threading.Event()
+
+        def run(self):
+            self.cancel.wait(20)
+
+    page = win.home
+    old = page.worker
+    mon = win._activity_monitor
+    page.worker = Slow(win)
+    page.worker.start()
+    try:
+        mon.refresh()
+        task = next(t for t in mon.tasks if t.name == "Home analysis")
+        assert task.stop is not None
+        mon.show()
+        task = next(t for t in mon.tasks if t.key == task.key)        # (the panel read the tasks afresh)
+        mon.table.selectRow(mon.tasks.index(task))
+        assert mon.stop_btn.isEnabled()
+        mon.stop_btn.click()
+        assert page.worker.cancel.is_set() and task.key in mon.stopping
+        row = next(i for i, t in enumerate(mon.tasks) if t.key == task.key)
+        assert mon.table.item(row, 4).text() == "Stopping…"
+        assert _wait(lambda: not page.worker.isRunning(), 10)
+        mon.refresh()
+        assert not any(t.name == "Home analysis" for t in mon.tasks) and not mon.stopping
+        mon.stop_task(Activity("x", "Gone", "", stop=None))           # (nothing to ask: ignored)
+    finally:
+        page.worker.wait(5000)
+        page.worker = old
+        if mon.dialog is not None:
+            mon.dialog.hide()
+
+
+def test_background_errors_are_shown_and_quitting_never_destroys_a_running_task(win, monkeypatch):
+    import threading
+    import time
+
+    from PySide6.QtCore import QObject, QThread
+
+    from wick.gui import resilience
+
+    shown = []
+    monkeypatch.setattr("wick.gui.dialogs.warn", lambda _p, title, info="": shown.append((title, info)))
+    if resilience._bridge is None:
+        resilience._bridge = resilience._Bridge()
+        resilience._bridge.error.connect(resilience._show_background_error)
+    resilience._bridge.error.emit("ValueError", "bad file")
+    assert _wait(lambda: shown, 5) and shown[0][0] == "A background task stopped with an error"
+
+    holder = QObject()
+
+    class Polite(QThread):
+        def __init__(self, parent):
+            super().__init__(parent)
+            self.cancel = threading.Event()
+
+        def run(self):
+            self.cancel.wait(20)
+
+    class Stubborn(QThread):
+        def run(self):
+            time.sleep(1.5)
+
+    polite, stubborn = Polite(holder), Stubborn(holder)
+    polite.start()
+    stubborn.start()
+    left = resilience.stop_all(holder, deadline=0.3)
+    assert not polite.isRunning() and polite.cancel.is_set()          # asked, and stopped in time
+    assert left == [stubborn] and stubborn.parent() is None           # kept alive, not destroyed with its owner
+    del holder
+    stubborn.wait(5000)
+    resilience._stuck.remove(stubborn)
+
+
+def test_dialogs_share_one_frame_and_button_row(win):
+    """Every dialog: a heading, the standard margins, and on the right the main action (primary, Enter) then
+    Cancel (Esc), in Windows' order; extra actions on the left."""
+    from PySide6.QtWidgets import QDialog, QPushButton
+
+    from wick.gui.style import Space
+    from wick.gui.widgets import button, dialog_buttons, dialog_layout
+
+    d = QDialog(win)
+    lay = dialog_layout(d, "Folders to Scan", "These folders are included.")
+    extra = button("Add Folder…")
+    row = dialog_buttons(d, ("Save Folders", d.accept), left=(extra,))
+    lay.addLayout(row)
+    assert lay.contentsMargins().left() == Space.XL
+    labels = [row.itemAt(i).widget().text() for i in range(row.count()) if row.itemAt(i).widget()]
+    assert labels == ["Add Folder…", "Save Folders", "Cancel"]
+    go = d._primary_button
+    assert go.objectName() == "primary" and go.isDefault()
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    cancel.click()
+    assert d.result() == QDialog.Rejected

@@ -169,6 +169,8 @@ def query(search: str, timeout: float = 30.0) -> list[tuple[str, bool, int, floa
                                                            ctypes.c_void_p]
             user32.ChangeWindowMessageFilterEx(hwnd, _WM_COPYDATA, 1, None)   # MSGFLT_ALLOW
         except Exception:  # noqa: BLE001 - older Windows: not needed
+            from wick.log import ignored
+            ignored("everything.query")
             pass
         payload = build_query(int(hwnd), search)
         buf = ctypes.create_string_buffer(payload, len(payload))

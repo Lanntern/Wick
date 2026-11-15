@@ -36,6 +36,24 @@ def _combo(items: list[tuple[str, str]], tip: str = "") -> QComboBox:
     return c
 
 
+def _described(combo: QComboBox, help_by_value: dict[str, str]) -> QLabel:
+    """A line under ``combo`` saying what the chosen option means (and the same on each option in its list),
+    for choices whose names mean little to most people."""
+    for i in range(combo.count()):
+        tip = help_by_value.get(combo.itemData(i), "")
+        if tip:
+            combo.setItemData(i, tip, Qt.ToolTipRole)
+    label = text("", Type.FOOTNOTE, secondary=True, wrap=True)
+
+    def show(_i: int = 0) -> None:
+        label.setText(help_by_value.get(combo.currentData(), ""))
+        combo.setAccessibleDescription(label.text())
+
+    combo.currentIndexChanged.connect(show)
+    show()
+    return label
+
+
 def _set_combo(c: QComboBox, value) -> None:
     i = c.findData(value)
     if i >= 0:
@@ -314,11 +332,11 @@ class SettingsPanel(QWidget):
         from .. import quality as _quality
 
         self.video_metric = _combo([(_quality.VIDEO_METRIC_LABELS[k], k) for k in _quality.VIDEO_METRICS],
-                                   "How Smart quality judges videos. VMAF (automatic) is made for video; "
-                                   "SSIMULACRA2 and Butteraugli judge sharp detail, XPSNR is quick. One that isn't "
-                                   "available here is replaced by VMAF.")
+                                   "How Smart quality and Visually identical judge whether a video still looks "
+                                   "right. One that isn't available here is replaced by VMAF.")
         self.video_metric.setAccessibleName("Video quality measure")
         f.addRow("Quality measure", self.video_metric)
+        f.addRow(_described(self.video_metric, _quality.VIDEO_METRIC_HELP))
         f.addRow(self.gpu_label)
         self.sections.append(Section("Videos", g, True))
         lay.addWidget(self.sections[-1])

@@ -311,8 +311,7 @@ class HomeTab(Page):
 
     def stop(self) -> None:
         if self.busy():
-            self.worker.cancel.set()
-            self.worker.wait(30000)
+            self.worker.cancel.set()           # (it stops at its next file; quitting waits for it)
 
     def _progress(self, msg: str, done: int, total: int) -> None:
         if total:

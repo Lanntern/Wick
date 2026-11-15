@@ -1,0 +1,85 @@
+name: Bug report
+description: Something in Wick doesn't work, freezes, crashes or gives a wrong result.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. Security problems: please don't post them here; see [SECURITY.md](https://github.com/Lanntern/Wick/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+      placeholder: "Compressing a folder of videos stopped at 40% and the window stopped responding."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen again
+      description: The steps, as exactly as you can. Which page, which options, what kind of files.
+      placeholder: |
+        1. Compress page, add a folder with ~200 MP4s from a phone
+        2. Video codec: AV1, quality: Visually identical
+        3. Press Compress
+    validations:
+      required: true
+  - type: dropdown
+    id: how-often
+    attributes:
+      label: How often does it happen?
+      options:
+        - Every time
+        - Sometimes
+        - Once so far
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Wick version
+      description: Settings › About › About Wick shows it.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: windows
+    attributes:
+      label: Windows version
+      options:
+        - Windows 11
+        - Windows 10
+        - Other (say which below)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed or portable?
+      options:
+        - Installer (Wick-setup.exe)
+        - Portable (Wick-windows.zip)
+        - Run from source
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: |
+        In Wick: Settings › Diagnostics › Copy diagnostics (or Report a Problem, which copies them for you), then paste here. It has the versions, encoders and the latest log lines; it doesn't include your files. Check it for file or folder names you'd rather not share.
+      render: text
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash details (if Wick closed unexpectedly)
+      description: |
+        If Wick said it closed unexpectedly, attach `crash-previous.txt` from the log folder (Settings › Diagnostics › Log › Open Folder), or paste its contents here.
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, a sample file that shows the problem (if you can share it), or what you already tried.

@@ -410,22 +410,20 @@ class ToolSection(QWidget):
 
     def _add_drives(self) -> None:
         from ..cleanup.common import available_drives
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox
+        from PySide6.QtWidgets import QDialog
+
+        from .widgets import dialog_buttons, dialog_layout
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Drives to scan")
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(text("Select drives to add. System folders, links and cloud-only files are skipped.",
-                              Type.BODY, wrap=True))
+        dialog.setWindowTitle("Drives to Scan")
+        layout = dialog_layout(dialog, "Drives to Scan", "Choose the drives to add. System folders, links and "
+                                                         "cloud-only files are skipped.")
         choices = []
         for drive in available_drives():
             box = QCheckBox(str(drive))
             layout.addWidget(box)
             choices.append((drive, box))
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        layout.addLayout(dialog_buttons(dialog, ("Add Drives", dialog.accept)))
         if dialog.exec() == QDialog.Accepted:
             self.folders += [p for p, box in choices if box.isChecked() and p not in self.folders]
             self.save_folders()

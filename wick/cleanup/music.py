@@ -56,6 +56,8 @@ def decode(path: Path, seconds: int = SECONDS) -> np.ndarray | None:
         p = tools.run([ffmpeg, "-nostdin", "-v", "error", "-i", str(path), "-map", "0:a:0", "-t", str(seconds),
                        "-ac", "1", "-ar", str(RATE), "-f", "s16le", "-"], timeout=120, check=False, text=False)
     except Exception:  # noqa: BLE001 - timeouts, missing ffmpeg
+        from wick.log import ignored
+        ignored("cleanup.music.decode")
         return None
     if p.returncode != 0 or len(p.stdout) < RATE * 2 * 5:
         return None

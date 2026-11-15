@@ -5,11 +5,11 @@ import os
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QAbstractItemView, QDialog, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import QAbstractItemView, QDialog, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem
 
 from ..cleanup import game_results
-from .style import Type
-from .widgets import button, hbox, text
+from .style import Size
+from .widgets import button, dialog_buttons, dialog_layout
 
 
 class _ResultItem(QTableWidgetItem):
@@ -20,16 +20,14 @@ class _ResultItem(QTableWidgetItem):
 class GameResultsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Community game compression results")
-        self.resize(820, 440)
+        self.setWindowTitle("Community Results")
+        self.resize(Size.INSPECTOR_W * 2 + Size.ROW * 2, Size.ROW * 14)
         self.data = game_results.load()
         self.reply = None
         self.manager = QNetworkAccessManager(self)
-        layout = QVBoxLayout(self)
-        self.note = text("Public CompactGUI results, not performance benchmarks. Game versions, exclusions and hardware "
-                         "can differ. Downloading fetches the public database only; your installed games are not sent.",
-                         Type.BODY, wrap=True)
-        layout.addWidget(self.note)
+        layout = dialog_layout(self, "Community Results", "How much space other people saved compressing each game "
+                               "(public CompactGUI results; game versions, exclusions and hardware differ). "
+                               "Downloading fetches the public list only; your installed games aren't sent.")
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search game names or Steam IDs")
         self.search.setAccessibleName("Search community games")
@@ -56,9 +54,7 @@ class GameResultsDialog(QDialog):
         self.download_button.clicked.connect(self.fetch)
         source = button("Source / Contribute…", "", None, "Open CompactGUI's public results and contribution information")
         source.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(game_results.PAGE)))
-        close = button("Close")
-        close.clicked.connect(self.close)
-        layout.addLayout(hbox(self.download_button, source, None, close))
+        layout.addLayout(dialog_buttons(self, None, "Close", left=(self.download_button, source)))
         self.fill()
 
     def fill(self):

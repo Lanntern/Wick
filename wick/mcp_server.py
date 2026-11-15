@@ -170,6 +170,8 @@ class Server:
             qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
             return bool(qs.value("history_enabled", True, bool))
         except Exception:  # noqa: BLE001 - assume the safer answer
+            from wick.log import ignored
+            ignored("mcp_server._history_on")
             return False
 
     def replaces_originals(self) -> bool:

@@ -16,6 +16,8 @@ def _tool_version(name: str, args: list[str], pattern: str) -> str | None:
     try:
         proc = tools.run([exe, *args], timeout=20, check=False)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("components._tool_version")
         return "installed"
     m = re.search(pattern, (proc.stdout or "") + (proc.stderr or ""))
     return m.group(1) if m else "installed"
@@ -63,12 +65,16 @@ def versions() -> dict[str, str]:
 
         out["libheif"] = pillow_heif.libheif_version()
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("components.versions")
         pass
     try:
         import pikepdf
 
         out["qpdf"] = pikepdf.__libqpdf_version__
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("components.versions")
         pass
     try:
         from PIL import features
@@ -78,6 +84,8 @@ def versions() -> dict[str, str]:
             if v:
                 out[label] = v
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("components.versions")
         pass
     return {k: v for k, v in out.items() if v}
 

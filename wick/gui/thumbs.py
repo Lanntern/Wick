@@ -84,6 +84,8 @@ def _own_thumbnail(path: Path, kind: str, max_px: int) -> bytes | None:
             pic.save(buf, "PNG", compress_level=1)
             return buf.getvalue()
     except Exception:  # noqa: BLE001 - a preview is a nicety, never an error
+        from wick.log import ignored
+        ignored("gui.thumbs._own_thumbnail")
         return None
 
 

@@ -78,6 +78,8 @@ def _default_folders() -> list[Path]:
 
         out += [p for n in names if (p := known_folder(n)) is not None]
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("cfa._default_folders")
         pass
     return out
 
@@ -110,6 +112,8 @@ def blocked(error: BaseException, path: Path) -> bool:
     try:
         return enabled() and not _allowed() and protected(path)
     except Exception:  # noqa: BLE001 - never let the explanation itself fail
+        from wick.log import ignored
+        ignored("cfa.blocked")
         return False
 
 

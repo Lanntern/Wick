@@ -19,7 +19,7 @@ from ..settings import Settings
 from .filejob_page import ROLE_ROW, FileJobPage, option_row, set_visible
 from .settings_panel import BIN_NAME, METADATA_CHOICES
 from .style import Space
-from .widgets import Card, button
+from .widgets import Card, button, dialog_buttons, dialog_layout
 
 OUTPUT_CHOICES = [("Next to originals", "beside"), ("Save with a new name", "suffix"),
                   ("Save to another folder", "folder"), (f"Replace originals ({BIN_NAME})", "replace")]
@@ -685,17 +685,12 @@ class ConvertTab(FileJobPage):
                 ("Add a Password…", protect), ("Remove the Password…", unlock)]
 
     def _ask_password(self, title: str, text_: str, confirm: bool = False) -> str:
-        from PySide6.QtWidgets import QDialog, QDialogButtonBox, QFormLayout, QVBoxLayout
+        from PySide6.QtWidgets import QDialog, QFormLayout
 
-        from .style import Type
-        from .widgets import text
 
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
-        lay = QVBoxLayout(dlg)
-        lay.setContentsMargins(Space.L, Space.L, Space.L, Space.L)
-        lay.setSpacing(Space.M)
-        lay.addWidget(text(text_, Type.BODY, wrap=True))
+        lay = dialog_layout(dlg, title, text_)
         form = QFormLayout()
         first, again = QLineEdit(), QLineEdit()
         for f in (first, again):
@@ -704,17 +699,14 @@ class ConvertTab(FileJobPage):
         if confirm:
             form.addRow("Again", again)
         lay.addLayout(form)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        ok = buttons.button(QDialogButtonBox.Ok)
+        lay.addLayout(dialog_buttons(dlg, ("Set Password" if confirm else "Unlock", dlg.accept)))
+        ok = dlg._primary_button
 
         def valid() -> None:
             ok.setEnabled(bool(first.text()) and (not confirm or first.text() == again.text()))
         first.textChanged.connect(valid)
         again.textChanged.connect(valid)
         valid()
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
-        lay.addWidget(buttons)
         return first.text() if dlg.exec() == QDialog.Accepted else ""
 
     def _combine_pdf(self, entries: list[FileEntry]) -> None:
@@ -875,6 +867,8 @@ class ConvertTab(FileJobPage):
             try:
                 t = (t[0], fonts.target_ext(e.path, t[0]))
             except Exception:  # noqa: BLE001 - not a font fontTools reads
+                from wick.log import ignored
+                ignored("gui.convert_tab.plan")
                 return None
         if _same_format(e.path.suffix, t[1]) and t[0] not in ("webp_anim", "svg", "ico", "keep") \
                 and e.kind not in (PDF, ARCHIVE):

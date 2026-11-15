@@ -96,6 +96,8 @@ def _set_windows_creation_time(path: Path, ns: int) -> None:
         finally:
             kernel32.CloseHandle(handle)
     except Exception:
+        from wick.log import ignored
+        ignored("fileops._set_windows_creation_time")
         pass
 
 
@@ -170,6 +172,8 @@ def recycle_bin_capacity(path: Path) -> int | None:
         _capacity_cache[root] = (time.monotonic(), cap)
         return cap
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("fileops.recycle_bin_capacity")
         return None
 
 
@@ -256,6 +260,8 @@ def notify_shell(created=(), updated=(), deleted=()) -> None:
         for d in folders:
             shell32.SHChangeNotify(_SHCNE_UPDATEDIR, _SHCNF_PATHW | _SHCNF_FLUSHNOWAIT, ctypes.c_wchar_p(d), None)
     except Exception:  # noqa: BLE001 - cosmetic: never fails a job
+        from wick.log import ignored
+        ignored("fileops.notify_shell")
         pass
 
 
@@ -277,6 +283,8 @@ def supports_block_clone(path: Path) -> bool:
         ok = k32.GetVolumeInformationW(root.value, None, 0, None, None, ctypes.byref(flags), None, 0)
         return bool(ok) and bool(flags.value & _FILE_SUPPORTS_BLOCK_REFCOUNTING)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("fileops.supports_block_clone")
         return False
 
 

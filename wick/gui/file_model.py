@@ -412,6 +412,8 @@ def _explorer_select(paths: list[str]) -> bool:
                 ole32.CoTaskMemFree(fp)
         return opened
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.file_model._explorer_select")
         return False
 
 

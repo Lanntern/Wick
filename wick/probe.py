@@ -127,6 +127,8 @@ def probe_video(path: Path) -> VideoInfo | None:
     except (tools.ToolError, OSError, ValueError, TimeoutError):
         return None
     except Exception:  # subprocess.TimeoutExpired and friends
+        from wick.log import ignored
+        ignored("probe.probe_video")
         return None
 
     streams: list[StreamInfo] = []
@@ -239,6 +241,8 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
                               "metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"],
                              timeout=120, check=False)
         except Exception:  # noqa: BLE001 - detection is optional
+            from wick.log import ignored
+            ignored("probe.detect_cadence")
             continue
         d = [float(x) for x in re.findall(r"YAVG=([0-9.]+)", proc.stdout or "")]
         if proc.returncode == 0 and len(d) >= 40:
@@ -281,6 +285,8 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
     try:
         data = probe_raw(path)
     except Exception:  # noqa: BLE001 - ToolError, timeouts, bad JSON
+        from wick.log import ignored
+        ignored("probe.probe_audio")
         return None
     audio, cover = None, None
     for st in data.get("streams", []):
@@ -339,6 +345,8 @@ def image_dimensions(path: Path) -> tuple[int, int] | None:
     try:
         data = probe_raw(path)
     except Exception:
+        from wick.log import ignored
+        ignored("probe.image_dimensions")
         return None
     for s in data.get("streams", []):
         if s.get("codec_type") == "video":

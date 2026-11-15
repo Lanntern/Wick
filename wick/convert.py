@@ -507,6 +507,8 @@ def _orientation_of(exif: bytes) -> int:
     try:
         ex.load(md.EXIF_HEADER + exif)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("convert._orientation_of")
         return 1
     return int(ex.get(md.ORIENTATION, 1) or 1)
 
@@ -626,6 +628,8 @@ def _decode_raw(ctx: Ctx) -> None:
             if len(ex):
                 exif = md.set_orientation(ex.tobytes(), 1)
     except Exception:  # noqa: BLE001 - CR3, RAF and others: no EXIF that Pillow reads
+        from wick.log import ignored
+        ignored("convert._decode_raw")
         pass
     dec = ctx.tmp(".png", "-raw")
     img.save(dec, "PNG", compress_level=1)
@@ -830,7 +834,7 @@ def convert_video(src: Path, info: VideoInfo, target: str, s: Settings,
         steps.report("Checking the result")
         verify_video(info, out, VIDEO_TARGETS[target][2], dst_is_mp4=out.suffix == ".mp4",
                      expected_size=s.video_target_size(info.width, info.height)
-                     if VIDEO_TARGETS[target][2] in ("av1", "hevc") or s.video_max_height else None)
+                     if VIDEO_TARGETS[target][2] in ("av1", "hevc") or s.video_max_height else None, src_path=src)
         if codec in ("av1", "hevc") and measures_quality(vs) and source_rate_limit(info, vs, encoder):
             steps.report("Measuring how close it looks to the original")
             check_quality_budget(measure(src, info, out, vs, cancel), info, vs, encoder)

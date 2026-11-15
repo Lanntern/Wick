@@ -228,6 +228,8 @@ def read_raw_info(path: Path) -> ImageInfo | None:
                 w, h = h, w
             return ImageInfo(w, h, 1, 16, 1, True, "RGB")
     except Exception:  # noqa: BLE001 - not a RAW LibRaw knows, or damaged
+        from wick.log import ignored
+        ignored("formats.read_raw_info")
         return None
 
 
@@ -245,6 +247,8 @@ def svg_size(path: Path) -> tuple[int, int] | None:
             return (max(1, round(box.width())), max(1, round(box.height()))) if box.width() > 0 else None
         return size.width(), size.height()
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("formats.svg_size")
         return None
 
 
@@ -260,6 +264,8 @@ def register_heif() -> bool:
             pillow_heif.register_heif_opener()
             _heif_registered = True
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("formats.register_heif")
             return False
     return True
 
@@ -330,6 +336,8 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
                 info.motion = has_embedded_video(path)
             return info
     except Exception:  # noqa: BLE001 - unreadable/corrupt
+        from wick.log import ignored
+        ignored("formats.read_image_info")
         return None
 
 
@@ -340,6 +348,8 @@ def _pil_frames(path: Path) -> int | None:
         with Image.open(path) as im:
             return getattr(im, "n_frames", 1)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("formats._pil_frames")
         return None
 
 

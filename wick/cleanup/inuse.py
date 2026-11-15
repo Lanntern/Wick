@@ -144,6 +144,8 @@ def processes() -> list[Proc]:
         if os.path.isdir("/proc"):
             return _linux()
     except Exception:  # noqa: BLE001 - a nicety: never fail a scan over it
+        from wick.log import ignored
+        ignored("cleanup.inuse.processes")
         pass
     return []
 

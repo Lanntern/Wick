@@ -60,6 +60,8 @@ def fingerprint(path: Path) -> tuple[int, int, int] | None:
                 w, h = max(w, h), min(w, h)
             small = pic.convert("L").resize((9, 8), Image.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
+        from wick.log import ignored
+        ignored("cleanup.similar.fingerprint")
         return None
     if ImageStat.Stat(small).stddev[0] < 4:
         return None

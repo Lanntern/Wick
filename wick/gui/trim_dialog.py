@@ -8,12 +8,12 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QGridLayout, QLabel, QLineEdit, QSlider, QVBoxLayout,
+    QCheckBox, QDialog, QGridLayout, QLabel, QLineEdit, QSlider, QVBoxLayout,
 )
 
 from .. import tools
 from .style import Space, Type
-from .widgets import text
+from .widgets import dialog_buttons, text
 
 STEP = 10            # slider steps per second
 
@@ -52,6 +52,8 @@ class _Frame(QThread):
                            "-frames:v", "1", "-vf", "scale=480:-2", "-f", "image2pipe", "-c:v", "png", "-"],
                           timeout=30, check=False, text=False)
         except Exception:  # noqa: BLE001 - no picture: the times still work
+            from wick.log import ignored
+            ignored("gui.trim_dialog.run")
             return
         img = QImage.fromData(p.stdout)
         if not img.isNull():
@@ -64,8 +66,8 @@ class TrimDialog(QDialog):
         self.path, self.duration = path, max(0.1, duration)
         self.setWindowTitle(f"Trim {path.name}")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(Space.L, Space.L, Space.L, Space.L)
-        lay.setSpacing(Space.M)
+        lay.setContentsMargins(Space.XL, Space.XL, Space.XL, Space.XL)
+        lay.setSpacing(Space.L)
         self.picture = QLabel()
         self.picture.setAlignment(Qt.AlignCenter)
         self.picture.setMinimumSize(480, 270)
@@ -98,12 +100,8 @@ class TrimDialog(QDialog):
                               "video's nearest keyframe before Start: usually up to a few seconds earlier.")
         if is_video:
             lay.addWidget(self.exact)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        self.save = buttons.button(QDialogButtonBox.Save)
-        self.save.setText("Save Trimmed Copy")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        lay.addWidget(buttons)
+        lay.addLayout(dialog_buttons(self, ("Save Trimmed Copy", self.accept)))
+        self.save = self._primary_button
         self.is_video, self._ticket, self._shown, self._workers = is_video, 0, 0, []
         self._timer = QTimer(self, singleShot=True, interval=150)
         self._timer.timeout.connect(self._grab)
@@ -158,8 +156,10 @@ class TrimDialog(QDialog):
             self.picture.setPixmap(QPixmap.fromImage(img))
 
     def done(self, result: int) -> None:
+        from .resilience import outlive
+
         for w in list(self._workers):
-            w.wait(2000)
+            outlive(w)                    # (a frame still being read finishes on its own; no wait)
         super().done(result)
 
 

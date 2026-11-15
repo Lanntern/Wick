@@ -265,6 +265,8 @@ def is_encrypted(path: Path) -> bool:
     except pikepdf.PasswordError:
         return True
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("pdftools.is_encrypted")
         return False
 
 

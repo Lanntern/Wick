@@ -4,11 +4,11 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QFileDialog, QListWidget, QListWidgetItem, QVBoxLayout,
+    QAbstractItemView, QDialog, QFileDialog, QListWidget, QListWidgetItem,
 )
 
-from .style import Type
-from .widgets import button, hbox, text
+from .style import Size
+from .widgets import button, dialog_buttons, dialog_layout, hbox
 
 
 def summary(paths, label=str):
@@ -22,11 +22,10 @@ class FolderManager(QDialog):
     def __init__(self, parent, paths, defaults, settings, label=str, note="", read_only=False):
         super().__init__(parent)
         self.settings, self.defaults, self.label = settings, defaults, label
-        self.setWindowTitle("Manage folders")
-        self.resize(720, 420)
-        layout = QVBoxLayout(self)
-        layout.addWidget(text(note or "These folders are included in scans. Changes take effect after Save.",
-                              Type.BODY, wrap=True))
+        self.setWindowTitle("Manage Folders")
+        self.resize(Size.INSPECTOR_W * 2, Size.ROW * 12)
+        layout = dialog_layout(self, "Folders to Scan", note or "These folders are included in scans. Changes take "
+                                                                "effect when you save them.")
         self.list = QListWidget()
         self.list.setAccessibleName("Folders included in scans")
         self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -40,11 +39,8 @@ class FolderManager(QDialog):
         for control in (add, remove, reset):
             control.setEnabled(not read_only)
         layout.addLayout(hbox(add, remove, None, reset))
-        buttons = QDialogButtonBox(QDialogButtonBox.Close if read_only else
-                                  QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        layout.addLayout(dialog_buttons(self, None, "Close") if read_only else
+                         dialog_buttons(self, ("Save Folders", self.accept)))
         self.fill(paths)
 
     def paths(self):
