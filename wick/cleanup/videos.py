@@ -33,6 +33,8 @@ def _frame_hash(ffmpeg: str, path: Path, at: float) -> int | None:
                        "-frames:v", "1", "-vf", "scale=9:8:flags=area,format=gray", "-f", "rawvideo", "-"],
                       timeout=60, check=False, text=False)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("cleanup.videos._frame_hash")
         return None
     px = p.stdout
     if p.returncode != 0 or len(px) < 72:

@@ -115,6 +115,8 @@ def _check_7z(path: Path, size: int) -> tuple[str, str] | None:
     except (OSError, EOFError, ValueError, KeyError, IndexError, TypeError) as e:
         return DAMAGED, f"Damaged inside ({_short(e)})"
     except Exception:  # noqa: BLE001 - py7zr raises many kinds for unsupported methods: not proof of damage
+        from wick.log import ignored
+        ignored("cleanup.broken._check_7z")
         return None
     return None
 
@@ -169,6 +171,8 @@ def _check_media(path: Path, thorough: bool) -> tuple[str, str] | None:
         p = tools.run([ffprobe, "-v", "error", "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(path)],
                       timeout=60, check=False)
     except Exception:  # noqa: BLE001 - (timeout, or ffprobe missing): not proof of damage
+        from wick.log import ignored
+        ignored("cleanup.broken._check_media")
         return None
     if p.returncode != 0 or not p.stdout.strip():
         return UNREADABLE, "Can't be played: " + (_ff_reason(p.stderr) or "no sound or picture found")
@@ -177,6 +181,8 @@ def _check_media(path: Path, thorough: bool) -> tuple[str, str] | None:
     try:
         p = tools.run(args, timeout=3600 if thorough else 60, check=False)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("cleanup.broken._check_media")
         return None
     low = (p.stderr or "").lower()
     if any(w in low for w in _MEDIA_ERRORS):

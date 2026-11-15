@@ -81,6 +81,8 @@ def _dms(v) -> float | None:
         d, m, s = (float(x) for x in v)
         return d + m / 60 + s / 3600
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("metaclean._dms")
         return None
 
 
@@ -93,6 +95,8 @@ def _summarize_exif(exif: bytes | None, s: MetaSummary) -> None:
     try:
         ex.load(md.EXIF_HEADER + exif)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("metaclean._summarize_exif")
         return
     gps = ex.get_ifd(md.GPS_IFD)
     if gps:
@@ -211,6 +215,8 @@ def _jxl_boxes(data: bytes) -> tuple[bytes | None, bytes | None, bool]:
                 else:
                     xmp = inner
             except Exception:  # noqa: BLE001
+                from wick.log import ignored
+                ignored("metaclean._jxl_boxes")
                 pass
     return exif, xmp, jbrd
 

@@ -156,6 +156,8 @@ def find_extracted_archives(roots: list[Path], *, progress: ProgressFn | None = 
                                               warning=f"Can't verify: {e}"))
             continue
         except Exception:  # noqa: BLE001 - damaged archive
+            from wick.log import ignored
+            ignored("cleanup.archives.find_extracted_archives")
             continue
         if not entries:
             continue

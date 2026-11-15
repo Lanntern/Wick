@@ -139,6 +139,8 @@ def high_contrast_active() -> bool:
         if ctypes.windll.user32.SystemParametersInfoW(0x42, hc.cbSize, ctypes.byref(hc), 0):  # SPI_GETHIGHCONTRAST
             return bool(hc.dwFlags & 1)  # HCF_HIGHCONTRASTON
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.style.high_contrast_active")
         pass
     return False
 
@@ -833,6 +835,8 @@ def _native_round_corners(w: QWidget, small: bool = False) -> None:
         none = ctypes.c_uint(0xFFFFFFFE)                # DWMWA_COLOR_NONE: our own 1 px border stays
         dwm.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(none), ctypes.sizeof(none))   # BORDER_COLOR
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.style._native_round_corners")
         pass
 
 
@@ -906,6 +910,8 @@ def _tint_title_bar(w: QWidget) -> None:
             value = colorref(color)
             dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
     except Exception:  # noqa: BLE001 - the default title bar is fine too
+        from wick.log import ignored
+        ignored("gui.style._tint_title_bar")
         pass
 
 

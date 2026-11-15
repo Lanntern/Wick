@@ -94,6 +94,8 @@ def has_vmaf() -> bool:
         out = tools.run([ffmpeg, "-hide_banner", "-filters"], timeout=30, check=False).stdout
         return " libvmaf " in out
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("quality.has_vmaf")
         return False
 
 
@@ -124,6 +126,8 @@ def _metric_works(metric: str) -> bool:
         if metric == "SSIMULACRA2-video":
             return image_metric() == "SSIMULACRA2"
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("quality._metric_works")
         return False
     return metric == "SSIM-video"
 

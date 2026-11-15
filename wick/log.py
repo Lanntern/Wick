@@ -176,4 +176,21 @@ def diagnostics(include_log: bool = True) -> str:
     return "\n".join(out)
 
 
-__all__ = ["log", "setup", "log_dir", "log_file", "diagnostics", "tail"]
+_ignored_counts: dict[str, int] = {}
+_ignored_lock = threading.Lock()
+IGNORED_LOGGED = 3          # per place and session: enough to find a bug, never a flood (a scan of broken files)
+
+
+def ignored(where: str) -> None:
+    """Call inside an ``except`` block that deliberately carries on: the error is written to the log (the first
+    few times per place), so a real bug hiding behind "this is optional" can still be found."""
+    with _ignored_lock:
+        n = _ignored_counts.get(where, 0) + 1
+        _ignored_counts[where] = n
+    if n <= IGNORED_LOGGED:
+        log.info("Carried on after an error in %s", where, exc_info=True)
+    if n == IGNORED_LOGGED:
+        log.info("Further errors in %s this session aren't logged", where)
+
+
+__all__ = ["log", "setup", "log_dir", "log_file", "diagnostics", "tail", "ignored"]

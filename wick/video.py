@@ -230,6 +230,8 @@ def _test_encode(ffmpeg: str, encoder: str, options: tuple[str, ...] | None = No
                              proc.stderr or "", re.I)
         return proc.returncode == 0 and not (options is not None and rejected)
     except Exception:
+        from wick.log import ignored
+        ignored("video._test_encode")
         return False
 
 
@@ -285,6 +287,8 @@ def parallel_videos(s: Settings) -> int:
     try:
         return 2 if choose_encoder(codec_for(None, s), s.video_encoder).endswith("_nvenc") else 1
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("video.parallel_videos")
         return 1
 
 
@@ -353,6 +357,8 @@ def _has_filter(name: str) -> bool:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-filters"], timeout=30, check=False).stdout
         return f" {name} " in out
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("video._has_filter")
         return False
 
 
@@ -504,6 +510,8 @@ def grain_level(src: Path, info: VideoInfo, s: Settings, encoder: str,
     except tools.Cancelled:
         raise
     except Exception:  # noqa: BLE001 - no estimate: no grain synthesis
+        from wick.log import ignored
+        ignored("video.grain_level")
         return 0
     return next(level for limit, level in GRAIN_STEPS if sigma < limit)
 

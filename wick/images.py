@@ -405,6 +405,8 @@ def _orientation(path: Path) -> int:
         with _open(path) as im:
             return int(im.getexif().get(0x0112, 1) or 1)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("images._orientation")
         return 1
 
 
@@ -596,6 +598,8 @@ def _jpeg_subsampling(ctx: Ctx) -> str:
             if key:
                 return key
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("images._jpeg_subsampling")
             pass
     return "444" if ctx.s.image_quality >= 90 else "420"
 

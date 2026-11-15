@@ -239,6 +239,8 @@ class WindowFrame:
             pref = ct.c_int(2)                           # DWMWCP_ROUND: Windows 11 corners
             dwm.DwmSetWindowAttribute(hwnd, 33, ct.byref(pref), ct.sizeof(pref))
         except Exception:  # noqa: BLE001 - older Windows: no shadow or rounding, still works
+            from wick.log import ignored
+            ignored("gui.winframe.attach")
             pass
         self.set_dark(tokens().dark)
         # Recalculate the frame now that it has a caption (SWP_NOMOVE|NOSIZE|NOZORDER|NOACTIVATE|FRAMECHANGED).
@@ -259,6 +261,8 @@ class WindowFrame:
             ct.windll.dwmapi.DwmSetWindowAttribute(ct.c_void_p(int(self.win.winId())), 20, ct.byref(on),
                                                    ct.sizeof(on))
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("gui.winframe.set_dark")
             pass
 
     def place(self) -> None:
@@ -428,6 +432,8 @@ def _autohide_taskbar_edge(monitor_rect) -> int | None:
             if shell32.SHAppBarMessage(0xB, ctypes.byref(abd)):          # ABM_GETAUTOHIDEBAREX
                 return edge
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.winframe._autohide_taskbar_edge")
         return None
     return None
 

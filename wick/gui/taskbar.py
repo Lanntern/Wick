@@ -105,6 +105,8 @@ class Taskbar:
             try:
                 self._created_msg = ctypes.windll.user32.RegisterWindowMessageW("TaskbarButtonCreated")  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001
+                from wick.log import ignored
+                ignored("gui.taskbar.__init__")
                 pass
 
     # ------------------------------------------------------------- settings

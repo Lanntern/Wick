@@ -507,6 +507,8 @@ def _orientation_of(exif: bytes) -> int:
     try:
         ex.load(md.EXIF_HEADER + exif)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("convert._orientation_of")
         return 1
     return int(ex.get(md.ORIENTATION, 1) or 1)
 
@@ -626,6 +628,8 @@ def _decode_raw(ctx: Ctx) -> None:
             if len(ex):
                 exif = md.set_orientation(ex.tobytes(), 1)
     except Exception:  # noqa: BLE001 - CR3, RAF and others: no EXIF that Pillow reads
+        from wick.log import ignored
+        ignored("convert._decode_raw")
         pass
     dec = ctx.tmp(".png", "-raw")
     img.save(dec, "PNG", compress_level=1)

@@ -278,6 +278,8 @@ def _associations_changed() -> None:
 
         ctypes.windll.shell32.SHChangeNotify(0x08000000, 0, None, None)  # type: ignore[attr-defined]  # SHCNE_ASSOCCHANGED
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.integration._associations_changed")
         pass
 
 

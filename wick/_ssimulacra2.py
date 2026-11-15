@@ -549,6 +549,8 @@ def compute_ssimulacra2_with_alpha(orig_path, dist_path):
         img = Image.open(orig_path)
         has_alpha = img.mode == "RGBA"
     except:
+        from wick.log import ignored
+        ignored("_ssimulacra2.compute_ssimulacra2_with_alpha")
         pass
 
     if not has_alpha:

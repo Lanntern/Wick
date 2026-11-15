@@ -49,6 +49,8 @@ def _release_other() -> None:
             _inhibitor.terminate()
             _inhibitor.wait(5)
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("power._release_other")
             pass
         _inhibitor = None
 
@@ -81,6 +83,8 @@ def awake(enabled: bool = True) -> Iterator[None]:
             try:
                 win.SetThreadExecutionState(_ES_CONTINUOUS)
             except Exception:  # noqa: BLE001
+                from wick.log import ignored
+                ignored("power.awake")
                 pass
         elif os.name != "nt":
             with _lock:
@@ -108,6 +112,8 @@ def on_battery() -> bool | None:
                 return None
             return {0: True, 1: False}.get(st.ACLineStatus & 0xFF)
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("power.on_battery")
             return None
     if sys.platform == "darwin":
         try:
@@ -174,6 +180,8 @@ def background():
                 k = ctypes.windll.kernel32   # type: ignore[attr-defined]
                 k.SetThreadPriority(k.GetCurrentThread(), _THREAD_MODE_BACKGROUND_END)
             except Exception:  # noqa: BLE001
+                from wick.log import ignored
+                ignored("power.background")
                 pass
 
 
@@ -205,6 +213,8 @@ def set_efficiency_mode(on: bool) -> bool:
         _efficiency = on
         return True
     except Exception:  # noqa: BLE001 - older Windows: nothing to do
+        from wick.log import ignored
+        ignored("power.set_efficiency_mode")
         return False
 
 
@@ -222,6 +232,8 @@ def user_busy() -> bool:
         # QUNS_BUSY (a full-screen app), QUNS_RUNNING_D3D_FULL_SCREEN (a game), QUNS_PRESENTATION_MODE
         return state.value in (2, 3, 4)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("power.user_busy")
         return False
 
 
@@ -240,4 +252,6 @@ def set_restart_after_update(on: bool, args: str = "--background") -> bool:
         # RESTART_NO_CRASH | RESTART_NO_HANG | RESTART_NO_PATCH: only a reboot brings it back
         return k.RegisterApplicationRestart(ctypes.c_wchar_p(args), 1 | 2 | 4) == 0
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("power.set_restart_after_update")
         return False

@@ -105,6 +105,8 @@ def accent_color() -> str | None:
         ui.call(6, (ctypes.c_int, ctypes.POINTER(Color)), UICOLOR_ACCENT, ctypes.byref(color))   # GetColorValue
         return f"#{color.R:02X}{color.G:02X}{color.B:02X}"
     except Exception:  # noqa: BLE001 - no accent: the app's own color is used
+        from wick.log import ignored
+        ignored("gui.winrt.accent_color")
         return None
     finally:
         for com in (ui, settings):

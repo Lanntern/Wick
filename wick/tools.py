@@ -132,6 +132,8 @@ def _considerate(proc: subprocess.Popen) -> None:
             eco = Throttle(1, 0x1, 0x1)                     # PROCESS_POWER_THROTTLING_EXECUTION_SPEED: on
             k.SetProcessInformation(handle, 4, ctypes.byref(eco), ctypes.sizeof(eco))   # ProcessPowerThrottling
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("tools._considerate")
         pass
 
 
@@ -176,6 +178,8 @@ def lower_thread_priority() -> None:
         elif hasattr(os, "setpriority"):
             os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("tools.lower_thread_priority")
         pass
 
 

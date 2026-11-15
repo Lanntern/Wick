@@ -390,6 +390,8 @@ class Header(QHeaderView):
             if r.isValid() and 0 <= r.left() < Size.ROW:
                 return r.left()
         except Exception:  # noqa: BLE001
+            from wick.log import ignored
+            ignored("gui.header._row_check_x")
             pass
         return Space.S
 

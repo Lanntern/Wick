@@ -319,6 +319,8 @@ def is_ntfs(path: Path) -> bool:
         ok = ctypes.windll.kernel32.GetVolumeInformationW(root, None, 0, None, None, None, fs, 32)
         return bool(ok) and fs.value.upper() == "NTFS"
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("ntfs.is_ntfs")
         return False
 
 
@@ -437,6 +439,8 @@ def is_admin() -> bool:
 
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("ntfs.is_admin")
         return False
 
 

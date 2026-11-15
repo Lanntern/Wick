@@ -840,3 +840,23 @@ def test_a_crash_is_only_reported_after_a_session_that_never_ended(tmp_path, mon
     assert "Segmentation fault" in resilience.previous_crash()
     assert (tmp_path / "crash-previous.txt").exists() and not (tmp_path / "crash.txt").exists()
     assert resilience.previous_crash() == ""                          # once
+
+
+def test_errors_carried_on_from_are_logged_but_never_flood(caplog):
+    """A deliberately ignored error is written to the log the first few times per place (a bug hiding behind
+    "optional" can be found), then once more to say the rest aren't."""
+    import logging
+
+    from wick import log as wlog
+
+    wlog._ignored_counts.pop("test.place", None)
+    with caplog.at_level(logging.INFO, logger="wick"):
+        for _ in range(10):
+            try:
+                raise ValueError("unreadable")
+            except ValueError:
+                wlog.ignored("test.place")
+    lines = [r for r in caplog.records if "test.place" in r.getMessage()]
+    assert len(lines) == wlog.IGNORED_LOGGED + 1
+    assert lines[0].exc_info and "unreadable" in str(lines[0].exc_info[1])
+    assert "aren't logged" in lines[-1].getMessage()

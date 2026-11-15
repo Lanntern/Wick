@@ -211,6 +211,8 @@ def _pdfa_part(pdf) -> int:
         with pdf.open_metadata() as meta:
             return int(meta.get("pdfaid:part", 0) or 0)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("documents._pdfa_part")
         return 0
 
 

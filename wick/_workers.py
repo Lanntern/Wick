@@ -19,6 +19,8 @@ def set_low_priority(low: bool) -> None:
         else:
             os.nice(10)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("_workers.set_low_priority")
         pass
 
 

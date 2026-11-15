@@ -89,6 +89,8 @@ def filter_exif(exif: bytes | None, policy: str) -> bytes | None:
         ex = Image.Exif()
         ex.load(EXIF_HEADER + exif)
     except Exception:  # noqa: BLE001 - corrupt EXIF: drop it rather than keep GPS
+        from wick.log import ignored
+        ignored("metadata.filter_exif")
         return None
     if policy in ("strip_gps", "strip_private"):
         if GPS_IFD in ex:
@@ -372,6 +374,8 @@ def set_orientation(exif: bytes | None, value: int = 1) -> bytes | None:
         ex = Image.Exif()
         ex.load(EXIF_HEADER + exif)
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("metadata.set_orientation")
         return None
     if ex.get(ORIENTATION, 1) == value:
         return exif

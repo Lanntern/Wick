@@ -52,6 +52,8 @@ class _Frame(QThread):
                            "-frames:v", "1", "-vf", "scale=480:-2", "-f", "image2pipe", "-c:v", "png", "-"],
                           timeout=30, check=False, text=False)
         except Exception:  # noqa: BLE001 - no picture: the times still work
+            from wick.log import ignored
+            ignored("gui.trim_dialog.run")
             return
         img = QImage.fromData(p.stdout)
         if not img.isNull():

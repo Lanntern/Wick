@@ -63,6 +63,8 @@ def trash_item(item: Candidate, writer: journal.RunWriter, label: str) -> Outcom
             csize = cp.stat().st_size
             move_to_trash(cp, csize)
         except Exception:  # noqa: BLE001 - the photo is gone already; the video simply stays
+            from wick.log import ignored
+            ignored("cleanup.actions.trash_item")
             continue
         main_size -= csize
         moved_with.append((cp, csize))

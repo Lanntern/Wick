@@ -189,6 +189,8 @@ def _user() -> str:
 
         return "".join(c for c in getpass.getuser() if c.isalnum()) or "user"
     except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("gui.app._user")
         return "user"
 
 

@@ -50,6 +50,8 @@ def thumbnail(path: Path, max_px: int, cache_only: bool = True):
             return None                               # not cached / no thumbnail provider for this type
         return _to_qimage(hbitmap, max_px, gdi32)
     except Exception:  # noqa: BLE001 - a preview is a nicety
+        from wick.log import ignored
+        ignored("gui.winthumbs.thumbnail")
         return None
     finally:
         if hbitmap:

@@ -867,6 +867,8 @@ class ConvertTab(FileJobPage):
             try:
                 t = (t[0], fonts.target_ext(e.path, t[0]))
             except Exception:  # noqa: BLE001 - not a font fontTools reads
+                from wick.log import ignored
+                ignored("gui.convert_tab.plan")
                 return None
         if _same_format(e.path.suffix, t[1]) and t[0] not in ("webp_anim", "svg", "ico", "keep") \
                 and e.kind not in (PDF, ARCHIVE):
