@@ -4,12 +4,12 @@ clutter, Windows, app compression and Google Takeout, one tab each (see cleanup_
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QDialogButtonBox, QSizePolicy, QStackedWidget, QTabBar, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QSizePolicy, QStackedWidget, QTabBar, QWidget
 
 from .cleanup_section import ToolSection, _Scan
 from .cleanup_tools import tools
 from .style import Space
-from .widgets import Page, button, hbox, text
+from .widgets import Page, button, dialog_buttons, dialog_layout, hbox, text
 from .style import Type
 
 # ---------------------------------------------------------------- page
@@ -134,7 +134,6 @@ class CleanupTab(Page):
     def scan_common(self) -> None:
         from ..cleanup.common import ScanResult, shared_inventory
         from .dialogs import inform
-        from PySide6.QtWidgets import QVBoxLayout
 
         if self.busy():
             inform(self, "Wait for the current cleanup operation to finish, or stop it first.")
@@ -144,11 +143,9 @@ class CleanupTab(Page):
             inform(self, "Add folders or drives in a file tool first.")
             return
         dialog = QDialog(self)
-        dialog.setWindowTitle("Scan common checks")
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(text("Uses the current tool's folders for every selected check. Results stream into each "
-                              "tool; nothing is changed. Compatible checks reuse the same folder listing.",
-                              Type.BODY, wrap=True))
+        dialog.setWindowTitle("Scan Several Tools")
+        layout = dialog_layout(dialog, "Scan Several Tools", "Runs the chosen tools on this tool's folders in one "
+                               "pass. Each tool's results appear in its own tab; nothing is changed.")
         choices = []
         keys = {"extensions", "large", "empty", "installers", "broken", "duplicates", "archives"}
         for i, tool in enumerate(self._tools):
@@ -157,10 +154,7 @@ class CleanupTab(Page):
                 box.setChecked(tool.key in ("extensions", "large", "empty"))
                 layout.addWidget(box)
                 choices.append((i, box))
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        layout.addLayout(dialog_buttons(dialog, ("Scan", dialog.accept)))
         if dialog.exec() != QDialog.Accepted:
             return
         sections = [self.section(i) for i, box in choices if box.isChecked()]

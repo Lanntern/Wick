@@ -77,8 +77,8 @@ class WelcomeDialog(QDialog):
         go = button("Scan", "primary", None, "Look through your folders for files that could be smaller")
         go.clicked.connect(self.accept)
         go.setDefault(True)
-        buttons.addWidget(later)
         buttons.addWidget(go)
+        buttons.addWidget(later)
         lay.addLayout(buttons)
         go.setFocus()
 

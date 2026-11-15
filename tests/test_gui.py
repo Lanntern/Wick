@@ -2441,3 +2441,26 @@ def test_background_errors_are_shown_and_quitting_never_destroys_a_running_task(
     del holder
     stubborn.wait(5000)
     resilience._stuck.remove(stubborn)
+
+
+def test_dialogs_share_one_frame_and_button_row(win):
+    """Every dialog: a heading, the standard margins, and on the right the main action (primary, Enter) then
+    Cancel (Esc), in Windows' order; extra actions on the left."""
+    from PySide6.QtWidgets import QDialog, QPushButton
+
+    from wick.gui.style import Space
+    from wick.gui.widgets import button, dialog_buttons, dialog_layout
+
+    d = QDialog(win)
+    lay = dialog_layout(d, "Folders to Scan", "These folders are included.")
+    extra = button("Add Folder…")
+    row = dialog_buttons(d, ("Save Folders", d.accept), left=(extra,))
+    lay.addLayout(row)
+    assert lay.contentsMargins().left() == Space.XL
+    labels = [row.itemAt(i).widget().text() for i in range(row.count()) if row.itemAt(i).widget()]
+    assert labels == ["Add Folder…", "Save Folders", "Cancel"]
+    go = d._primary_button
+    assert go.objectName() == "primary" and go.isDefault()
+    cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
+    cancel.click()
+    assert d.result() == QDialog.Rejected

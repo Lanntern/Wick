@@ -16,7 +16,7 @@ from ..cleanup import (
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
 from .cleanup_section import Tool, ToolSection, _existing
-from .widgets import SizeInput, button
+from .widgets import SizeInput, button, dialog_buttons, dialog_layout
 
 # ---------------------------------------------------------------- tool definitions
 
@@ -154,10 +154,9 @@ def _days_option(key: str, default: int, label: str, tip: str):
 
 
 def _appcompress_options(sec: ToolSection):
-    from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QCheckBox, QDialog, QWidget
     from .dialogs import inform
-    from .style import Type
-    from .widgets import hbox, text
+    from .widgets import hbox
     import json
 
     from .app_controls import FileTypePicker, algorithm_picker
@@ -239,18 +238,15 @@ def _appcompress_options(sec: ToolSection):
         current = options(candidate.path)
         dialog = QDialog(sec)
         dialog.setWindowTitle(f'Settings for {candidate.title}')
-        layout = QVBoxLayout(dialog)
+        layout = dialog_layout(dialog, f'Settings for {candidate.title}',
+                               'Saved for this folder, and used again when it\'s recompressed after updates.')
         own_group, combo = algorithm_picker(current['algorithm'])
         combo.setAccessibleName('Folder compression algorithm')
         fields = FileTypePicker(current['skip_extensions'])
         fields.setAccessibleName('Folder file types to skip')
-        layout.addWidget(text('Saved for this folder, including compression after updates.', Type.BODY, wrap=True))
         layout.addWidget(own_group)
         layout.addWidget(fields)
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        layout.addWidget(buttons)
+        layout.addLayout(dialog_buttons(dialog, ('Save Settings', dialog.accept)))
         if dialog.exec() == QDialog.Accepted:
             stored = preferences()
             stored[os.path.normcase(os.path.abspath(candidate.path))] = {

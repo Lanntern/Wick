@@ -994,3 +994,42 @@ class SizeInput(QWidget):
         self.number.setToolTip(tip)
         self.unit.setToolTip(tip)
 
+
+
+# ---------------------------------------------------------------- dialogs
+
+def dialog_layout(dialog: QWidget, heading: str, intro: str = "") -> QVBoxLayout:
+    """Every dialog's frame: the standard margins and spacing, a heading, and an optional line saying what the
+    dialog is for. Returns the layout to add the dialog's content to."""
+    lay = QVBoxLayout(dialog)
+    lay.setContentsMargins(Space.XL, Space.XL, Space.XL, Space.XL)
+    lay.setSpacing(Space.L)
+    lay.addWidget(text(heading, Type.TITLE3, bold=True, wrap=True))
+    if intro:
+        lay.addWidget(text(intro, Type.BODY, secondary=True, wrap=True))
+    return lay
+
+
+def dialog_buttons(dialog, primary: tuple[str, object] | None = None, cancel: str | None = "Cancel",
+                   left: tuple = ()) -> QHBoxLayout:
+    """Every dialog's button row: extra actions on the left; then, on the right, the main action (styled as the
+    primary button, Enter) and Cancel (Esc), in Windows' order. ``primary``: (label, slot); a label naming the
+    action ("Save Folders"), not "OK"."""
+    row = QHBoxLayout()
+    row.setSpacing(Space.S)
+    for w in left:
+        row.addWidget(w)
+    row.addStretch(1)
+    if primary is not None:
+        label, slot = primary
+        go = button(label, "primary")
+        go.setDefault(True)
+        go.clicked.connect(slot)
+        row.addWidget(go)
+        dialog._primary_button = go
+    if cancel:
+        stop = button(cancel)
+        stop.setAutoDefault(False)
+        stop.clicked.connect(dialog.reject)
+        row.addWidget(stop)
+    return row

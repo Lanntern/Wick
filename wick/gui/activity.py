@@ -4,11 +4,12 @@ import threading
 import time
 
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QDialog, QHeaderView, QTableWidget, QTableWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QFrame, QHeaderView, QTableWidget, QTableWidgetItem
 
 from ..activity import Activity
-from .style import Type
-from .widgets import button, hbox, text
+from .header import Header
+from .style import Size
+from .widgets import button, dialog_buttons, dialog_layout
 
 
 class ActivityMonitor:
@@ -72,12 +73,16 @@ class ActivityMonitor:
     def show(self):
         if self.dialog is None:
             self.dialog = QDialog(self.window)
-            self.dialog.setWindowTitle("Running tasks")
-            self.dialog.resize(760, 360)
-            layout = QVBoxLayout(self.dialog)
-            layout.addWidget(text("Live work across every page. Double-click a task to return to its controls.",
-                                  Type.BODY, wrap=True))
+            self.dialog.setWindowTitle("Running Tasks")
+            self.dialog.resize(Size.INSPECTOR_W * 2 + Size.ROW, Size.ROW * 10)
+            layout = dialog_layout(self.dialog, "Running Tasks", "Work going on across every page. Double-click a "
+                                   "task to go to it.")
             self.table = QTableWidget(0, 5)
+            self.table.setHorizontalHeader(Header(self.table))
+            self.table.verticalHeader().hide()
+            self.table.setAlternatingRowColors(True)
+            self.table.setShowGrid(False)
+            self.table.setFrameShape(QFrame.NoFrame)
             self.table.setAccessibleName("Running tasks")
             self.table.setHorizontalHeaderLabels(["Task", "Stage", "Progress", "Elapsed", "State"])
             self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -92,9 +97,7 @@ class ActivityMonitor:
             self.stop_btn.clicked.connect(lambda: self.stop_task())
             self.stop_all_btn = button("Stop All", "", None, "Stop every running task")
             self.stop_all_btn.clicked.connect(self.stop_all)
-            close = button("Close")
-            close.clicked.connect(self.dialog.close)
-            layout.addLayout(hbox(go, self.stop_btn, self.stop_all_btn, None, close))
+            layout.addLayout(dialog_buttons(self.dialog, None, "Close", left=(go, self.stop_btn, self.stop_all_btn)))
             self.table.itemSelectionChanged.connect(self._update_buttons)
         self.refresh()
         self._fill()

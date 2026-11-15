@@ -3,24 +3,21 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLineEdit, QListWidget, QListWidgetItem, QVBoxLayout
+from PySide6.QtWidgets import QDialog, QLineEdit, QListWidget, QListWidgetItem
 
 from .. import languages
-from .style import Size, Space, Type
-from .widgets import button, hbox, text
+from .style import Size, Type
+from .widgets import button, dialog_buttons, dialog_layout, text
 
 
 class LanguageDialog(QDialog):
     def __init__(self, chosen: list[str], parent=None):
         super().__init__(parent)
         self.setWindowTitle("My Languages")
-        self.setMinimumSize(Size.INSPECTOR_W, Size.ROW * 12)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(Space.L, Space.L, Space.L, Space.L)
-        lay.setSpacing(Space.M)
+        self.resize(Size.INSPECTOR_W, Size.ROW * 12)  # (a starting size: a set minimum would override the layout's)
+        lay = dialog_layout(self, "My Languages", "Audio and subtitle tracks in these languages are kept, along "
+                            "with each video's main soundtrack and tracks with no language set.")
         detected = languages.detect()
-        lay.addWidget(text("Audio and subtitle tracks in these languages are kept, along with each video's main "
-                           "soundtrack and tracks with no language set.", Type.BODY, wrap=True))
         lay.addWidget(text("Found on this computer: " + languages.describe(detected) + " (from its display "
                            "languages and keyboard layouts).", Type.FOOTNOTE, secondary=True, wrap=True))
         self.filter = QLineEdit()
@@ -42,10 +39,7 @@ class LanguageDialog(QDialog):
             self.list.addItem(it)
         reset = button("Use This PC's Languages", "", None, "Choose the languages found on this computer")
         reset.clicked.connect(lambda: self._set(detected))
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._accept)
-        buttons.rejected.connect(self.reject)
-        lay.addLayout(hbox(reset, None, buttons))
+        lay.addLayout(dialog_buttons(self, ("Use These Languages", self._accept), left=(reset,)))
         self.detected = detected
 
     def _set(self, keys: list[str]) -> None:

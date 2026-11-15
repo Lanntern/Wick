@@ -37,6 +37,15 @@ LOWER_IS_BETTER = {"Butteraugli"}
 VIDEO_METRICS = ("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli")
 VIDEO_METRIC_LABELS = {"auto": "Automatic (VMAF)", "vmaf": "VMAF", "ssimulacra2": "SSIMULACRA2",
                        "xpsnr": "XPSNR", "butteraugli": "Butteraugli"}
+VIDEO_METRIC_HELP = {     # (shown under the choice: for people who don't know these names)
+    "auto": "Recommended. Uses VMAF, the usual choice for video.",
+    "vmaf": "Made by Netflix to predict how people rate a video's quality. A good all-round choice.",
+    "ssimulacra2": "Compares still frames the way the eye sees detail and texture. Strict about blur and "
+                   "blocky patches.",
+    "xpsnr": "A quick measure of how much the picture changed, with some weight on what the eye notices. Less "
+             "like a person's judgment. Needs FFmpeg 7.1 or newer.",
+    "butteraugli": "The strictest: looks for the smallest difference a careful viewer could spot in still frames.",
+}
 TARGET_LABELS = {"identical": "Visually identical", "high": "High", "good": "Good"}
 
 
@@ -355,5 +364,5 @@ def search(values: list[int], try_value) -> tuple[int, object] | None:
     return best
 
 
-__all__ = ["Score", "THRESHOLDS", "TARGET_LABELS", "VIDEO_METRICS", "VIDEO_METRIC_LABELS", "score_images",
+__all__ = ["Score", "THRESHOLDS", "TARGET_LABELS", "VIDEO_METRICS", "VIDEO_METRIC_LABELS", "VIDEO_METRIC_HELP", "score_images",
            "score_video_segment", "score_video_output", "search", "image_metric", "video_metric", "worst", "mean"]

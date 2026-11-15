@@ -9,13 +9,13 @@ from __future__ import annotations
 import dataclasses
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QSpinBox, QWidget,
 )
 
 from .. import convert
 from ..formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, PDF, VIDEO
 from .style import Size, Space, Type
-from .widgets import text
+from .widgets import dialog_buttons, dialog_layout, text
 
 IMAGE = "image"
 DOCS = "documents"
@@ -63,13 +63,8 @@ class ConvertSettingsDialog(QDialog):
     def __init__(self, opts: convert.ConvertOptions, kinds: set[str], title: str, note: str = "", parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setMinimumWidth(Size.INSPECTOR_W)
         self.opts = opts
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(Space.L, Space.L, Space.L, Space.L)
-        lay.setSpacing(Space.M)
-        if note:
-            lay.addWidget(text(note, Type.BODY, wrap=True))
+        lay = dialog_layout(self, title, note)
 
         form = self.form = QFormLayout()     # (one form for every section, so the fields line up)
         form.setHorizontalSpacing(Space.L)
@@ -230,11 +225,9 @@ class ConvertSettingsDialog(QDialog):
             form.addRow("Repack as", self.archive_target)
         lay.addStretch(1)
         _name_fields(self.form)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Apply")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        lay.addWidget(buttons)
+        lay.addLayout(dialog_buttons(self, ("Use These Options", self.accept)))
+        hint = self.sizeHint()            # (a starting width; a set minimum would override the layout's own)
+        self.resize(max(Size.INSPECTOR_W, hint.width()), hint.height())
         self._enable()
 
     def _ico_preset_chosen(self) -> None:
