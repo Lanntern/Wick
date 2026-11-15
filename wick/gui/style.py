@@ -1062,14 +1062,21 @@ def apply_style(mode: str) -> Tokens:
 
     app = QApplication.instance()
     scale_to_text()
-    global _tooltip_wrap
+    global _tooltip_wrap, _focus_visible
     if _tooltip_wrap is None:
+        # The app-wide tooltip and focus-ring filters see every event. Building the window sends tens of
+        # thousands of them, none a tooltip or a keyboard focus change: they're installed once the event loop
+        # runs (the window on screen), which took about a sixth off building it.
+        from PySide6.QtCore import QTimer
+
         _tooltip_wrap = _Tooltips(app)
-        app.installEventFilter(_tooltip_wrap)
-    global _focus_visible
-    if _focus_visible is None:
         _focus_visible = _FocusVisible(app)
-        app.installEventFilter(_focus_visible)
+
+        def install() -> None:
+            app.installEventFilter(_tooltip_wrap)
+            app.installEventFilter(_focus_visible)
+
+        QTimer.singleShot(0, install)
     hints = app.styleHints()
     if hasattr(hints, "setColorScheme"):
         scheme = {"light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}.get(mode, Qt.ColorScheme.Unknown)
