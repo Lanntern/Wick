@@ -909,7 +909,8 @@ def convert_video(
             tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True), info.duration,
                                       on_progress, cancel)
             steps.report("Checking the result")
-            verify_video(info, out, info.codec, dst_is_mp4=out.suffix == ".mp4", audio_tracks=len(keep_audio))
+            verify_video(info, out, info.codec, dst_is_mp4=out.suffix == ".mp4", audio_tracks=len(keep_audio),
+                         src_path=src)
             plan.outcome = (f"picture untouched, {len(dropped)} track{'s' if len(dropped) != 1 else ''} in other "
                             "languages left out")
             return out, "copy"
@@ -942,7 +943,7 @@ def convert_video(
     def finish(used: str) -> tuple[Path, str]:
         steps.report("Checking the result")
         verify_video(info, out, codec, dst_is_mp4=out.suffix == ".mp4",
-                     expected_size=frame_size(info, s), audio_tracks=len(keep_audio))
+                     expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
         steps.report("Measuring how close it looks to the original")
         score = measure(src, info, out, s, cancel, grain if used == "libsvtav1" else 0)
         if score is not None:
@@ -1046,7 +1047,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
             video_kbps = max(30, int(video_kbps * limit / got * 0.93))     # overshot: aim lower
         steps.report("Checking the result")
         verify_video(info, out, codec, dst_is_mp4=out.suffix == ".mp4", expected_size=size,
-                     audio_tracks=audio_tracks)
+                     audio_tracks=audio_tracks, src_path=src)
         plan.outcome = f"{video_kbps:,} kbps, {size[0]}×{size[1]} to fit under {human(limit)}"
         return out, encoder
     except BaseException:
@@ -1055,7 +1056,8 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
 
 
 def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
-                 expected_size: tuple[int, int] | None = None, audio_tracks: int | None = None) -> None:
+                 expected_size: tuple[int, int] | None = None, audio_tracks: int | None = None,
+                 src_path: Path | None = None) -> None:
     got = probe_video(out)
     if got is None:
         raise VerificationFailed("Output video can't be read")
@@ -1074,10 +1076,35 @@ def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
     if (got.width, got.height) != tuple(expected_size):
         raise VerificationFailed(f"Output is {got.width}×{got.height}, expected {expected_size[0]}×{expected_size[1]}")
     # Decode the start and the end to catch truncated or corrupt output.
-    ffmpeg = tools.require("ffmpeg")
+    from .log import log
+
     for seek in (["-t", "3"], ["-sseof", "-3"]):
-        pre, post = (seek, []) if seek[0] == "-sseof" else ([], seek)
-        proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", *pre, "-i", str(out),
-                          *post, "-map", "0:v:0", "-f", "null", "-"], timeout=300, check=False)
-        if proc.returncode != 0 or proc.stderr.strip():
-            raise VerificationFailed("Output video has decoding errors")
+        code, messages = _decode_check(out, seek)
+        if code == 0 and not messages:
+            continue
+        where = "start" if seek[0] == "-t" else "end"
+        log.info("Checking the %s of %s: FFmpeg exit %d, said:\n%s", where, out.name, code,
+                 "\n".join(messages[:20]) or "(nothing)")
+        if code == 0 and src_path is not None:
+            # FFmpeg also reports things it shrugs off (odd timestamps, an edit list, a data track) at error level;
+            # if the original gives the same messages at the same spot, they came with it and aren't damage.
+            _, source_messages = _decode_check(src_path, seek)
+            if set(map(_normalized, messages)) <= set(map(_normalized, source_messages)):
+                log.warning("The %s of %s decodes with messages the original has too; accepted", where, out.name)
+                continue
+        first = messages[0] if messages else f"FFmpeg exit code {code}"
+        raise VerificationFailed(f"Output video has decoding errors ({first[:160]})")
+
+
+def _decode_check(path: Path, seek: list[str]) -> tuple[int, list[str]]:
+    """Decode 3 s of the first video track (``-t 3``: the start, ``-sseof -3``: the end): the exit code and what
+    FFmpeg reported at error level."""
+    pre, post = (seek, []) if seek[0] == "-sseof" else ([], seek)
+    proc = tools.run([tools.require("ffmpeg"), "-hide_banner", "-nostdin", "-v", "error", *pre, "-i", str(path),
+                      *post, "-map", "0:v:0", "-f", "null", "-"], timeout=300, check=False)
+    return proc.returncode, [line.strip() for line in (proc.stderr or "").splitlines() if line.strip()]
+
+
+def _normalized(message: str) -> str:
+    """A message without what differs between files and runs: object addresses, numbers (timestamps, POCs)."""
+    return re.sub(r"\d+", "#", re.sub(r"@ 0x[0-9a-f]+", "", message))

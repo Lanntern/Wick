@@ -221,3 +221,28 @@ class VideoBudgetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerifyDecodeTests(unittest.TestCase):
+    """The decode check rejects damage, but not error-level messages the original produces too."""
+
+    def _verify(self, out_says: str, src_says: str, out_code: int = 0):
+        info = clip()
+
+        def run(args, **_kw):
+            is_out = str(args[args.index("-i") + 1]) == "out.mkv"
+            return SimpleNamespace(returncode=out_code if is_out else 0, stderr=out_says if is_out else src_says)
+
+        with patch.object(video, "probe_video", return_value=info), \
+                patch.object(tools, "require", return_value="ffmpeg"), patch.object(tools, "run", side_effect=run):
+            video.verify_video(info, Path("out.mkv"), "h264", dst_is_mp4=False, src_path=Path("in.mp4"))
+
+    def test_messages_the_original_has_too_are_accepted(self):
+        self._verify("[h264 @ 0x55d1] non-existing PPS 0 referenced at 12.0",
+                     "[h264 @ 0x7f00] non-existing PPS 0 referenced at 3.5\n")
+
+    def test_new_errors_or_a_failed_decode_are_rejected_with_ffmpegs_words(self):
+        with self.assertRaisesRegex(video.VerificationFailed, "Invalid NAL unit"):
+            self._verify("[hevc @ 0x1] Invalid NAL unit size", "")
+        with self.assertRaisesRegex(video.VerificationFailed, "decoding errors"):
+            self._verify("", "", out_code=1)
