@@ -12,6 +12,10 @@ os.environ["WICK_DATA_DIR"] = str(_SANDBOX / "appdata")
 os.environ["WICK_NO_NETWORK"] = "1"      # no automatic update checks while testing
 if os.name != "nt":
     os.environ["XDG_DATA_HOME"] = str(_SANDBOX / "xdg")
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        # No screen: Qt would abort the first test that starts it. (In one process an earlier test's offscreen
+        # app often hid this; with parallel workers any test can be the first.)
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from wick import tools  # noqa: E402
 

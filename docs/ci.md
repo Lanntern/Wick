@@ -5,10 +5,13 @@ New PR pushes cancel superseded runs; packaging runs on main, version tags and m
 
 ## Where time is saved
 
-- pip download caches include the relevant pinned CI tool requirements, as well as runtime requirements.
+- Dependencies install with uv (`uv pip install`, the same pinned versions and `--require-hashes` checks as
+  pip, several times faster); its download cache is keyed on the requirements files.
 - mypy restores its incremental cache from a compatible earlier run. The key includes its pinned version,
   runtime requirements and configuration; source changes are checked by mypy itself.
-- Windows starts Everything before installing Python dependencies, so indexing overlaps that work.
+- Windows starts Everything before installing Python dependencies and runs the GUI tests before waiting for its
+  index, so indexing overlaps that work.
+- Core/integration tests run in parallel, one worker per CPU (pytest-xdist, `--dist loadgroup`).
 - Core/integration tests and the main GUI/style/layout tests run in separate Python processes, without
   repeating dependency installation. This limits state leaking between media workers and the GUI tests.
 
@@ -31,5 +34,11 @@ Everything and ReFS integration retain their existing optional setup behavior. W
 succeeds, its real integration test is required; otherwise the test explicitly skips. ReFS coverage runs
 when the runner can create the test volume.
 
-Do not enable unrestricted parallel pytest workers without isolating History, Qt application lifetimes,
-the Recycle Bin, registry settings and native Windows integration. Those tests share more than CPU time.
+## Parallel core tests
+
+Each worker is its own process, so it has its own History and app data (`tests/conftest.py` makes a sandbox
+per process) and its own Qt application. Recycle Bin tests only look up the files they sent, by their unique
+original paths. What's still shared across processes is grouped: tests that write the signed-in user's registry
+(Explorer menus, Default apps, notifications, the jump list) carry `xdist_group("windows-shell")`, so one worker
+runs them one after another. A new test that changes shared Windows state needs that marker too (or its own
+group). The GUI, style and layout tests stay in one process.
