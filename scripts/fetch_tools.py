@@ -60,8 +60,8 @@ WINDOWS = [
              "97dc815bdd99ba243d8502050357342cf649251a5df069f8c3daee6828cbe0ce",
              {"cjpegli.exe": "cjpegli.exe"}, required=False,
              held="newest libjxl release that still ships cjpegli for Windows"),
-    Download("gifsicle", "1.95", "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.95-win64.zip",
-             "7e47dd0bfd5ee47f911464c57faeed89a8709a7625dd1c449b16579889539ee8",   # as first downloaded by CI
+    Download("gifsicle", "1.97", "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.97-win64.zip",
+             "bb3ad4e1521a3953152f406eaafabda153fb5986938405860a7e7f12a3d13227",
              {"gifsicle.exe": "gifsicle.exe", "COPYING": "LICENSE-gifsicle.txt"}, required=False),
 ]
 
