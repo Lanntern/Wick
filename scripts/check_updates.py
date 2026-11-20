@@ -24,12 +24,14 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import fetch_tools  # noqa: E402
 
-# tool -> (repository, tag pattern capturing the version). jpegli is pinned to the last libjxl release that
-# ships cjpegli on Windows, so it isn't compared.
+# tool -> (repository, tag pattern capturing the version), or (download page, file name pattern) where what we
+# ship is someone else's build that can lag the project's own releases. jpegli is pinned to the last libjxl
+# release that ships cjpegli on Windows, so it isn't compared.
 UPSTREAM = {
     "ffmpeg": ("https://github.com/FFmpeg/FFmpeg", r"^n(\d+\.\d+(?:\.\d+)?)$"),
     "libjxl": ("https://github.com/libjxl/libjxl", r"^v(\d+\.\d+\.\d+)$"),
-    "gifsicle": ("https://github.com/kohler/gifsicle", r"^v(\d+\.\d+(?:\.\d+)?)$"),
+    # The Windows build Wick ships (gifsicle's own releases are source only, and the build comes days to weeks later).
+    "gifsicle": ("https://eternallybored.org/misc/gifsicle/", r"gifsicle-(\d+\.\d+(?:\.\d+)?)-win64\.zip"),
     "pandoc": ("https://github.com/jgm/pandoc", r"^(\d+\.\d+(?:\.\d+)*)$"),   # (also pinned in wick/addons.py)
 }
 TITLE = "Bundled components: updates or security fixes available"
@@ -40,6 +42,8 @@ def _key(v: str) -> tuple[int, ...]:
 
 
 def latest(repo: str, pattern: str) -> str | None:
+    if not repo.startswith("https://github.com/"):
+        return _newest_on_page(repo, pattern)
     try:
         out = subprocess.run(["git", "ls-remote", "--tags", "--refs", repo], capture_output=True, text=True,
                              timeout=120, check=True).stdout
@@ -47,6 +51,20 @@ def latest(repo: str, pattern: str) -> str | None:
         return None
     versions = [m.group(1) for line in out.splitlines()
                 if (m := re.match(pattern, line.rsplit("refs/tags/", 1)[-1]))]
+    return max(versions, key=_key) if versions else None
+
+
+def _newest_on_page(url: str, pattern: str) -> str | None:
+    """The newest version among the files a download page links to."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; wick-update-check)"})
+        with urllib.request.urlopen(req, timeout=60) as r:      # noqa: S310 - a fixed https URL
+            page = r.read().decode("utf-8", "replace")
+    except (OSError, ValueError):
+        return None
+    versions = set(re.findall(pattern, page))
     return max(versions, key=_key) if versions else None
 
 
@@ -66,7 +84,8 @@ def tool_findings() -> list[str]:
             continue
         for v in sorted(pinned.get(tool, ())):
             if _key(newest) > _key(v):
-                yield f"- **{tool}**: we pin {v}, upstream's newest is **{newest}** ({repo}/releases)."
+                where = f"{repo}/releases" if repo.startswith("https://github.com/") else repo
+                yield f"- **{tool}**: we pin {v}, upstream's newest is **{newest}** ({where})."
 
 
 def audit_findings() -> list[str]:

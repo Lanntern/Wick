@@ -122,6 +122,20 @@ def test_weekly_report(monkeypatch):
     assert not attention                                     # nothing newer, nothing vulnerable: no issue
 
 
+def test_a_tool_built_by_someone_else_is_compared_with_their_builds(monkeypatch):
+    sys.path.insert(0, str(SCRIPTS))
+    import urllib.request
+
+    import check_updates
+
+    page = (b'<a href="releases/gifsicle-1.95-win64.zip">1.95</a> <a href="releases/gifsicle-1.97-win64.zip">'
+            b'1.97</a> <a href="releases/gifsicle-1.97-win32.zip">32-bit</a> <a href="gifsicle-1.98.tar.gz">src</a>')
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: io.BytesIO(page))
+    url, pattern = check_updates.UPSTREAM["gifsicle"]
+    assert not url.startswith("https://github.com/")
+    assert check_updates.latest(url, pattern) == "1.97"     # the newest Windows build, not the newest source
+
+
 def test_the_scoop_manifest_follows_a_release(tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
     import update_scoop
