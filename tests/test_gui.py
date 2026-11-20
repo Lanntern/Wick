@@ -2464,3 +2464,21 @@ def test_dialogs_share_one_frame_and_button_row(win):
     cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
     cancel.click()
     assert d.result() == QDialog.Rejected
+
+
+def test_the_running_tasks_button_follows_the_sidebar_width(win):
+    """A task already running when the sidebar narrows: the button shortens to the count (and back), instead of
+    keeping text that no longer fits."""
+    from wick.activity import Activity
+
+    side = win.sidebar
+    side.set_compact(False)
+    side.set_activity([Activity("k", "Scan", "Reading")])
+    assert side.activity_btn.text() == "1 task running"
+    side.set_compact(True)
+    assert side.activity_btn.text() == "1"
+    side.set_compact(False)
+    assert side.activity_btn.text() == "1 task running"
+    side.set_activity([])
+    side.set_compact(True)
+    assert side.activity_box.isHidden()
