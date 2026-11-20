@@ -20,6 +20,12 @@ if os.name != "nt":
 from wick import tools  # noqa: E402
 
 
+def pytest_collection_modifyitems(items):
+    """Tests marked ``runs_long`` first: with parallel workers, a long test that starts last leaves the others
+    idle while it finishes. (Every worker sorts the same way, so they still agree on the order.)"""
+    items.sort(key=lambda item: item.get_closest_marker("runs_long") is None)
+
+
 def have(*names: str) -> bool:
     return all(tools.find_tool(n) for n in names)
 

@@ -85,6 +85,7 @@ def test_not_ntfs_is_refused(tmp_path):
         ntfs.Volume(fh)
 
 
+@pytest.mark.runs_long       # (about 40 s on CI: started first, so the other workers finish around it)
 @pytest.mark.skipif(os.name != "nt" or not ntfs.is_admin(), reason="needs Windows, as administrator")
 def test_the_real_system_drive():
     """CI's Windows runner is an administrator: read C:'s real file table and find a file made just now."""
