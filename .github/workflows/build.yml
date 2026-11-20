@@ -14,6 +14,10 @@ on:
       - ".github/FUNDING.yml"
       - ".github/workflows/updates.yml"
       - ".github/workflows/cla.yml"
+      - ".github/workflows/package-managers.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "bucket/**"
+      - "packaging/winget/**"
   pull_request:
     paths-ignore:   # (the same list)
       - "README.md"
@@ -25,6 +29,10 @@ on:
       - ".github/FUNDING.yml"
       - ".github/workflows/updates.yml"
       - ".github/workflows/cla.yml"
+      - ".github/workflows/package-managers.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "bucket/**"
+      - "packaging/winget/**"
   workflow_dispatch:
 
 # A newer push to the same pull request makes the older run pointless: stop it. Runs on main and tags finish.
@@ -214,25 +222,8 @@ jobs:
           diskpart /s $script
           if (-not (Test-Path R:\)) { throw "No ReFS drive" }
           "WICK_REFS_DIR=R:\" >> $env:GITHUB_ENV
-      - name: Wait for Everything's index
-        id: everything
-        if: steps.everything_setup.outcome == 'success'
-        timeout-minutes: 6
-        continue-on-error: true
-        shell: pwsh
-        run: |
-          # Optional integration: report an unavailable index as a skip, while keeping the other tests.
-          python -c "import sys, time; from wick import everything; ok = any(everything.available() or time.sleep(2) for _ in range(150)); print('Everything index loaded' if ok else 'Everything index not loaded after 5 minutes'); sys.exit(0 if ok else 1)"
-          if ($LASTEXITCODE -ne 0) { throw "Everything didn't load its index in time" }
-      - name: Test core and integrations (uses the real Recycle Bin)
-        timeout-minutes: 15
-        env:
-          WICK_REQUIRE_EVERYTHING: ${{ steps.everything.outcome == 'success' && '1' || '0' }}
-        run: >-
-          python -u -m pytest -v -ra --durations=25
-          --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
-          --junitxml=test-results/core.xml
-          --ignore=tests/test_gui.py --ignore=tests/test_layout.py --ignore=tests/test_style.py
+      # First, while Everything builds its index (the core tests need it; this used to be a minute and a half of
+      # waiting).
       - name: Test GUI and layouts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         timeout-minutes: 10
@@ -243,6 +234,26 @@ jobs:
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
           --junitxml=test-results/gui.xml
           tests/test_gui.py tests/test_layout.py tests/test_style.py
+      - name: Wait for Everything's index
+        id: everything
+        if: ${{ !cancelled() && steps.everything_setup.outcome == 'success' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          # Optional integration: report an unavailable index as a skip, while keeping the other tests.
+          python -c "import sys, time; from wick import everything; ok = any(everything.available() or time.sleep(2) for _ in range(150)); print('Everything index loaded' if ok else 'Everything index not loaded after 5 minutes'); sys.exit(0 if ok else 1)"
+          if ($LASTEXITCODE -ne 0) { throw "Everything didn't load its index in time" }
+      - name: Test core and integrations (uses the real Recycle Bin)
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 15
+        env:
+          WICK_REQUIRE_EVERYTHING: ${{ steps.everything.outcome == 'success' && '1' || '0' }}
+        run: >-
+          python -u -m pytest -v -ra --durations=25
+          --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
+          --junitxml=test-results/core.xml
+          --ignore=tests/test_gui.py --ignore=tests/test_layout.py --ignore=tests/test_style.py
       - name: Keep test reports
         if: always()
         uses: actions/upload-artifact@v7
