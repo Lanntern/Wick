@@ -1,0 +1,67 @@
+# After a release is published (by hand, from the draft the build attaches files to): point Scoop's manifest in
+# this repo at it, and send the new version to winget.
+name: package managers
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, e.g. v0.1.1"
+        required: true
+
+permissions: {}
+
+jobs:
+  scoop:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # commit the updated bucket/wick.json to main
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Update bucket/wick.json
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/SHA256SUMS.txt" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS.txt"
+          python3 scripts/update_scoop.py "$TAG" "$RUNNER_TEMP/SHA256SUMS.txt"
+      - name: Commit
+        run: |
+          git diff --quiet bucket/wick.json && { echo "Already up to date"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Scoop: Wick ${TAG#v}" bucket/wick.json
+          git push origin HEAD:main
+
+  winget:
+    if: github.event_name == 'workflow_dispatch' || !github.event.release.prerelease
+    runs-on: windows-latest
+    env:
+      # A classic token with public_repo, from an account with a fork of microsoft/winget-pkgs (see
+      # docs/releasing.md). Until it's added, this job says so and does nothing.
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    steps:
+      - name: Token check
+        id: token
+        shell: bash
+        run: |
+          if [ -z "$WINGET_TOKEN" ]; then
+            echo "::notice::No WINGET_TOKEN secret: winget not updated (see docs/releasing.md)"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open a pull request on microsoft/winget-pkgs
+        if: steps.token.outputs.ok == 'true'
+        # (Pinned to a commit: a third-party action given a token. Dependabot proposes updates.)
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54  # v2
+        with:
+          identifier: Lanntern.Wick
+          installers-regex: '^Wick-setup\.exe$'
+          release-tag: ${{ github.event.release.tag_name || inputs.tag }}
+          token: ${{ secrets.WINGET_TOKEN }}

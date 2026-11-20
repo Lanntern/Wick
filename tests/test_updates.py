@@ -120,3 +120,27 @@ def test_weekly_report(monkeypatch):
                         [d for d in check_updates.fetch_tools.WINDOWS if d.sha256])
     body, attention = check_updates.report()
     assert not attention                                     # nothing newer, nothing vulnerable: no issue
+
+
+def test_the_scoop_manifest_follows_a_release(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import update_scoop
+
+    real = update_scoop.MANIFEST
+    m = json.loads(real.read_text(encoding="utf-8"))
+    assert m["version"] in m["architecture"]["64bit"]["url"] and m["extract_dir"] == "Wick"
+    assert m["autoupdate"]["architecture"]["64bit"]["hash"]["url"] == "$baseurl/SHA256SUMS.txt"
+
+    copy = tmp_path / "wick.json"
+    copy.write_text(real.read_text(encoding="utf-8"), encoding="utf-8")
+    sums = "11" * 32 + "  Wick-setup.exe\n" + "ab" * 32 + "  Wick-windows.zip\n"
+    update_scoop.update("0.2.0", sums, copy)
+    got = json.loads(copy.read_text(encoding="utf-8"))
+    assert got["version"] == "0.2.0"
+    assert got["architecture"]["64bit"] == {
+        "url": "https://github.com/Lanntern/Wick/releases/download/v0.2.0/Wick-windows.zip", "hash": "ab" * 32}
+    assert got["bin"] == m["bin"] and got["autoupdate"] == m["autoupdate"]       # everything else kept
+    with pytest.raises(SystemExit):
+        update_scoop.update("0.2.0", "11" * 32 + "  Wick-setup.exe\n", copy)  # no zip listed
+    with pytest.raises(SystemExit):
+        update_scoop.update("0.2; rm", sums, copy)
