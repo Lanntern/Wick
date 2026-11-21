@@ -29,6 +29,9 @@ class StreamInfo:
     channels: int = 0          # audio: channel count (0: unknown)
     layout: str = ""           # audio: channel layout as ffmpeg names it ("5.1(side)")
     bit_rate: int = 0          # audio: bits/s when the file says (0: unknown)
+    bits: int = 0              # audio: bits per sample of PCM and lossless tracks (0: unknown or lossy)
+    profile: str = ""          # audio: the codec profile ("DTS-HD MA")
+    commentary: bool = False   # audio: a commentary track (by its flag or title)
     filename: str = ""         # attachment: its file name inside the video
     mimetype: str = ""         # attachment: its type ("application/x-truetype-font")
     size: int = 0              # attachment: bytes
@@ -160,6 +163,9 @@ def probe_video(path: Path) -> VideoInfo | None:
             info.layout = str(s.get("channel_layout") or "")
             # (MKV keeps a track's rate in its statistics tags, written by mkvmerge, when the stream has none)
             info.bit_rate = _int(s.get("bit_rate")) or _int(tags.get("bps")) or _int(tags.get("bps-eng"))
+            info.bits = _int(s.get("bits_per_raw_sample")) or _int(s.get("bits_per_sample"))
+            info.profile = str(s.get("profile") or "")
+            info.commentary = bool(disp.get("comment")) or "comment" in info.title.lower()
         elif kind == "attachment":
             info.filename, info.mimetype = str(tags.get("filename", "")), str(tags.get("mimetype", "")).lower()
             info.size = _int(s.get("extradata_size"))

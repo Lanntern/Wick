@@ -42,6 +42,11 @@ BITRATE = {
     "mp3": {"high": 245, "balanced": 190, "small": 130},   # LAME VBR V0 / V2 / V5 averages
 }
 MP3_VBR = {"high": "0", "balanced": "2", "small": "5"}
+# Speech (podcasts, audiobooks, lectures), stored as mono: kbps per format and quality.
+SPEECH_KBPS = {"opus": {"high": 64, "balanced": 48, "small": 32}, "aac": {"high": 96, "balanced": 80, "small": 64},
+               "mp3": {"high": 96, "balanced": 80, "small": 64}}
+SPEECH_MIN_SECONDS = 600       # shorter files are nearly always songs: not worth the check
+TAG = "WICK"
 _CODEC_LABEL = {"mp3": "MP3", "aac": "AAC", "vorbis": "Vorbis", "opus": "Opus", "wmav1": "WMA", "wmav2": "WMA",
                 "wmapro": "WMA", "flac": "FLAC", "alac": "ALAC", "ape": "APE", "wavpack": "WavPack", "tta": "TTA",
                 "ac3": "AC-3", "eac3": "E-AC-3", "dts": "DTS"}
@@ -110,13 +115,10 @@ def _cover_metadata(src: Path, info: AudioInfo, folder: Path | None = None) -> P
     mime = {"mjpeg": "image/jpeg", "png": "image/png"}.get(info.cover_codec)
     if info.cover_index < 0 or not mime:
         return None
-    ffmpeg = tools.require("ffmpeg")
-    proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-i", str(src), "-map",
-                      f"0:{info.cover_index}", "-c", "copy", "-f", "image2pipe", "-"], timeout=120, text=False,
-                     check=False)
-    data = proc.stdout or b""
-    if proc.returncode != 0 or not data:
+    data = _cover_bytes(src, info)
+    if not data:
         return None
+    data = _smaller(data)
     try:
         import io
 
@@ -136,20 +138,64 @@ def _cover_metadata(src: Path, info: AudioInfo, folder: Path | None = None) -> P
     return meta
 
 
+def _cover_bytes(src: Path, info: AudioInfo) -> bytes:
+    if info.cover_index < 0 or info.cover_codec not in ("mjpeg", "png"):
+        return b""
+    ffmpeg = tools.require("ffmpeg")
+    proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-i", str(src), "-map",
+                      f"0:{info.cover_index}", "-c", "copy", "-f", "image2pipe", "-"], timeout=120, text=False,
+                     check=False)
+    return (proc.stdout or b"") if proc.returncode == 0 else b""
+
+
+def _smaller(data: bytes) -> bytes:
+    """The album art with the same pixels in fewer bytes (or as it was)."""
+    from .documents import shrink_jpeg, shrink_png
+
+    return shrink_png(data) if data[:8] == b"\x89PNG\r\n\x1a\n" else shrink_jpeg(data)
+
+
+def small_cover(src: Path, info: AudioInfo, folder: Path | None = None) -> tuple[Path | None, int]:
+    """(file with the album art stored smaller, bytes saved), or (None, 0) when it doesn't get smaller."""
+    data = _cover_bytes(src, info)
+    new = _smaller(data) if data else data
+    if len(new) >= len(data):
+        return None, 0
+    out = temp_name(folder or src.parent, ".png" if new[:4] == b"\x89PNG" else ".jpg", "-cover")
+    out.write_bytes(new)
+    return out, len(data) - len(new)
+
+
+def settings_tag(fmt: str, kbps: int, speech: bool) -> str:
+    from . import __version__
+
+    return "; ".join(x for x in (__version__, f"{fmt} {kbps}k" if kbps else fmt, "speech" if speech else "") if x)
+
+
 def build_args(src: Path, dst: Path, info: AudioInfo, s: Settings, fmt: str, mono: bool,
-               meta: Path | None = None, kbps: int = 0, rate: int = 0, channels: int = 0) -> list[str]:
-    """``kbps``, ``rate`` and ``channels`` (Convert's per-file settings) override the automatic choices."""
+               meta: Path | None = None, kbps: int = 0, rate: int = 0, channels: int = 0,
+               cover: Path | None = None, speech: bool = False) -> list[str]:
+    """``kbps``, ``rate`` and ``channels`` (Convert's per-file settings) override the automatic choices.
+    ``cover``: the album art stored smaller, used instead of the original's. ``speech``: mono, at the speech
+    bitrate."""
     ffmpeg = tools.require("ffmpeg")
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
             "-i", str(src)]
     if meta is not None:
         args += ["-i", str(meta)]
+    art = fmt in ("flac", "aac", "mp3") and info.cover_index >= 0 and info.cover_codec in ("mjpeg", "png")
+    if art and cover is not None:
+        args += ["-i", str(cover)]
     args += ["-map", f"0:{info.audio_index}"]
-    if info.cover_index >= 0 and info.cover_codec in ("mjpeg", "png") and fmt in ("flac", "aac", "mp3"):
-        args += ["-map", f"0:{info.cover_index}", "-c:v", "copy", "-disposition:v:0", "attached_pic"]
+    if art:
+        args += ["-map", f"{2 if meta is not None else 1}:0" if cover is not None else f"0:{info.cover_index}",
+                 "-c:v", "copy", "-disposition:v:0", "attached_pic"]
     args += ["-map_metadata", "0"]
     if meta is not None:
         args += ["-map_metadata:s:a:0", "1:g"]
+    if speech and not kbps:
+        kbps = SPEECH_KBPS[fmt][s.audio_quality] if fmt in SPEECH_KBPS else 0
+        channels = channels or 1
 
     filters = []
     if mono:
@@ -172,14 +218,61 @@ def build_args(src: Path, dst: Path, info: AudioInfo, s: Settings, fmt: str, mon
             args += ["-mapping_family", "1"]
     elif fmt == "aac":
         args += ["-c:a", "aac", "-b:a", f"{kbps or target_kbps('aac', s.audio_quality, out_channels)}k",
-                 "-movflags", "+faststart"]
+                 "-movflags", "+faststart+use_metadata_tags"]
     else:  # mp3
         args += ["-c:a", "libmp3lame", *(["-b:a", f"{kbps}k"] if kbps else ["-q:a", MP3_VBR[s.audio_quality]]),
                  "-id3v2_version", "3"]
     if filters:
         args += ["-af", ",".join(filters)]
+    args += ["-metadata", f"{TAG}={settings_tag(fmt, kbps, speech)}"]
     args.append(str(dst))
     return args
+
+
+def made_by_wick(info: AudioInfo) -> bool:
+    return any(k.upper() == TAG for k in info.tags)
+
+
+def is_speech(src: Path, info: AudioInfo) -> bool:
+    """Talk rather than music (a podcast, audiobook or lecture), from three 30-second stretches: the pauses between
+    words and sentences (music rarely falls silent that often), little sound above 5 kHz (cymbals, strings and
+    most mixes have plenty), and, for stereo, channels that are nearly the same. Long files only."""
+    import numpy as np
+
+    if info.duration < SPEECH_MIN_SECONDS or info.channels > 2:
+        return False
+    ffmpeg = tools.require("ffmpeg")
+    rate = 16000
+    verdicts = []
+    for at in (0.2, 0.5, 0.8):
+        p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-ss", f"{info.duration * at:.1f}", "-t",
+                       "30", "-i", str(src), "-map", f"0:{info.audio_index}", "-ac", "2", "-ar", str(rate), "-f",
+                       "s16le", "-"], timeout=120, check=False, text=False)
+        pcm = np.frombuffer(p.stdout or b"", dtype="<i2").astype(np.float32)
+        if p.returncode != 0 or len(pcm) < rate * 2 * 10:
+            return False
+        left, right = pcm[0::2], pcm[1::2]
+        mid = (left + right) / 2
+        if info.channels == 2 and np.std(left) > 1 and np.std(right) > 1:
+            if float(np.corrcoef(left, right)[0, 1]) < 0.9:
+                verdicts.append(False)
+                continue
+        frame = rate // 40                                           # 25 ms
+        frames = mid[: len(mid) // frame * frame].reshape(-1, frame)
+        rms = np.sqrt((frames ** 2).mean(axis=1)) + 1e-3
+        loud = np.percentile(rms, 95)
+        if loud < 30:                                                # (near silence: nothing to tell)
+            return False
+        quiet = rms < loud * 0.1
+        pauses = float(quiet.mean())
+        # Speech pauses come often and short (between words and sentences); music's rests are rare and long.
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], quiet.astype(np.int8), [0]))))
+        lengths = edges[1::2] - edges[0::2]
+        per_minute = int(((lengths >= 3) & (lengths <= 60)).sum()) / (len(rms) * 0.025 / 60)   # 75 ms to 1.5 s
+        spectrum = np.abs(np.fft.rfft(frames * np.hanning(frame), axis=1)) ** 2
+        high = float(spectrum[:, int(5000 / rate * frame):].sum() / max(spectrum.sum(), 1e-9))
+        verdicts.append(0.08 <= pauses <= 0.6 and per_minute >= 10 and high < 0.05)
+    return sum(verdicts) >= 2
 
 
 def pcm_md5(path: Path, stream: str, mono: bool = False) -> str:
@@ -222,6 +315,11 @@ def convert_audio(src: Path, info: AudioInfo, plan: Plan, s: Settings,
                   cancel: threading.Event | None = None, kbps: int = 0, rate: int = 0, channels: int = 0) -> Path:
     """Encode to a temp file next to ``src``, verify it, and return its path."""
     fmt = plan.route.split("_", 1)[1]
+    if fmt == "art":
+        return _shrink_art(src, info, plan, on_progress, cancel)
+    speech = plan.speech and not (kbps or channels)
+    if speech:
+        channels = 1
     exact = (fmt == "flac" and is_lossless(info.codec) and not flac_problem(info, s)
              and not (s.audio_cd_quality and any(cd_target(info))) and not rate and not channels)
     mono = s.audio_mono and not channels and identical_channels(src, info, exact=exact)
@@ -229,21 +327,68 @@ def convert_audio(src: Path, info: AudioInfo, plan: Plan, s: Settings,
         raise tools.Cancelled()
     out = temp_name(src.parent, FORMATS[fmt][0])
     meta = _cover_metadata(src, info) if fmt == "opus" else None
+    cover, art_saved = small_cover(src, info) if fmt != "opus" else (None, 0)
     try:
         steps.report(f"Encoding {steps.format_name(FORMATS[fmt][0])}")
-        tools.run_ffmpeg_progress(build_args(src, out, info, s, fmt, mono, meta, kbps, rate, channels),
-                                  info.duration, on_progress, cancel)
+        tools.run_ffmpeg_progress(build_args(src, out, info, s, fmt, mono, meta, kbps, rate, channels, cover,
+                                             speech), info.duration, on_progress, cancel)
         steps.report("Checking the result")
         verify_audio(src, info, out, fmt, mono, exact, channels)
+        notes = []
         if mono:
-            plan.outcome = "stored as mono (both channels were identical)"
+            notes.append("stored as mono (both channels were identical)")
+        if speech:
+            notes.append("speech: mono at a lower bitrate")
+        if art_saved:
+            notes.append("album art stored smaller (same pixels)")
+        plan.outcome = ", ".join(notes)
         return out
     except BaseException:
         remove_quietly(out)
         raise
     finally:
         remove_quietly(meta)
+        remove_quietly(cover)
 
 
-__all__ = ["convert_audio", "verify_audio", "is_lossless", "source_label", "target_kbps", "cd_target",
+ART_CONTAINERS = {".mp3", ".flac", ".m4a", ".m4b"}     # (Ogg keeps art in a comment: not swapped this way)
+
+
+def _shrink_art(src: Path, info: AudioInfo, plan: Plan, on_progress, cancel) -> Path:
+    """Only the album art, stored smaller with the same pixels; the sound is copied untouched."""
+    from .images import NotWorthIt
+
+    steps.report("Making the album art smaller")
+    cover, saved = small_cover(src, info)
+    if cover is None or saved < max(32 * 1024, src.stat().st_size * 0.03):
+        remove_quietly(cover)
+        raise NotWorthIt("The album art is already stored about as small as it gets; original kept")
+    out = temp_name(src.parent, src.suffix)
+    ffmpeg = tools.require("ffmpeg")
+    args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
+            "-i", str(src), "-i", str(cover), "-map", f"0:{info.audio_index}", "-map", "1:0", "-c", "copy",
+            "-disposition:v:0", "attached_pic", "-map_metadata", "0", "-metadata", f"{TAG}={settings_tag('art', 0, False)}"]
+    if src.suffix.lower() == ".mp3":
+        args += ["-id3v2_version", "3"]
+    elif src.suffix.lower() in (".m4a", ".m4b"):
+        args += ["-movflags", "+faststart+use_metadata_tags"]
+    try:
+        tools.run_ffmpeg_progress(args + [str(out)], info.duration, on_progress, cancel)
+        steps.report("Checking the result")
+        got = probe_audio(out)
+        if got is None or got.cover_index < 0:
+            raise VerificationFailed("the album art went missing")
+        if pcm_md5(src, f"0:{info.audio_index}") != pcm_md5(out, f"0:{got.audio_index}"):
+            raise VerificationFailed("the sound changed")
+        plan.outcome = "album art stored smaller (same pixels), sound untouched"
+        return out
+    except BaseException:
+        remove_quietly(out)
+        raise
+    finally:
+        remove_quietly(cover)
+
+
+__all__ = ["convert_audio", "verify_audio", "is_lossless", "source_label", "target_kbps", "cd_target", "is_speech",
+           "made_by_wick", "small_cover", "SPEECH_KBPS", "ART_CONTAINERS",
            "flac_problem", "identical_channels", "FORMATS", "BITRATE"]

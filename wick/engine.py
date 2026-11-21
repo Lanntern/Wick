@@ -253,7 +253,7 @@ def process_file(
 
             steps.report("Shrinking the pictures inside" if entry.path.suffix.lower() != ".pdf"
                          else "Optimizing the PDF")
-            tmp = optimize(src, reduce=s.documents == "reduce")
+            tmp = optimize(src, reduce=s.documents == "reduce", fonts=s.document_fonts)
         else:
             tmp = convert_image(src, entry.kind, entry.image, plan, s)
         if cancel is not None and cancel.is_set():

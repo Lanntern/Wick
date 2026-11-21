@@ -308,6 +308,15 @@ class SettingsPanel(QWidget):
                                    "the ones in languages you don't use, but always keeps the main soundtrack.")
         self.video_tracks.setAccessibleName("Audio and subtitle tracks")
         f.addRow("Tracks", self.video_tracks)
+        self.video_dup_audio = QCheckBox("Leave out lower-quality copies of a soundtrack")
+        self.video_dup_audio.setToolTip("Blu-ray films often have the same soundtrack twice: lossless, and a "
+                                        "smaller copy for older players. This keeps only the lossless one. "
+                                        "Commentaries always stay.")
+        f.addRow(self.video_dup_audio)
+        self.video_stereo = QCheckBox("Mix surround sound down to stereo")
+        self.video_stereo.setToolTip("For watching on laptops, phones and headphones. 5.1 and 7.1 soundtracks "
+                                     "become stereo, which takes about a third of the space.")
+        f.addRow(self.video_stereo)
         self._languages = ""
         self.languages_btn = button("", "", None, "Choose your languages")
         self.languages_btn.setAccessibleName("My languages")
@@ -372,6 +381,9 @@ class SettingsPanel(QWidget):
         self.audio_mono = QCheckBox("Mono when channels match")
         self.audio_mono.setToolTip("Stereo files with identical left and right channels are saved as mono. That "
                                    "halves the size and sounds the same.")
+        self.audio_speech = QCheckBox("Smaller podcasts and audiobooks")
+        self.audio_speech.setToolTip("Recordings of talk over 10 minutes are saved as mono at a lower bitrate, "
+                                     "which is plenty for voices. Music is never affected.")
         self.audio_cd = QCheckBox("Reduce hi-res to CD quality")
         self.audio_cd.setToolTip("Converts 96 or 192 kHz and 24-bit audio to 44.1 or 48 kHz and 16-bit. The "
                                  "difference is beyond what people can hear.")
@@ -380,6 +392,7 @@ class SettingsPanel(QWidget):
         f.addRow("Lossy format", self.audio_format)
         f.addRow("Quality", self.audio_quality)
         f.addRow(self.audio_mono)
+        f.addRow(self.audio_speech)
         f.addRow(self.audio_cd)
         self.sections.append(Section("Audio", g, False))
         lay.addWidget(self.sections[-1])
@@ -395,6 +408,11 @@ class SettingsPanel(QWidget):
                                 "2560 px are also scaled down: much smaller, still sharp on screen.")
         self.documents.setAccessibleName("Documents")
         f.addRow("Pictures", self.documents)
+        self.document_fonts = QCheckBox("Cut embedded fonts to the characters used")
+        self.document_fonts.setToolTip("Word, PowerPoint and PDF files often carry whole fonts for a few hundred "
+                                       "characters. The document looks exactly the same; typing new characters "
+                                       "on a computer without the font may show another font.")
+        f.addRow(self.document_fonts)
         f.addRow(_muted("Signed and password-protected documents are left alone."))
         self.sections.append(Section("Documents", g, False))
         lay.addWidget(self.sections[-1])
@@ -546,8 +564,9 @@ class SettingsPanel(QWidget):
                  self.min_savings, self.min_savings_kb, self.min_image_kb, self.min_video_mb, self.workers,
                  self.min_audio_kb, self.video_crf)
         checks = (self.allow_delete, self.keep_structure, self.skip_programs, self.include_hidden,
-                  self.low_priority, self.preserve_dates, self.require_savings, self.smart, self.audio_mono,
+                  self.low_priority, self.preserve_dates, self.require_savings, self.smart, self.audio_mono, self.audio_speech,
                   self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
+                  self.video_dup_audio, self.video_stereo, self.document_fonts,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -600,6 +619,7 @@ class SettingsPanel(QWidget):
         show(self.audio_format, uses_lossy)
         show(self.audio_quality, uses_lossy)
         show(self.audio_mono, lossless != "keep" or lossy != "keep")
+        show(self.audio_speech, uses_lossy)
         show(self.audio_cd, lossless == "flac")
         sec["Audio"].setVisible(has("audio"))
         sec["Documents"].setVisible(has("document"))
@@ -658,12 +678,16 @@ class SettingsPanel(QWidget):
         _set_combo(self.audio_format, s.audio_format)
         _set_combo(self.audio_quality, s.audio_quality)
         _set_combo(self.documents, s.documents)
+        self.document_fonts.setChecked(s.document_fonts)
         self.audio_mono.setChecked(s.audio_mono)
+        self.audio_speech.setChecked(s.audio_speech)
         self.audio_cd.setChecked(s.audio_cd_quality)
         self.video_cadence.setChecked(s.video_fix_cadence)
         self.video_crop.setChecked(s.video_crop_bars)
         _set_combo(self.video_grain, s.video_grain)
         self.video_fonts.setChecked(s.video_fonts)
+        self.video_dup_audio.setChecked(s.video_dup_audio)
+        self.video_stereo.setChecked(s.video_stereo)
         self.video_chunked.setChecked(s.video_chunked)
         _set_combo(self.video_metric, s.video_metric)
         _set_combo(self.video_jobs, s.video_jobs)
@@ -705,13 +729,16 @@ class SettingsPanel(QWidget):
             fit_under_kb=max(1, self.fit_mb.bytes() // 1024) if self.fit_on.isChecked() else 0,
             audio_lossless=self.audio_lossless.currentData(), audio_lossy=self.audio_lossy.currentData(),
             audio_format=self.audio_format.currentData(), audio_quality=self.audio_quality.currentData(),
-            audio_mono=self.audio_mono.isChecked(), audio_cd_quality=self.audio_cd.isChecked(),
+            audio_mono=self.audio_mono.isChecked(), audio_speech=self.audio_speech.isChecked(),
+            audio_cd_quality=self.audio_cd.isChecked(),
             min_audio_kb=self.min_audio_kb.value(), video_fix_cadence=self.video_cadence.isChecked(),
             video_crop_bars=self.video_crop.isChecked(),
             video_grain=self.video_grain.currentData(),
-            video_fonts=self.video_fonts.isChecked(), video_chunked=self.video_chunked.isChecked(),
+            video_fonts=self.video_fonts.isChecked(), video_dup_audio=self.video_dup_audio.isChecked(),
+            video_stereo=self.video_stereo.isChecked(), video_chunked=self.video_chunked.isChecked(),
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
+            document_fonts=self.document_fonts.isChecked(),
         )
         s.validate()
         return s

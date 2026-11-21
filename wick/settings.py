@@ -54,6 +54,8 @@ class Settings:
     #                                  playback, far smaller) | banding (also a light grain on clean videos,
     #                                  which hides banding in skies and dark scenes) | off
     video_fonts: bool = True         # MKV: subtitle fonts cut to the characters used; unused fonts left out
+    video_dup_audio: bool = False    # leave out lossy soundtracks that copy a lossless one in the same language
+    video_stereo: bool = False       # surround soundtracks mixed down to stereo
     video_chunked: bool = True       # processor encodes: scene by scene, several parts at once (faster; Smart quality
     #                                  per scene; an interrupted video carries on where it stopped)
     video_metric: str = "auto"       # how Smart quality measures videos: auto (VMAF) | vmaf | ssimulacra2 | xpsnr |
@@ -67,10 +69,12 @@ class Settings:
     audio_format: str = "opus"       # lossy output: opus | aac | mp3
     audio_quality: str = "balanced"  # high | balanced | small
     audio_mono: bool = True          # store as mono when both channels are identical
+    audio_speech: bool = True        # long talk recordings (podcasts, audiobooks): mono at a lower bitrate
     audio_cd_quality: bool = False   # reduce hi-res (88.2-192 kHz, 24-bit) to 44.1/48 kHz, 16-bit
     # Office documents and PDFs
     documents: str = "lossless"      # lossless (pictures inside shrunk, identical pixels) | reduce (+ large ones
     #                                  scaled down) | none
+    document_fonts: bool = True      # embedded fonts cut to the characters the document uses
     # Smart quality: search for the smallest result that still meets a measured quality target
     fit_under_kb: int = 0            # 0 = off; else make each image/video at most this size (KB)
     smart_quality: bool = False

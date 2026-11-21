@@ -131,17 +131,49 @@ def office_pictures(path: Path) -> tuple[int, int, int]:
     return jpeg, png, other
 
 
-def optimize_office(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE) -> Path:
-    """A smaller copy of ``src`` next to it (verified); the caller decides whether to keep it."""
+def _office_fonts(zin: zipfile.ZipFile) -> tuple[dict[str, bytes], int]:
+    """{part: new bytes} for the embedded fonts cut to the document's characters (and Word's font table, marking
+    them as subsets), and how many fonts were cut."""
+    from . import docfonts
+
+    fonts = [i for i in zin.infolist() if docfonts.is_font_part(i.filename)]
+    if not fonts:
+        return {}, 0
+    xml = {i.filename: zin.read(i) for i in zin.infolist() if i.filename.lower().endswith(".xml")}
+    chars, keys = docfonts.office_text(xml), docfonts.office_keys(xml)
+    new: dict[str, bytes] = {}
+    used_keys = []
+    for info in fonts:
+        try:
+            cut = docfonts.cut_office_font(zin.read(info), chars, keys)
+        except Exception:  # noqa: BLE001 - this font stays as it is
+            from .log import ignored
+            ignored("documents._office_fonts")
+            continue
+        if cut is not None:
+            new[info.filename] = cut[0]
+            if cut[1] is not None:
+                used_keys.append(cut[1])
+    if used_keys and "word/fontTable.xml" in xml:
+        new["word/fontTable.xml"] = docfonts.mark_subsetted(xml["word/fontTable.xml"], used_keys)
+    return new, sum(1 for n in new if docfonts.is_font_part(n))
+
+
+def optimize_office(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE, fonts: bool = True) -> Path:
+    """A smaller copy of ``src`` next to it (verified); the caller decides whether to keep it. ``fonts``: cut the
+    embedded fonts to the characters the document uses."""
     office_pictures(src)        # raises Unsupported for signed / encrypted files
     out = temp_name(src.parent, src.suffix)
     changed: set[str] = set()
     try:
         with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w") as zout:
+            cut, _count = _office_fonts(zin) if fonts else ({}, 0)
             for info in zin.infolist():
                 data = zin.read(info)
-                new = data
-                if _is_picture(info.filename):
+                new = cut.get(info.filename, data)
+                if info.filename in cut:
+                    changed.add(info.filename)
+                elif _is_picture(info.filename):
                     ext = "." + info.filename.lower().rsplit(".", 1)[-1]
                     if reduce:
                         new = reduce_picture(new, ext, long_edge)
@@ -175,6 +207,8 @@ def _verify_office(src: Path, out: Path, changed: set[str], lossless: bool) -> N
                 if ia.CRC != ib.CRC or ia.file_size != ib.file_size:
                     raise VerificationFailed(f"{ia.filename} changed")
                 continue
+            if not _is_picture(ia.filename):
+                continue            # (a font cut and read back when it was made, or the font table marking it)
             old, new = a.read(ia), b.read(ib)
             try:
                 with Image.open(io.BytesIO(new)) as im:
@@ -216,7 +250,7 @@ def _pdfa_part(pdf) -> int:
         return 0
 
 
-def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE) -> Path:
+def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE, fonts: bool = True) -> Path:
     import pikepdf
 
     problem = pdf_problem(src)
@@ -259,16 +293,42 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
             problems = [p for p in checker() if "error" in str(p).lower()]
             if problems:
                 raise VerificationFailed(f"The rebuilt PDF has problems: {problems[0]}")
-        return out
+        return _pdf_fonts(out, pages) if fonts else out
     except BaseException:
         remove_quietly(out)
         raise
 
 
-def optimize(src: Path, reduce: bool = False) -> Path:
+def _pdf_fonts(path: Path, pages: int) -> Path:
+    """``path`` with its whole embedded fonts cut to the glyphs drawn, when every page still draws exactly the
+    same (else ``path`` as it was). Not for PDF/A files or long documents (each page is drawn twice to check)."""
+    import pikepdf
+
+    from . import docfonts
+
+    if pages > docfonts.MAX_PAGES_TO_CHECK:
+        return path
+    smaller = temp_name(path.parent, ".pdf")
+    try:
+        with pikepdf.open(path) as pdf:
+            if _pdfa_part(pdf) or not docfonts.cut_pdf_fonts(pdf):
+                return path
+            pdf.save(smaller, object_stream_mode=pikepdf.ObjectStreamMode.generate, compress_streams=True)
+        if smaller.stat().st_size < path.stat().st_size and docfonts.same_pages(path, smaller):
+            remove_quietly(path)
+            return smaller
+    except Exception:  # noqa: BLE001 - the fonts stay whole
+        from .log import log
+
+        log.warning("Couldn't cut the fonts of %s; they stay whole", path.name, exc_info=True)
+    remove_quietly(smaller)
+    return path
+
+
+def optimize(src: Path, reduce: bool = False, fonts: bool = True) -> Path:
     if src.suffix.lower() in PDF_EXTS:
-        return optimize_pdf(src, reduce)
-    return optimize_office(src, reduce)
+        return optimize_pdf(src, reduce, fonts=fonts)
+    return optimize_office(src, reduce, fonts=fonts)
 
 
 __all__ = ["optimize", "optimize_office", "optimize_pdf", "office_pictures", "pdf_problem", "pdf_available",

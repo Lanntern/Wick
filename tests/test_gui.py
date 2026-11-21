@@ -949,6 +949,7 @@ def test_columns_keep_a_minimum_width():
 
 def test_language_choice_shows_with_only_my_languages(win):
     panel = win.compress.panel
+    panel.set_file_kinds(None)        # (an earlier test's file list may have hidden the video options)
     panel.video_codec.setCurrentIndex(panel.video_codec.findData("auto"))
     panel.video_tracks.setCurrentIndex(panel.video_tracks.findData("all"))
     assert not panel.languages_btn.isVisibleTo(panel)

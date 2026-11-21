@@ -86,10 +86,20 @@ def convert_image(src: Path, kind: str, info, plan: Plan, s: Settings) -> Path:
     animated = info is not None and getattr(info, "frames", 1) > 1
     limit = s.fit_under_kb * 1024
     if limit and plan.route in SMART_ROUTES and not plan.lossless and not animated and src.stat().st_size > limit:
-        return _convert_to_fit(src, kind, info, plan, s, limit)
-    if not (s.smart_quality and plan.route in SMART_ROUTES and not plan.lossless and not animated):
-        return _convert_once(src, kind, info, plan, s)
-    return _convert_smart(src, kind, info, plan, s)
+        out = _convert_to_fit(src, kind, info, plan, s, limit)
+    elif not (s.smart_quality and plan.route in SMART_ROUTES and not plan.lossless and not animated):
+        out = _convert_once(src, kind, info, plan, s)
+    else:
+        out = _convert_smart(src, kind, info, plan, s)
+    if out.suffix.lower() in (".jpg", ".jpeg", ".png"):
+        from . import marker
+
+        try:
+            marker.add(out)                 # (recognised next time, wherever the file goes)
+        except Exception:  # noqa: BLE001 - only a convenience
+            from .log import ignored
+            ignored("images.marker")
+    return out
 
 
 FIT_QUALITIES = [95, 92, 90, 87, 85, 82, 80, 77, 75, 72, 70, 65, 60, 55, 50, 45, 40]   # best first

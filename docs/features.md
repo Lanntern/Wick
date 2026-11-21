@@ -77,11 +77,22 @@ Options:
   when the fonts add up to 1 MB or more.
 - **Only my languages:** leaves out audio and subtitle tracks in other languages. The main soundtrack and
   untagged tracks always stay.
+- **Lower-quality copies** (optional): Blu-ray films often carry the same soundtrack twice, lossless (TrueHD,
+  DTS-HD MA, FLAC or PCM) and a lossy copy for older players. The copy is left out when it's in the same language
+  and has no more channels; commentaries and untagged tracks always stay. If the copy was the default track, the
+  lossless one becomes the default.
+- **Uncompressed audio** (WAV-style PCM, and the LPCM of Blu-rays and DVDs) in MKV videos is packed as FLAC: the
+  same samples, usually 40 to 60% smaller. On AV1 and HEVC videos this happens without re-encoding the picture.
+- **Stereo only** (optional): 5.1 and 7.1 soundtracks are mixed down to stereo, for laptops, phones and
+  headphones.
+- **Cover pictures** attached to MKV videos are stored smaller with the same pixels whenever the video is
+  rebuilt.
 - **Limits:** maximum resolution (never upscales), maximum frame rate, and an audio bitrate. The audio bitrate is
   for stereo: mono gets 60% of it, 5.1 twice and 7.1 about 2.7 times (at most 512 kbps). Tracks already at or
   under it are copied as they are, since re-encoding would make them bigger.
-- **Made by Wick:** every video Wick makes carries a short tag with the version and settings used (for example
-  "0.2.0; libsvtav1 30; preset 4; audio 128k; fonts cut"), so it isn't compressed again.
+- **Made by Wick:** every video and audio file Wick makes carries a short tag with the version and settings used
+  (for example "0.2.0; libsvtav1 30; preset 4; audio 128k; fonts cut"), and JPEGs and PNGs a "Wick 0.2.0"
+  comment, so they aren't compressed again, even after being moved or copied.
 - **Format details:** AV1 is 10-bit. HEVC stays 8-bit unless the source is 10-bit, and is tagged so Windows and
   Apple players open it. MP4 and MOV stay MP4; MKV keeps every track, subtitle and attachment. HDR10 and HLG
   video keep 10-bit color and their HDR information. Interlaced video is deinterlaced.
@@ -97,6 +108,11 @@ Options:
 
 - **Identical channels become mono:** "stereo" files whose two channels are the same (voice memos, old
   recordings) are stored as mono, at half the size with no audible change.
+- **Podcasts and audiobooks:** recordings of talk over 10 minutes (recognised by their frequent short pauses,
+  little sound above 5 kHz and near-identical channels) are stored as mono at a lower bitrate when they're
+  encoded to Opus, AAC or MP3: Opus 64, 48 or 32 kbps for High, Balanced or Small. Music is left as before.
+- **Album art** is stored smaller with the same pixels. Files whose art takes 300 KB or more get just that, with
+  the sound copied untouched, even when the audio itself is left alone.
 - **Hi-res to CD quality** (optional): 88.2 to 192 kHz, 24-bit audio becomes 44.1 or 48 kHz, 16-bit with dither.
 - **Music for your phone** (Watch Folders): keeps a smaller Opus, AAC or MP3 copy of your music library, with tags
   and album art. Only changed songs are redone, and copies of songs you deleted are removed.
@@ -107,6 +123,13 @@ Word, PowerPoint, Excel, OpenDocument and PDF files get their pictures stored sm
 everything else in the file stays byte-for-byte the same and is checked. PDFs are also restructured
 losslessly with qpdf. Optionally, pictures larger than 2560 px are scaled down. Signed and password-protected
 documents are never changed.
+
+**Embedded fonts** (on by default) are cut to what the document uses. In Word, PowerPoint and OpenDocument files,
+each embedded font keeps every character that appears in the document, plus ASCII, Latin-1 and common
+punctuation; Word's scrambled fonts are unscrambled, cut and scrambled again with the same key, and marked as
+subsets. In PDFs, TrueType fonts embedded whole are cut to the glyphs the pages draw (glyph numbers unchanged),
+and every page is drawn before and after: if one pixel differs, the fonts stay whole. PDFs with forms, PDF/A
+files and PDFs over 300 pages keep their fonts. Fonts whose licence doesn't allow cutting always stay whole.
 
 ## Presets and Smart quality
 

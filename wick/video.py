@@ -406,18 +406,56 @@ def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
     from .settings import my_languages
 
     audio, subs = info.audio_streams(), info.subtitle_streams()
-    if s.video_tracks != "mine":
-        return audio, subs, []
-    codes = track_codes(my_languages(s))
-    main = next((a for a in audio if a.default), audio[0] if audio else None)
+    keep_a, keep_s = audio, subs
+    if s.video_tracks == "mine":
+        codes = track_codes(my_languages(s))
+        main = next((a for a in audio if a.default), audio[0] if audio else None)
 
-    def mine(st) -> bool:
-        return not st.language or st.language in codes
+        def mine(st) -> bool:
+            return not st.language or st.language in codes
 
-    keep_a = [a for a in audio if mine(a) or a is main]
-    keep_s = [t for t in subs if mine(t)]
+        keep_a = [a for a in audio if mine(a) or a is main]
+        keep_s = [t for t in subs if mine(t)]
+    if s.video_dup_audio:
+        copies = lower_copies(keep_a)
+        keep_a = [a for a in keep_a if a not in copies]
     dropped = [x for x in audio + subs if x not in keep_a and x not in keep_s]
     return keep_a, keep_s, dropped
+
+
+def is_lossless_audio(st) -> bool:
+    return (st.codec in _LOSSLESS_AUDIO or st.codec.startswith("pcm_")
+            or (st.codec == "dts" and "MA" in st.profile.upper().split()))
+
+
+def lower_copies(audio: list) -> list:
+    """Lossy soundtracks that only repeat a lossless one in the same language (a Blu-ray's TrueHD or DTS-HD MA
+    track with its AC-3 copy for older players): with no more channels than the lossless one, and neither a
+    commentary. Untagged tracks are never compared (they may be in different languages)."""
+    copies = []
+    for a in audio:
+        if not a.language or a.commentary or is_lossless_audio(a):
+            continue
+        if any(b.language == a.language and not b.commentary and is_lossless_audio(b)
+               and b.channels >= a.channels for b in audio):
+            copies.append(a)
+    return copies
+
+
+def tracks_note(info: VideoInfo, s: Settings) -> str:
+    """What happens to the audio and subtitle tracks, in words ("" when nothing is left out)."""
+    _a, _s, dropped = select_tracks(info, s)
+    if not dropped:
+        return ""
+    copies = sum(1 for a in dropped if a.kind == "audio" and a in lower_copies(info.audio_streams()))
+    copies = copies if s.video_dup_audio else 0
+    other = len(dropped) - copies
+    parts = []
+    if other:
+        parts.append(f"{other} track{'s' if other != 1 else ''} in other languages left out")
+    if copies:
+        parts.append(f"{copies} lower-quality cop{'ies' if copies != 1 else 'y'} of a soundtrack left out")
+    return ", ".join(parts)
 
 
 def _hdr10_params(info: VideoInfo, encoder: str) -> str:
@@ -669,7 +707,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
                     args += [f"-{opt}:v:{v_out}", info.color[key]]
             if mp4 and codec_for(info, s) == "hevc":
                 args += [f"-tag:v:{v_out}", "hvc1"]
-            args += _audio_args(keep_audio, s, mp4, fit)
+        args += _audio_args(keep_audio, s, mp4, fit, remux=remux) + default_audio_args(info, keep_audio)
         args += _container_args(dst, s, mapped, fonts, "copy" if remux else f"{encoder} scenes", grain)
         args.append(str(dst))
         return args
@@ -746,7 +784,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         args += [f"-tag:v:{v_out}", "hvc1"]  # plays in Windows/Apple players
 
     if not segment:
-        args += _audio_args(keep_audio, s, mp4, fit)
+        args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
         args += _container_args(dst, s, mapped, fonts,
                                 f"{encoder} {'size limit' if fit is not None else q}", grain)
     args.append(str(dst))
@@ -810,27 +848,72 @@ def audio_rate(base: int, channels: int) -> int:
     return min(512, round(base * max(1.0, channels / 3)))
 
 
-def _audio_args(keep_audio: list, s: Settings, mp4: bool, fit) -> list[str]:
+_FLAC_PCM = {"pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_bluray", "pcm_dvd"}
+
+
+def packs_as_flac(st, mp4: bool) -> bool:
+    """Uncompressed audio (WAV-style, or a Blu-ray's or DVD's LPCM) that FLAC holds exactly, in MKV."""
+    return not mp4 and st.codec in _FLAC_PCM and st.bits in (0, 16, 20, 24)
+
+
+def _audio_args(keep_audio: list, s: Settings, mp4: bool, fit, remux: bool = False) -> list[str]:
+    """Per kept track: copy it, pack it losslessly (FLAC), or encode it. ``remux``: the picture is copied, so
+    only lossless packing and the chosen stereo mix happen."""
     args: list[str] = []
-    codec = "aac" if mp4 else "libopus"
+    lossy = "aac" if mp4 else "libopus"
     for i, st in enumerate(keep_audio):
+        downmix = s.video_stereo and st.channels > 2
+        channels = 2 if downmix else st.channels
+        codec, kbps = lossy, 0
         if fit is not None and fit[1]:
             kbps = fit[1]
-        elif s.audio_bitrate:
-            kbps = audio_rate(s.audio_bitrate, st.channels)
+        elif packs_as_flac(st, mp4) and (not s.audio_bitrate or remux):
+            codec = "flac"
+        elif s.audio_bitrate and not remux:
+            kbps = audio_rate(s.audio_bitrate, channels)
             # Already at or under the target (and lossy, and fits the container): re-encoding would only make it
             # bigger and sound worse.
-            if (st.bit_rate and st.bit_rate <= kbps * 1000 * 1.05 and st.codec not in _LOSSLESS_AUDIO
-                    and not st.codec.startswith("pcm_") and (not mp4 or st.codec in _MP4_AUDIO_OK)):
+            if (not downmix and st.bit_rate and st.bit_rate <= kbps * 1000 * 1.05 and not is_lossless_audio(st)
+                    and (not mp4 or st.codec in _MP4_AUDIO_OK)):
                 continue
         elif mp4 and st.codec not in _MP4_AUDIO_OK:
-            codec, kbps = "aac", audio_rate(192, st.channels)
+            codec, kbps = "aac", audio_rate(192, channels)
+        elif downmix:
+            kbps = audio_rate(s.audio_bitrate or (192 if mp4 else 160), 2)
         else:
             continue
-        args += [f"-c:a:{i}", codec, f"-b:a:{i}", f"{kbps}k"]
-        if codec == "libopus" and st.layout and st.layout not in _OPUS_LAYOUTS:
+        args += [f"-c:a:{i}", codec]
+        if codec == "flac":
+            args += [f"-compression_level:a:{i}", "12"]
+        else:
+            args += [f"-b:a:{i}", f"{kbps}k"]
+        if downmix:
+            args += [f"-ac:a:{i}", "2"]
+        elif codec == "libopus" and st.layout and st.layout not in _OPUS_LAYOUTS:
             args += [f"-filter:a:{i}", "aformat=channel_layouts=" + "|".join(reversed(_OPUS_LAYOUTS))]
     return args
+
+
+def _audio_note(keep_audio: list, s: Settings, mp4: bool, remux: bool = False) -> str:
+    parts = []
+    pcm = sum(1 for a in keep_audio if packs_as_flac(a, mp4)) if remux or not s.audio_bitrate else 0
+    if pcm:
+        parts.append(f"{'uncompressed audio' if pcm == 1 else f'{pcm} uncompressed soundtracks'} packed as FLAC")
+    if s.video_stereo and any(a.channels > 2 for a in keep_audio):
+        parts.append("surround mixed down to stereo")
+    return ", ".join(parts)
+
+
+def default_audio_args(info: VideoInfo, keep_audio: list) -> list[str]:
+    """When the default soundtrack was left out as a lower-quality copy, the lossless one it copied becomes the
+    default."""
+    if not keep_audio or any(a.default for a in keep_audio) or not any(a.default for a in info.audio_streams()):
+        return []
+    was = next(a for a in info.audio_streams() if a.default)
+    for i, a in enumerate(keep_audio):
+        if a.language == was.language and is_lossless_audio(a):
+            return [f"-disposition:a:{i}", "default"]
+    return []
 
 
 SMART_STEPS = {  # best quality first
@@ -1070,11 +1153,12 @@ def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
     """The subtitle fonts' plan (subfonts.FontPlan), or None: nothing to change, or it couldn't be worked out."""
     from . import subfonts
 
-    if not s.video_fonts or ext.lower() != ".mkv" or not any(subfonts.is_font(st) for st in info.streams):
+    fonts = s.video_fonts and any(subfonts.is_font(st) for st in info.streams)
+    if ext.lower() != ".mkv" or not (fonts or any(subfonts.is_picture(st) for st in info.streams)):
         return None
-    steps.report("Checking which characters the subtitles use")
+    steps.report("Checking which characters the subtitles use" if fonts else "Checking the cover pictures")
     try:
-        return subfonts.plan(src, info, select_tracks(info, s)[1], folder)
+        return subfonts.plan(src, info, select_tracks(info, s)[1], folder, fonts_too=fonts)
     except tools.Cancelled:
         raise
     except Exception:  # noqa: BLE001 - the fonts stay as they are
@@ -1087,9 +1171,9 @@ def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
 def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:
     out = temp_name(src.parent, plan.target_ext)
     keep_audio, _subs, dropped = select_tracks(info, s)
-    if plan.route == "video_remux":   # efficient already: only leave out tracks, and cut the fonts
-        if not dropped and fonts is None:
-            raise NotWorthIt("The subtitle fonts are already as small as they get; original kept")
+    if plan.route == "video_remux":   # efficient already: tracks, fonts and lossless audio packing only
+        if not (dropped or fonts is not None or _audio_args(keep_audio, s, out.suffix == ".mp4", None, remux=True)):
+            raise NotWorthIt("Nothing to change without re-encoding the picture; original kept")
         try:
             steps.report("Copying the video without the tracks in other languages" if dropped
                          else "Copying the video with smaller subtitle fonts")
@@ -1098,12 +1182,10 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
             steps.report("Checking the result")
             verify_video(info, out, info.codec, dst_is_mp4=out.suffix == ".mp4", audio_tracks=len(keep_audio),
                          src_path=src)
-            done = ["picture untouched"]
-            if dropped:
-                done.append(f"{len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages left out")
+            done = ["picture untouched", tracks_note(info, s), _audio_note(keep_audio, s, out.suffix == ".mp4", True)]
             if fonts is not None:
                 done.append(fonts.note())
-            plan.outcome = ", ".join(done)
+            plan.outcome = ", ".join(x for x in done if x)
             return out, "copy"
         except BaseException:
             remove_quietly(out)
@@ -1142,13 +1224,12 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
         if score is not None:
             check_quality_budget(score, info, s, used)
             notes.append(f"{score} ({score.verdict()})")
-        if dropped:
-            notes.append(f"{len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages left out")
+        notes.extend((tracks_note(info, s), _audio_note(keep_audio, s, out.suffix == ".mp4")))
         if info.crop:
             notes.append(f"black bars removed ({info.crop[0]}×{info.crop[1]})")
         if fonts is not None:
             notes.append(fonts.note())
-        plan.outcome = ", ".join(notes)
+        plan.outcome = ", ".join(x for x in notes if x)
         return out, used
 
     if chunked.applies(info, s, encoder):

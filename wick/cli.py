@@ -47,8 +47,13 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
                    help="AV1: don't store grainy videos without their grain (re-created on playback)")
     g.add_argument("--hide-banding", action="store_true",
                    help="AV1: also add a light grain to clean videos, which hides banding")
+    g.add_argument("--drop-audio-copies", action="store_true",
+                   help="leave out lossy soundtracks that copy a lossless one in the same language")
+    g.add_argument("--stereo", action="store_true", help="mix surround soundtracks down to stereo")
     g.add_argument("--keep-fonts", action="store_true",
                    help="MKV: keep subtitle fonts whole (by default they're cut to the characters used)")
+    g.add_argument("--keep-document-fonts", action="store_true",
+                   help="Office and PDF: keep embedded fonts whole (by default they're cut to the characters used)")
     g.add_argument("--whole", action="store_true",
                    help="encode videos as a whole, not scene by scene (no parts side by side, no carrying on)")
     g.add_argument("--video-metric", choices=("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli"),
@@ -61,6 +66,8 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--audio-format", choices=AUDIO_FORMATS, default="opus")
     g.add_argument("--audio-quality", choices=AUDIO_QUALITIES, default="balanced")
     g.add_argument("--keep-stereo", action="store_true", help="don't store identical-channel stereo as mono")
+    g.add_argument("--no-speech", action="store_true",
+                   help="don't store long talk recordings (podcasts, audiobooks) as mono at a lower bitrate")
     g.add_argument("--cd-quality", action="store_true", help="reduce hi-res audio to 44.1/48 kHz, 16-bit")
     g.add_argument("--min-audio-kb", type=int, default=100)
     g = p.add_argument_group("quality")
@@ -107,9 +114,10 @@ def _settings(a: argparse.Namespace) -> Settings:
         video_max_height=a.max_height, video_max_fps=a.max_fps, audio_bitrate=a.audio_bitrate,
         smart_quality=bool(a.smart), smart_target=a.smart or "identical",
         audio_lossless=a.audio_lossless, audio_lossy=a.audio_lossy, audio_format=a.audio_format,
-        audio_quality=a.audio_quality, audio_mono=not a.keep_stereo, audio_cd_quality=a.cd_quality,
+        audio_quality=a.audio_quality, audio_mono=not a.keep_stereo, audio_speech=not a.no_speech, audio_cd_quality=a.cd_quality,
         min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "banding" if a.hide_banding else "auto",
         video_fonts=not a.keep_fonts,
+        document_fonts=not a.keep_document_fonts, video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
         video_chunked=not a.whole, video_metric=a.video_metric,
     )
     if a.resize_long_edge:

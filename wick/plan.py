@@ -39,6 +39,7 @@ class Plan:
     route: str = ""
     resize: tuple[int, int] | None = None
     note: str = ""                # extra info shown to the user
+    speech: bool = False          # audio: talk (podcast, audiobook): mono at the speech bitrate
     outcome: str = ""             # filled in by the encoder (e.g. Smart quality's choice)
     raw_est: int = 0              # estimate before learning from past results (see calibration.py)
     dest: Path | None = None      # save exactly here ("Save As…" in the preview) instead of per the output mode
@@ -113,6 +114,11 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
             resize = None
     out_w, out_h = resize or (info.width, info.height)
 
+    if fmt == "keep" and kind in (JPEG, PNG) and not resize and not fit:
+        from . import marker
+
+        if marker.has(e.path):
+            return _skip("Already compressed with Wick")
     if info.pages > 1 and not (fmt == "keep" and kind == TIFF):
         return _skip("Multi-page TIFFs can only be compressed with Keep format")
     if kind == WEBP and info.animated and fmt in ("keep", "jxl"):
@@ -289,17 +295,18 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         return _skip("Couldn't read video info")
     if v.hdr == "Dolby Vision":
         return _skip("Dolby Vision video. Re-encoding would lose its Dolby Vision layer")
-    from .video import codec_for, drops_repeats, output_fps, select_tracks
+    from .video import codec_for, drops_repeats, output_fps, packs_as_flac, select_tracks
+    from .video import tracks_note as tracks_note_of
 
     resized = s.video_target_size(v.width, v.height) != (v.width - v.width % 2, v.height - v.height % 2)
     capped = output_fps(v, s) is not None
     repeats = drops_repeats(v, s)
     if v.duration <= 0:
         return _skip("Unknown duration")
-    _a, _subs, dropped = select_tracks(v, s)
+    kept_audio, _subs, dropped = select_tracks(v, s)
     dropped_audio = sum(1 for st in dropped if st.kind == "audio")
-    tracks_note = (f"leaves out {len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages"
-                   if dropped else "")
+    tracks_note = tracks_note_of(v, s).replace(" left out", "")
+    tracks_note = f"leaves out {tracks_note}" if tracks_note else ""
     limit = s.fit_under_kb * 1024
     fit = bool(limit) and e.size > limit
     if fit:
@@ -317,12 +324,19 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         made = made_by_wick(v)
         fonts = subfonts.font_bytes(v) if s.video_fonts and ext == ".mkv" and "fonts cut" not in made else 0
         fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
-        if not dropped and not fonts:
+        pcm = [a for a in kept_audio if packs_as_flac(a, ext == ".mp4")]
+        stereo = [a for a in kept_audio if s.video_stereo and a.channels > 2]
+        if not (dropped or fonts or pcm or stereo):
             return _skip("Already compressed with Wick" if made
                          else f"Already uses an efficient codec ({v.codec.upper()})")
-        saved = dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7
-        est = max(int(e.size * 0.5), int(e.size - saved)) if saved else int(e.size * 0.99)
-        why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "") if x)
+        pcm_bytes = sum(a.bit_rate or 1_536_000 for a in pcm) / 8 * v.duration
+        stereo_bytes = sum(a.bit_rate or 640_000 for a in stereo if a not in pcm) / 8 * v.duration
+        saved = (dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7 + pcm_bytes * 0.45
+                 + stereo_bytes * 0.6)
+        est = max(int(e.size * 0.3), int(e.size - saved)) if saved else int(e.size * 0.99)
+        why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "",
+                                    "uncompressed audio packed as FLAC" if pcm else "",
+                                    "surround mixed down to stereo" if stereo else "") if x)
         return Plan(True, f"{v.codec.upper()} kept as it is; {why}", ext, est, lossless=True, route="video_remux")
     codec = codec_for(v, s)
 
@@ -404,7 +418,8 @@ _FLAC_RATIO = {"pcm": 0.58, "flac": 0.97, "alac": 0.98, "ape": 1.03, "wavpack": 
 
 
 def _plan_audio(e: FileEntry, s: Settings) -> Plan:
-    from .audio import FORMATS, cd_target, flac_problem, is_lossless, source_label, target_kbps
+    from .audio import (ART_CONTAINERS, FORMATS, SPEECH_KBPS, cd_target, flac_problem, is_lossless, is_speech,
+                        made_by_wick, source_label, target_kbps)
 
     if s.audio_lossless == "keep" and s.audio_lossy == "keep":
         return _skip("Audio conversion is off")
@@ -417,6 +432,8 @@ def _plan_audio(e: FileEntry, s: Settings) -> Plan:
         return _skip("Unknown duration")
     if not tools.find_tool("ffmpeg"):
         return _skip("Needs FFmpeg, which isn't installed")
+    if made_by_wick(a):
+        return _skip("Already compressed with Wick")
     src = source_label(e.path, a)
     lossless_src = is_lossless(a.codec)
     extra = []
@@ -436,15 +453,45 @@ def _plan_audio(e: FileEntry, s: Settings) -> Plan:
         return Plan(True, desc, ".flac", int(e.size * min(0.98, ratio)), lossless, False, "audio_flac")
     fmt = s.audio_format
     kbps = target_kbps(fmt, s.audio_quality, a.channels)
+    lossy_on = lossless_src or s.audio_lossy != "keep"
+    speech = (lossy_on and s.audio_speech and fmt in SPEECH_KBPS and a.duration >= 600
+              and _speech(e, a, is_speech))
+    if speech:
+        kbps = SPEECH_KBPS[fmt][s.audio_quality]
     if not lossless_src:
+        art = _art_plan(e, a, ART_CONTAINERS)
         if s.audio_lossy == "keep":
-            return _skip(f"Already compressed ({src}); re-encoding is off")
+            return art or _skip(f"Already compressed ({src}); re-encoding is off")
         src_kbps = a.bit_rate / 1000
         if src_kbps < kbps * 1.4:
-            return _skip(f"Already efficient ({src} at {src_kbps:.0f} kbps)")
+            return art or _skip(f"Already efficient ({src} at {src_kbps:.0f} kbps)")
     # Album art and tags travel along: count what isn't audio in the source.
     other = max(0, e.size - int(a.bit_rate / 8 * a.duration)) if not lossless_src else 0
     est = int(kbps * 1000 / 8 * a.duration) + other
     label = FORMATS[fmt][2]
-    desc = f"{src} → {label} {kbps} kbps"
-    return Plan(True, desc, FORMATS[fmt][0], min(est, int(e.size * 0.95)), False, False, f"audio_{fmt}")
+    desc = f"{src} → {label} {kbps} kbps" + (" mono (speech)" if speech else "")
+    return Plan(True, desc, FORMATS[fmt][0], min(est, int(e.size * 0.95)), False, False, f"audio_{fmt}",
+                speech=speech)
+
+
+ART_MIN_BYTES = 300 * 1024
+
+
+def _art_plan(e: FileEntry, a, containers) -> Plan | None:
+    """Album art stored smaller (same pixels), the sound copied untouched: for files whose art is big."""
+    if a.cover_index < 0 or a.cover_codec not in ("mjpeg", "png") or e.path.suffix.lower() not in containers:
+        return None
+    art = e.size - int(a.bit_rate / 8 * a.duration)
+    if art < ART_MIN_BYTES:
+        return None
+    return Plan(True, "Album art stored smaller (same pixels); sound untouched", e.path.suffix.lower(),
+                e.size - int(art * 0.15), True, False, "audio_art")
+
+
+def _speech(e: FileEntry, a, detect) -> bool:
+    try:
+        return detect(e.path, a)
+    except Exception:  # noqa: BLE001 - can't tell: treat it as music
+        from .log import ignored
+        ignored("plan._speech")
+        return False

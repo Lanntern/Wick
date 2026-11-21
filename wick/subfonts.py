@@ -151,6 +151,7 @@ class FontPlan:
     attach: list[tuple[Path, str, str]] = field(default_factory=list)
     cut: int = 0
     dropped: int = 0
+    pictures: int = 0                   # cover pictures stored smaller (same pixels)
     saved: int = 0
 
     def note(self) -> str:
@@ -159,6 +160,9 @@ class FontPlan:
             parts.append(f"{self.cut} subtitle font{'s' if self.cut != 1 else ''} cut to the characters used")
         if self.dropped:
             parts.append(f"{self.dropped} unused font{'s' if self.dropped != 1 else ''} left out")
+        if self.pictures:
+            parts.append(f"{'cover picture' if self.pictures == 1 else f'{self.pictures} cover pictures'} stored "
+                         "smaller (same pixels)")
         return ", ".join(parts)
 
 
@@ -171,10 +175,16 @@ def _subtitle_text(src: Path, index: int) -> str:
     return p.stdout.decode("utf-8-sig", "replace")
 
 
+def is_picture(st: StreamInfo) -> bool:
+    """A JPEG or PNG attachment (a cover, a poster)."""
+    return st.kind == "attachment" and (st.mimetype in ("image/jpeg", "image/png")
+                                        or Path(st.filename).suffix.lower() in (".jpg", ".jpeg", ".png"))
+
+
 def _dump(src: Path, fonts: list[StreamInfo], folder: Path) -> dict[int, Path]:
-    """The font attachments as files, named by stream index (the names inside the video aren't trusted)."""
+    """The attachments as files, named by stream index (the names inside the video aren't trusted)."""
     ffmpeg = tools.require("ffmpeg")
-    out = {st.index: folder / f"font{st.index}{Path(st.filename).suffix.lower() or '.ttf'}" for st in fonts}
+    out = {st.index: folder / f"att{st.index}{_safe_ext(st)}" for st in fonts}
     args = [ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-y"]
     for index, path in out.items():
         args += [f"-dump_attachment:{index}", str(path)]
@@ -183,8 +193,44 @@ def _dump(src: Path, fonts: list[StreamInfo], folder: Path) -> dict[int, Path]:
     return {i: p for i, p in out.items() if p.is_file() and p.stat().st_size}
 
 
-def plan(src: Path, info: VideoInfo, subs: list[StreamInfo], folder: Path) -> FontPlan | None:
-    """The plan for ``src``'s fonts, given the subtitle tracks kept. None when nothing would change."""
+def _safe_ext(st: StreamInfo) -> str:
+    ext = Path(st.filename).suffix.lower()
+    return ext if ext in FONT_EXTS | {".jpg", ".jpeg", ".png"} else ".png" if "png" in st.mimetype else ".bin"
+
+
+def plan(src: Path, info: VideoInfo, subs: list[StreamInfo], folder: Path, fonts_too: bool = True) -> FontPlan | None:
+    """The plan for ``src``'s attachments, given the subtitle tracks kept: fonts cut (``fonts_too``) and cover
+    pictures stored smaller. None when nothing would change."""
+    result = _fonts(src, info, subs, folder) if fonts_too else None
+    result = _pictures(src, info, folder, result or FontPlan())
+    return result if result.cut or result.dropped or result.pictures else None
+
+
+def _pictures(src: Path, info: VideoInfo, folder: Path, result: FontPlan) -> FontPlan:
+    """JPEG and PNG attachments with the same pixels in fewer bytes (where that works)."""
+    from .documents import shrink_jpeg, shrink_png
+
+    pictures = [st for st in info.streams if is_picture(st)]
+    files = _dump(src, pictures, folder) if pictures else {}
+    for st in pictures:
+        path = files.get(st.index)
+        if path is None:
+            continue
+        data = path.read_bytes()
+        png = data[:8] == b"\x89PNG\r\n\x1a\n"
+        new = shrink_png(data) if png else shrink_jpeg(data) if data[:2] == b"\xff\xd8" else data
+        if len(new) >= len(data):
+            continue
+        smaller = folder / f"small{st.index}{path.suffix}"
+        smaller.write_bytes(new)
+        result.replace.append(st.index)
+        result.attach.append((smaller, st.filename or path.name, "image/png" if png else "image/jpeg"))
+        result.pictures += 1
+        result.saved += len(data) - len(new)
+    return result
+
+
+def _fonts(src: Path, info: VideoInfo, subs: list[StreamInfo], folder: Path) -> FontPlan | None:
     from fontTools.ttLib import TTCollection, TTFont
 
     fonts = [st for st in info.streams if is_font(st)]
@@ -249,4 +295,5 @@ def args(fonts: FontPlan, mapped_attachments: int) -> list[str]:
     return out
 
 
-__all__ = ["FontPlan", "plan", "args", "used_characters", "subset", "is_font", "font_bytes", "MIN_FONT_BYTES"]
+__all__ = ["FontPlan", "plan", "args", "used_characters", "subset", "is_font", "is_picture", "font_bytes",
+           "MIN_FONT_BYTES"]
