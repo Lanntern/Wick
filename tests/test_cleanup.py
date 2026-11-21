@@ -806,7 +806,8 @@ def test_broken_videos_and_music_are_found(tmp_path):
     for name in ("fine.mp4", "fine.flac"):
         data = (tmp_path / name).read_bytes()
         (tmp_path / ("cut" + name[4:])).write_bytes(data[: len(data) * 6 // 10])
-    (tmp_path / "noise.mp4").write_bytes(os.urandom(5000))
+    # (fixed bytes: random ones now and then look like an MPEG stream to ffprobe, which made this flaky)
+    (tmp_path / "noise.mp4").write_bytes(b"this is not a video at all\n" * 200)
     found = {c.path.name: c for c in broken.find_broken([tmp_path]).items}
     assert set(found) == {"cut.mp4", "cut.flac", "noise.mp4"}
     assert found["noise.mp4"].selected and not found["cut.mp4"].selected
