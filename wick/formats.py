@@ -210,6 +210,7 @@ class ImageInfo:
     lossless_source: bool = True   # pixels are exact (PNG/GIF/BMP/TIFF/lossless WebP)
     mode: str = ""
     motion: bool = False           # Motion Photo: a short video is stored inside the image file
+    extras: str = ""               # JPEG: pictures after the main one ("gainmap", "previews", "other"; jpegparts.kind)
 
     @property
     def animated(self) -> bool:
@@ -328,6 +329,13 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
                 info.lossless_source = bool(ll)
             elif kind in (JPEG, HEIC, AVIF):
                 info.lossless_source = False
+                if kind == JPEG:
+                    from .jpegparts import kind as jpeg_extras
+
+                    info.frames = 1            # (Pillow counts the extra pictures after the photo as frames)
+
+                    with open(path, "rb") as f:
+                        info.extras = jpeg_extras(f.read(256 * 1024))
             elif kind == PSD:
                 info.frames = 1                    # (its other "frames" are the layers: the picture is the first)
             elif kind == ICO:

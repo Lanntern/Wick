@@ -62,7 +62,7 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
     if entry.live_pair:
         return _skip("Part of a Live Photo, so the photo and its video stay together")
     if entry.image is not None and entry.image.motion:
-        return _skip("Motion Photo. Its short video is stored inside the file and would be lost")
+        return _plan_motion(entry, s)
     if entry.kind == VIDEO:
         p = _plan_video(entry, s)
     elif entry.kind == AUDIO:
@@ -81,6 +81,25 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
         return _skip(f"No {BIN_NAME} on this drive (USB/network). Choose another output option, "
                      "or allow permanent deletion")
     return p
+
+
+def _plan_motion(e: FileEntry, s: Settings) -> Plan:
+    """A Motion Photo: the photo losslessly and the clip as HEVC, put back together (motionphoto.py)."""
+    if e.kind != JPEG:
+        return _skip("HEIC Motion Photo. Its short video is stored inside the file and would be lost")
+    if s.image_format == "none" or s.video_codec == "none":
+        return _skip("Motion Photo. Both photo and video compression need to be on")
+    from .motionphoto import clip_length
+
+    try:
+        with open(e.path, "rb") as f:
+            clip = clip_length(f.read())
+    except OSError:
+        clip = 0
+    if not clip:
+        return _skip("Motion Photo stored in a way Wick can't rebuild (its video would be lost)")
+    return Plan(True, "Motion Photo: photo made smaller with identical pixels, clip as HEVC", e.path.suffix.lower(),
+                int(e.size - clip * 0.5), False, False, "motion_photo")
 
 
 def _lossy_ratio(q: int, table: tuple[float, float, float, float]) -> float:
@@ -131,6 +150,13 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
             return _skip("HEIC support isn't installed")
 
     route, target, lossless, reversible = "", "", mode == "lossless", False
+
+    if kind == JPEG and fmt != "keep" and getattr(info, "extras", "") in ("gainmap", "other"):
+        # Other formats would carry only the main picture: an Ultra HDR photo would lose its HDR, a stereo or
+        # depth photo its second picture. It stays a JPEG, made smaller with nothing lost.
+        fmt = "keep"
+        notes.append("kept as JPEG to keep its HDR" if info.extras == "gainmap"
+                     else "kept as JPEG to keep its extra pictures")
 
     if fmt == "keep":
         target = e.path.suffix.lower()

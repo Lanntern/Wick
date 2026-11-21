@@ -254,6 +254,11 @@ class SettingsPanel(QWidget):
                                "numbers, owner, author and comments.\nRotation and color profile always stay, so "
                                "images look the same.")
         f.addRow("Metadata", self.metadata)
+        self.image_extras = QCheckBox("Leave out hidden previews and thumbnails")
+        self.image_extras.setToolTip("Many cameras store a smaller copy of each photo inside it, and a tiny thumbnail "
+                                     "in its details. Viewers make their own. HDR gain maps and other pictures "
+                                     "that change how the photo looks are always kept.")
+        f.addRow(self.image_extras)
         self.preserve_dates = QCheckBox("Keep original file dates")
         self.preserve_dates.setToolTip("Results get the original's modified and created dates, so photos stay "
                                        "sorted by when they were taken.")
@@ -581,7 +586,7 @@ class SettingsPanel(QWidget):
                   self.audio_fake_hires,
                   self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
                   self.video_dup_audio, self.video_stereo, self.document_fonts,
-                  self.video_drop_silent, self.video_dolby_vision,
+                  self.video_drop_silent, self.video_dolby_vision, self.image_extras,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -695,6 +700,7 @@ class SettingsPanel(QWidget):
         _set_combo(self.audio_quality, s.audio_quality)
         _set_combo(self.documents, s.documents)
         self.document_fonts.setChecked(s.document_fonts)
+        self.image_extras.setChecked(s.image_extras)
         self.audio_mono.setChecked(s.audio_mono)
         self.audio_speech.setChecked(s.audio_speech)
         self.audio_fake_hires.setChecked(s.audio_fake_hires)
@@ -759,7 +765,7 @@ class SettingsPanel(QWidget):
             video_dolby_vision=self.video_dolby_vision.isChecked(), video_chunked=self.video_chunked.isChecked(),
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
-            document_fonts=self.document_fonts.isChecked(),
+            document_fonts=self.document_fonts.isChecked(), image_extras=self.image_extras.isChecked(),
         )
         s.validate()
         return s

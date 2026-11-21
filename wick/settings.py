@@ -38,6 +38,7 @@ class Settings:
     resize_height: int = 1080
     resize_percent: int = 50
     metadata: str = "keep"           # see METADATA_MODES / metadata.py (orientation + color profile always kept)
+    image_extras: bool = True        # leave out camera previews inside JPEGs and EXIF thumbnails (copies of the photo)
     preserve_dates: bool = True      # give outputs the original's modified/created dates
     # Videos
     video_codec: str = "auto"        # auto (HEVC for camera/phone videos, else AV1) | av1 | hevc | none

@@ -55,6 +55,8 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
                    help="leave Dolby Vision videos alone (by default their HDR base layer is re-encoded)")
     g.add_argument("--keep-fonts", action="store_true",
                    help="MKV: keep subtitle fonts whole (by default they're cut to the characters used)")
+    g.add_argument("--keep-previews", action="store_true",
+                   help="JPEG: keep camera previews and EXIF thumbnails stored inside photos")
     g.add_argument("--keep-document-fonts", action="store_true",
                    help="Office and PDF: keep embedded fonts whole (by default they're cut to the characters used)")
     g.add_argument("--whole", action="store_true",
@@ -123,7 +125,8 @@ def _settings(a: argparse.Namespace) -> Settings:
         audio_fake_hires=not a.keep_upsampled, audio_cd_quality=a.cd_quality,
         min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "banding" if a.hide_banding else "auto",
         video_fonts=not a.keep_fonts,
-        document_fonts=not a.keep_document_fonts, video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
+        document_fonts=not a.keep_document_fonts, image_extras=not a.keep_previews,
+        video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
         video_drop_silent=a.drop_silent, video_dolby_vision=not a.skip_dolby_vision,
         video_chunked=not a.whole, video_metric=a.video_metric,
     )

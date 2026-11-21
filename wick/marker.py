@@ -79,13 +79,19 @@ def add(path: Path) -> bool:
 
 
 def _jpeg_add(data: bytes) -> bytes | None:
+    from . import jpegparts
+
     pos = 2
     while pos + 4 <= len(data) and data[pos] == 0xFF and 0xE0 <= data[pos + 1] <= 0xEF:     # past APP0..APP15
+        if data[pos + 1] == 0xE2 and data[pos + 4:pos + 8] == b"MPF\0":
+            break           # (before the MPF index: the pictures it points to move with it, so offsets hold)
         pos += 2 + struct.unpack(">H", data[pos + 2:pos + 4])[0]
     if pos + 2 > len(data) or data[pos] != 0xFF:
         return None
     text = _text()
-    return data[:pos] + b"\xff\xfe" + struct.pack(">H", len(text) + 2) + text + data[pos:]
+    comment = b"\xff\xfe" + struct.pack(">H", len(text) + 2) + text
+    new = data[:pos] + comment + data[pos:]
+    return jpegparts.grow_main_picture(new, len(comment))
 
 
 def _png_add(data: bytes) -> bytes | None:
