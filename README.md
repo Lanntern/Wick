@@ -37,34 +37,35 @@ can put them back.
 
 | Your files | By default they become | Other choices |
 |---|---|---|
-| JPEG photos | JPEG XL, lossless: it converts back to the exact original JPEG | Smaller JPEG (same format), WebP, AVIF |
+| JPEG photos | Lossless JPEG XL, which converts back to the exact original JPEG | A smaller JPEG, WebP, AVIF |
 | PNG, GIF, BMP, TIFF | JPEG XL, pixel-identical | The same format made smaller, WebP, AVIF |
-| HEIC, AVIF, WebP | JPEG XL (already compressed, so savings are smaller) | The same format, WebP, AVIF |
-| Videos (H.264, MPEG, WMV, ...) | AV1 or HEVC, picked per video | Your choice of codec, resolution and frame rate |
+| HEIC, AVIF, WebP | JPEG XL, though these are already compressed so savings are smaller | The same format, WebP, AVIF |
+| Videos, like H.264, MPEG and WMV | AV1 or HEVC, chosen per video | Your choice of codec, resolution and frame rate |
 | WAV, AIFF, APE, WavPack | FLAC, about half the size, sample-for-sample identical | Opus, AAC or MP3 |
-| Word, Excel, PowerPoint, PDF | The same file with its pictures stored smaller | Scaling large pictures down |
+| Word, Excel, PowerPoint, PDF | The same file with smaller pictures inside | Scaling large pictures down |
 
-Videos use your graphics card when it can (NVIDIA, Intel or AMD) and the processor otherwise. Everything Wick
-needs comes in the download.
+Videos are encoded on your NVIDIA, Intel or AMD graphics card when possible, and on the processor otherwise.
+Everything Wick needs comes in the download.
 
-**Presets** cover the common cases: *Photo archive*, *Screenshots*, *For sharing*, *Maximum savings* and *Keep
-compatible*. **Smart quality** tests each file and keeps the smallest version that still measures as
-visually identical. [All features](docs/features.md)
+Presets cover the common cases: Photo archive, Screenshots, For sharing, Maximum savings and Keep compatible.
+Smart quality tests each file and keeps the smallest version that still measures as visually identical. See
+[all features](docs/features.md).
 
 ## Your files stay safe
 
-- **Nothing changes until you press Compress.** Scanning only reads.
-- **Each result is checked before the original is replaced.** Lossless results must match the original pixel
-  for pixel (or byte for byte); videos are test-played at the start and end.
-- **Originals go to the Recycle Bin**, not straight to deletion. Or save the results next to them or in
-  another folder instead.
-- **Undo is in History.** JPEG XL photos can even be turned back into the exact original JPEG after the bin is
-  emptied.
-- **Wick leaves alone** program and game folders, drives without a Recycle Bin, Motion and Live Photos, Dolby
-  Vision video, and files that wouldn't get meaningfully smaller.
+Scanning only reads your files. Nothing changes until you press Compress, and each result is checked before it
+replaces the original: lossless results must match pixel for pixel, and videos are test-played at the start and
+end.
 
-> Wick is built not to lose files, but it comes with **no warranty**. Keep backups of files that matter, and
-> check the results before you empty the Recycle Bin.
+Originals go to the Recycle Bin, so History can put them back. You can also save results next to the
+originals or in another folder instead. Photos converted losslessly to JPEG XL can be turned back into the exact
+original JPEG even after the bin is emptied.
+
+Wick skips program and game folders, drives without a Recycle Bin, Motion and Live Photos, Dolby Vision video,
+and files that wouldn't get noticeably smaller.
+
+> Wick is designed not to lose files, but it comes with **no warranty**. Keep backups of files that matter,
+> and check the results before you empty the Recycle Bin.
 
 ## Download
 
@@ -91,22 +92,22 @@ open JPEG XL yet, so use WebP for pictures you send to people.
 
 ## Privacy
 
-No account, no ads, no telemetry. Your files are processed on your PC and never uploaded. Wick goes online for
-two things only: checking GitHub for a new version (weekly by default; you can turn it off), and downloading
-Pandoc if you ask it to convert a document. Details are in the [privacy policy](PRIVACY.md).
+Wick has no accounts, ads or tracking, and your files are never uploaded. It only goes online to check GitHub
+for a new version, weekly by default, and to download Pandoc if you ask it to convert a document. The
+[privacy policy](PRIVACY.md) has the details.
 
 ## More
 
-- **Command line:** `wick scan`, `wick run`, `wick undo` and more. See [Command line](docs/features.md#command-line).
-- **AI assistants:** Claude and other MCP apps can plan and run compressions in folders you allow, and Wick
-  asks you in its own window before any change. See [docs/mcp.md](docs/mcp.md).
-- **Keyboard:** everything works without a mouse. Press `F1` in the app for the shortcuts.
-- **Run from source:** see [CONTRIBUTING.md](CONTRIBUTING.md#running-from-source).
-- **Security issues:** see [SECURITY.md](SECURITY.md).
+- [Command line](docs/features.md#command-line): `wick scan`, `wick run`, `wick undo` and more.
+- [AI assistants](docs/mcp.md): Claude and other MCP apps can plan and run compressions in folders you allow.
+  Wick asks you in its own window before changing anything.
+- Keyboard: everything works without a mouse. Press `F1` in the app to see the shortcuts.
+- [Running from source](CONTRIBUTING.md#running-from-source)
+- [Reporting a security issue](SECURITY.md)
 
 ## Support Wick
 
-Wick is free, with no paid tier and nothing locked. If it saved you some space, a star here or a tip on
+Wick is free, with no paid version. If it saved you some space, a star here or a tip on
 [Ko-fi](https://ko-fi.com/lanntern) is appreciated.
 
 ## License
