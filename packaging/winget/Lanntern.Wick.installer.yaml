@@ -13,12 +13,12 @@ Installers:
   InstallerUrl: https://github.com/Lanntern/Wick/releases/download/v0.1.0/Wick-setup.exe
   InstallerSha256: 6D78E8840B3452CB237B1427955B3F48911FCB4C29139FDFF8C091994208929A
   InstallerSwitches:
-    Custom: /ALLUSERS
+    Custom: /ALLUSERS /SOURCE=winget
 - Architecture: x64
   Scope: user
   InstallerUrl: https://github.com/Lanntern/Wick/releases/download/v0.1.0/Wick-setup.exe
   InstallerSha256: 6D78E8840B3452CB237B1427955B3F48911FCB4C29139FDFF8C091994208929A
   InstallerSwitches:
-    Custom: /CURRENTUSER
+    Custom: /CURRENTUSER /SOURCE=winget
 ManifestType: installer
 ManifestVersion: 1.9.0

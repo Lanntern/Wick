@@ -46,5 +46,10 @@ winget only updates packages it already has, so the first version is submitted b
    Every later release then goes to winget automatically. Without the secret, the workflow skips winget and says
    so.
 
+The manifests pass `/SOURCE=winget` to the installer, which leaves `installed-by.txt` next to `Wick.exe`; the
+app then tells people to update with `winget upgrade Lanntern.Wick` instead of offering the download page
+(Scoop installs are recognised from their folder layout). Installers before 0.1.1 ignore the switch, so it's
+better to make 0.1.1 the first version submitted.
+
 Unsigned installers are accepted, but Microsoft's automated checks run SmartScreen and Defender on them; a new,
 unsigned app can be held for manual review.

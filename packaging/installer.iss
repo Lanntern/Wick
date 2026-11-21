@@ -83,6 +83,10 @@ Name: "jxlext"; Description: "Get the JPEG XL Image Extension from the Microsoft
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[UninstallDelete]
+; (Written after installing, so the uninstaller doesn't know about it otherwise.)
+Type: files; Name: "{app}\installed-by.txt"
+
 [Registry]
 ; (An earlier uninstall's clean-up for other users must not run on this new install: see RegisterCleanupForOtherUsers.)
 Root: HKLM; Subkey: "Software\Microsoft\Active Setup\Installed Components\{{221A5C66-2C65-4E55-B016-44533EACAE8C}"; ValueType: none; Flags: deletekey; Check: IsAdminInstallMode
@@ -275,6 +279,12 @@ begin
     Key := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{49ABA96C-4A22-4472-A899-293EBE89FF34}_is1';
     RegWriteDWordValue(Root, Key, 'NoModify', 0);
     RegWriteStringValue(Root, Key, 'ModifyPath', '"' + ExpandConstant('{app}\Wick.exe') + '" --open=settings');
+    // Installed by winget (its manifest passes /SOURCE=winget): the app then says to update with winget instead
+    // of offering the download. A later install from the download page removes the note.
+    if Lowercase(ExpandConstant('{param:SOURCE|}')) = 'winget' then
+      SaveStringToFile(ExpandConstant('{app}\installed-by.txt'), 'winget', False)
+    else
+      DeleteFile(ExpandConstant('{app}\installed-by.txt'));
   end;
 end;
 

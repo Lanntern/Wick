@@ -158,3 +158,20 @@ def test_the_scoop_manifest_follows_a_release(tmp_path):
         update_scoop.update("0.2.0", "11" * 32 + "  Wick-setup.exe\n", copy)  # no zip listed
     with pytest.raises(SystemExit):
         update_scoop.update("0.2; rm", sums, copy)
+
+
+def test_package_manager_installs_are_recognised(tmp_path):
+    scoop = tmp_path / "scoop"
+    (scoop / "shims").mkdir(parents=True)
+    exe = scoop / "apps" / "wick" / "current" / "Wick.exe"
+    exe.parent.mkdir(parents=True)
+    assert updates.install_source(str(exe)) == "scoop"
+    assert updates.install_source(str(scoop / "apps" / "other" / "1.0" / "Wick.exe")) == ""
+
+    installed = tmp_path / "Program Files" / "Wick"
+    installed.mkdir(parents=True)
+    assert updates.install_source(str(installed / "Wick.exe")) == ""          # the download page's installer
+    (installed / "installed-by.txt").write_text("winget\r\n", encoding="utf-8")
+    assert updates.install_source(str(installed / "Wick.exe")) == "winget"
+    assert updates.PACKAGE_MANAGERS["winget"][1] == "winget upgrade Lanntern.Wick"
+    assert updates.install_source() == ""                                       # running from source

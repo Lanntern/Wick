@@ -36,6 +36,37 @@ HELP = ("Wick opens your files with bundled decoders (ffmpeg, image and PDF libr
         "address, like any website). Nothing is downloaded or installed by itself.")
 
 
+# Installed by a package manager: it updates Wick, so the app says the command instead of offering the download.
+PACKAGE_MANAGERS: dict[str, tuple[str, str]] = {      # source -> (name, update command)
+    "scoop": ("Scoop", "scoop update wick"),
+    "winget": ("winget", "winget upgrade Lanntern.Wick"),
+}
+
+
+def install_source(exe: str | None = None) -> str:
+    """"scoop", "winget" or "" (the installer or zip from the download page, or running from source)."""
+    import sys
+    from pathlib import Path
+
+    if exe is None:
+        if not getattr(sys, "frozen", False):
+            return ""
+        exe = sys.executable
+    folder = Path(exe).parent
+    try:
+        # Scoop: <scoop>/apps/wick/<version or "current">/Wick.exe, with <scoop>/shims beside apps.
+        apps = folder.parent.parent
+        if folder.parent.name.lower() == "wick" and apps.name.lower() == "apps" and (apps.parent / "shims").is_dir():
+            return "scoop"
+        # winget: its manifest passes /SOURCE=winget to the installer, which leaves this note.
+        note = folder / "installed-by.txt"
+        if note.is_file() and note.read_text(encoding="utf-8", errors="replace").strip().lower() == "winget":
+            return "winget"
+    except OSError:
+        pass
+    return ""
+
+
 class CheckFailed(Exception):
     pass
 

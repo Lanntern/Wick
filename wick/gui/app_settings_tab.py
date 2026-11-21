@@ -456,6 +456,9 @@ class AppSettingsTab(Page):
 
         state = (f"Version {latest} is available." if latest and updates.newer(latest) else
                  "You have the newest version." if last else "")
+        source = updates.install_source()
+        if latest and updates.newer(latest) and source in updates.PACKAGE_MANAGERS:
+            state += f" Update with: {updates.PACKAGE_MANAGERS[source][1]}"
         self.update_status.setText(f"Last checked: {when}. {state}".strip())
 
     def _open_logs(self) -> None:

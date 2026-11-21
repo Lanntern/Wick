@@ -2482,3 +2482,26 @@ def test_the_running_tasks_button_follows_the_sidebar_width(win):
     side.set_activity([])
     side.set_compact(True)
     assert side.activity_box.isHidden()
+
+
+def test_update_notice_for_a_package_manager_install(win, monkeypatch):
+    """Installed with Scoop: the notice gives the update command (copied on request), not the download page."""
+    from PySide6.QtGui import QDesktopServices, QGuiApplication
+
+    from wick import updates
+    from wick.gui import dialogs
+
+    asked = []
+    opened = []
+    monkeypatch.setattr(updates, "install_source", lambda exe=None: "scoop")
+    monkeypatch.setattr(dialogs, "choose", lambda parent, title, info, cancel, ok: asked.append((info, ok)) or True)
+    monkeypatch.setattr(QDesktopServices, "openUrl", lambda url: opened.append(url))
+    win._release = updates.Release("9.9.9", updates.PAGE, False, "")
+    win._show_update()
+    assert asked and "scoop update wick" in asked[0][0] and asked[0][1] == "Copy Command"
+    assert QGuiApplication.clipboard().text() == "scoop update wick" and not opened
+
+    monkeypatch.setattr(updates, "install_source", lambda exe=None: "")
+    asked.clear()
+    win._show_update()
+    assert asked[0][1] == "Open Download Page" and opened
