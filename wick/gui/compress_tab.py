@@ -105,8 +105,8 @@ class CompressTab(QWidget):
         bar.setSpacing(Space.S)
         self.select_all = button("Select All", "", None, "Select every file that can be compressed", "Ctrl+A")
         self.select_none = button("Select None", "", None, "", "Ctrl+Shift+A")
-        self.preview_btn = button("Preview", "", "eye", "Compare the selected file before and after (videos: a short "
-                                                        "sample)", "Space")
+        self.preview_btn = button("Preview", "", "eye", "Compare the selected file before and after. Videos show a "
+                                                        "short sample.", "Space")
         self.retry_btn = button("Retry Failed", "", "retry", "Run the failed files again", "Ctrl+Shift+R")
         self.retry_btn.setVisible(False)
         self.rescan_btn = button("Rescan", "", "refresh", "Scan the added folders again", "Ctrl+R")
@@ -380,7 +380,7 @@ class CompressTab(QWidget):
             self.add_paths(files)
 
     def type_path(self) -> None:
-        value, ok = QInputDialog.getText(self, "Add a path", "Folder or file path (separate several with ;):")
+        value, ok = QInputDialog.getText(self, "Add a path", "Folder or file path. Separate several with a semicolon:")
         if ok and value.strip():
             self.add_paths([p.strip().strip('"') for p in value.split(";") if p.strip()])
 
@@ -635,12 +635,12 @@ class CompressTab(QWidget):
         missing = sorted(t for t in needed if not tools.find_tool(t))
         if missing:
             warn(self, "Missing tools: " + ", ".join(missing),
-                 "Put them in the 'tools' folder next to Wick (see README).")
+                 "Put them in the tools folder next to Wick. The README explains how.")
             return False
         size = sum(e.size for e, _ in items)
         where = {"replace": f"only then is the original moved to the {BIN_NAME}",
                  "folder": f"the result is saved in {s.output_dir} (originals untouched)",
-                 }.get(s.output_mode, "the result is saved next to the original (originals untouched)")
+                 }.get(s.output_mode, "the result is saved next to the original, which isn't changed")
         if confirm:
             info = f"Each file is checked after conversion; {where}. You can undo this later."
             jxl = sum(1 for _, p in items if p.target_ext == ".jxl")

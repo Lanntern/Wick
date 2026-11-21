@@ -133,8 +133,8 @@ def _show_background_error(kind: str, message: str) -> None:
     _show_background_error.showing = True  # type: ignore[attr-defined]
     try:
         warn(None, "A background task stopped with an error",
-             f"{kind}: {message}\n\nWhat was being done may be unfinished; your files are as the task left them "
-             f"(each file is only replaced once its result is checked). The details are in the log ({log_file()}).")
+             f"{kind}: {message}\n\nThe task may not have finished. Files are only replaced once their result is "
+             f"checked, so none were left half-done. The log has the details: {log_file()}")
     finally:
         _show_background_error.showing = False  # type: ignore[attr-defined]
 

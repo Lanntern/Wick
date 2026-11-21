@@ -251,7 +251,7 @@ class ToolSection(QWidget):
         self.summary = text(_IDLE_SUMMARY, Type.BODY, secondary=True, wrap=True)
         self.summary.setContentsMargins(Space.L, Space.M, Space.L, Space.S)
         self.hide_unsuggested = QCheckBox("Hide not suggested")
-        self.hide_unsuggested.setToolTip("Leave out what isn't suggested (each one's reason shows when it's listed)")
+        self.hide_unsuggested.setToolTip("Hide items that aren't suggested. Each item shows why it isn't.")
         self.hide_unsuggested.setChecked(self.qs.value("cleanup/hide_not_suggested", True, bool))
         self.hide_unsuggested.toggled.connect(self._hide_toggled)
         self.hide_unsuggested.hide()                   # (only when something isn't suggested)
@@ -610,7 +610,8 @@ class ToolSection(QWidget):
             set_sort_keys(it, {2: disk, 3: before or 0, 4: c.size})
             it.setToolTip(2, f"Storage allocated on disk. File length: {human(c.extra.get('logical', disk))}. "
                             "These match for many uncompressed files; compressed files can use less disk space.")
-            it.setToolTip(3, "Measured before Wick first compressed this folder; older game versions may differ.")
+            it.setToolTip(3, "Measured before Wick first compressed this folder. Older versions of the game may "
+                             "differ.")
             it.setToolTip(5, "Scan again after changing settings" if c.extra.get("estimate_pending") else source)
             last = c.extra.get("last_algorithm", "")
             it.setToolTip(6, "Selected for the next compression" + (f"; last used: {last.upper()}" if last else ""))
@@ -883,15 +884,15 @@ class ToolSection(QWidget):
             return
         if action_id == actions.RENAME:
             q = (f"Rename {n} file{'s' if n != 1 else ''} to match what {'they are' if n != 1 else 'it is'}?",
-                 "Only the extension changes (photo.jpg → photo.png). You can undo this later.", "Rename")
+                 "Only the extension changes, for example from photo.jpg to photo.png. You can undo this later.", "Rename")
         elif action_id == actions.HARDLINK:
             other_drive = [c for c in items if not c.extra.get("same_volume", True)]
             if other_drive:
                 inform(self, f"{len(other_drive)} duplicate(s) are on a different drive than the copy that stays",
                        "Hard links only work within one drive. Those will be skipped.")
             q = (f"Replace {n} duplicate{'s' if n != 1 else ''} with hard links?",
-                 "Every file stays where it is, but identical contents are stored only once. Note: editing any "
-                 "one of the linked files changes all of them. You can undo this later.", "Replace")
+                 "Every file stays where it is, but identical contents are only stored once. Editing one linked "
+                 "file changes all of them. You can undo this later.", "Replace")
         elif action_id == actions.COMPACT:
             for candidate in items:
                 candidate.extra.update(self.app_options(candidate.path))
@@ -909,18 +910,18 @@ class ToolSection(QWidget):
 
             if vdisk.docker_desktop_running():
                 inform(self, "Quit Docker Desktop first",
-                       "Compacting needs Docker Desktop fully shut down, not just its window closed: right-click its "
-                       "icon by the clock and choose Quit Docker Desktop, then try again.")
+                       "Docker Desktop has to be fully closed first. Right-click its icon by the clock, choose Quit "
+                       "Docker Desktop, then try again.")
                 return
             live = vdisk.running()
             stops = (f"Running now: {', '.join(live)}. " if live else "")
             q = ("Shut WSL down and compact its virtual disks?",
                  "This shuts down WSL completely, so everything must be fully shut down first. " + stops +
-                 "Every Linux distro stops, with everything running inside it: terminals, servers, databases, "
-                 "Docker containers, and VS Code or other editors connected to WSL. Save your work and close them "
-                 "before you continue; anything unsaved in them is lost.\n\nNothing inside the disks is "
-                 "deleted: only space Linux has already freed goes back to Windows. Windows asks for "
-                 "administrator permission once, and compacting large disks can take several minutes.",
+                 "Every Linux distro will stop, along with anything running in it, like terminals, servers, Docker "
+                 "containers and editors connected to WSL. Save your work first, since anything unsaved will be "
+                 "lost.\n\nNo files inside the disks are deleted. Windows only gets back space Linux has already "
+                 "freed. You'll be asked for administrator permission once, and large disks can take several "
+                 "minutes.",
                  "Shut Down and Compact")
             if not ask(self, *q, destructive=True):
                 return
@@ -1110,7 +1111,7 @@ class ToolSection(QWidget):
         if self.result is not None and not getattr(self, "_scan_complete", True):
             self._scan_complete = True
             self.result.cancelled = True
-            self.result.notes.append("Scan stopped; showing only the results found so far.")
+            self.result.notes.append("Scan stopped. Showing what was found so far.")
             self._fill(self.result)
         self._set_busy(False)
         if self.placeholder.loading:   # stopped or failed before results

@@ -1228,7 +1228,7 @@ def test_monthly_check_only_when_on_and_due(win, monkeypatch):
     ov = overview.Overview()
     ov.space = space.Breakdown("C:", 10 ** 12, 10 ** 11, sizes={space.CACHES: 2 * 1024 ** 3})
     win.home.analyzed.emit(ov)
-    assert messages and "could be freed" in messages[0] and "nothing has been changed" in messages[0]
+    assert messages and "could be freed" in messages[0] and "Nothing has been changed" in messages[0]
     assert _time.time() - win.qsettings.value("monthly/last", 0.0, float) < 60
     messages.clear()
     win._monthly_running = True
@@ -1476,7 +1476,7 @@ def test_convert_lists_documents_and_offers_pandoc(win, tmp_path, monkeypatch):
     assert _wait(lambda: not conv.busy() and conv.tree.topLevelItemCount() == 2, 30)
     rows = {conv.tree.topLevelItem(i).text(0): conv.tree.topLevelItem(i) for i in range(2)}
     row = rows["notes.md"]
-    assert row.text(conv.STATUS_COL) == "Needs Pandoc (see above)"
+    assert row.text(conv.STATUS_COL) == "Needs Pandoc, see above"
     assert rows["sheet.xlsx"].text(conv.STATUS_COL) == "Only Office or LibreOffice reads this: choose PDF"
     assert not conv.pandoc_row.isHidden() and "Pandoc" in conv.pandoc_note.text()
     monkeypatch.setattr(tools, "find_tool", real)
@@ -1606,7 +1606,7 @@ def test_turning_from_the_convert_menu_adds_up(win, tmp_path):
 
     def do(label):
         menu = dict(x for x in conv.menu_entries([e]) if x)
-        dict(x for x in menu["Turn"] if x)[label]()
+        dict(x for x in menu["Rotate"] if x)[label]()
 
     do("Right")
     assert (conv.opts_for(e).turn, conv.opts_for(e).image_target) == (90, "keep")

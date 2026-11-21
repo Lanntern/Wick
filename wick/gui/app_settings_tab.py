@@ -241,10 +241,9 @@ class AppSettingsTab(Page):
                 state = text("Optional, not installed" if name in tools.OPTIONAL_TOOLS else "Missing",
                              Type.FOOTNOTE, secondary=True)
             desc = {"ffmpeg": "Video encoding (AV1, HEVC)", "ffprobe": "Reads video details",
-                    "cjxl": "JPEG XL encoder", "djxl": "JPEG XL decoder (verification, undo)",
+                    "cjxl": "JPEG XL encoder", "djxl": "JPEG XL decoder, for checking results and undo",
                     "cjpegli": "Best-in-class lossy JPEG encoder", "gifsicle": "GIF optimizer",
-                    "ssimulacra2": "Fast image quality metric for Smart quality (a built-in one is used "
-                                   "otherwise)",
+                    "ssimulacra2": "Fast image quality measure for Smart quality. A built-in one is used without it.",
                     "butteraugli_main": "Butteraugli, an optional quality measure for videos"}.get(name, "")
             card.lay.addWidget(setting_row(name, desc, state))
             if i < len(status) - 1:
@@ -404,8 +403,8 @@ class AppSettingsTab(Page):
                 pending.finish(tool)           # (the resume lists name files too)
             if journal.list_runs() or applog.log_file().exists():
                 if ask(self, "Delete the existing history and log too?",
-                       "From now on nothing is written down. What's already there can be deleted as well: "
-                       "those changes then can't be undone.", "Delete", destructive=True):
+                       "Nothing new will be recorded. You can also delete what's already there, but those changes "
+                       "then can't be undone.", "Delete", destructive=True):
                     journal.clear()
                     applog.delete_logs()
         self.win.history.refresh()

@@ -82,5 +82,5 @@ def report_problem(parent: QWidget | None) -> None:
     QGuiApplication.clipboard().setText(diagnostics())
     QDesktopServices.openUrl(QUrl(f"https://github.com/{REPO}/issues/new?template=bug_report.yml"))
     inform(parent, "The bug report form is opening in your browser",
-           "The diagnostics are copied. Paste them into the form's Diagnostics box, but look through them first: "
-           "log lines can include file names.")
+           "The diagnostics are copied. Paste them into the form's Diagnostics box, but check them first, as they "
+           "can include file names.")

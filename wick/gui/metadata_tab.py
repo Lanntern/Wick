@@ -44,13 +44,13 @@ class MetadataTab(FileJobPage):
         self._located = self._cameras = self._unreadable = self._shown_count = 0
         super().__init__(window, "Metadata", "",
                          "Drop photos or videos to check their metadata",
-                         "Location, camera, owner and dates are shown before anything is removed. The image and "
-                         "video data are never re-encoded.")
+                         "You'll see the location, camera, owner and dates before anything is removed. The pictures "
+                         "themselves are never re-encoded.")
         self.tree.header().set_check(0, self._header_state, self.tree.header()._check[2])
         self._drain_timer = QTimer(self, interval=16)
         self._drain_timer.timeout.connect(self._drain)
-        self.confirm_info = ("Only metadata is removed; the image and video data stay byte-for-byte identical "
-                             "(this is verified). You can undo this later.")
+        self.confirm_info = ("Only the metadata is removed, and Wick checks that the pictures themselves are "
+                             "unchanged. You can undo this later.")
 
     def build_options(self, card: Card) -> None:
         qs = self.qs
@@ -69,8 +69,7 @@ class MetadataTab(FileJobPage):
         for label, value in SHOW_CHOICES:
             self.show_filter.addItem(label, value)
         self.show_filter.setCurrentIndex(max(0, self.show_filter.findData(qs.value("meta/show", "all", str))))
-        self.show_filter.setToolTip("Look through a folder and list only the files that reveal something. "
-                                    "Hidden files are never changed.")
+        self.show_filter.setToolTip("Look through a folder and list the files that reveal something about you.")
         self.show_filter.currentIndexChanged.connect(self._filter_changed)
         card.lay.addLayout(option_row(("Show", self.show_filter), ("Remove", self.policy), ("Save", self.output),
                                       ("", self.dates)))
@@ -135,7 +134,7 @@ class MetadataTab(FileJobPage):
         if summary is not None and not summary.anything:
             return "No metadata to remove"
         if e.image is not None and e.image.motion:
-            return "Motion Photo: editing its metadata would detach the video inside"
+            return "Motion Photo. Editing its metadata would detach the video inside."
         return "Can't edit without re-encoding"
 
     def plan(self, e: FileEntry) -> Plan | None:
@@ -271,7 +270,7 @@ class MetadataTab(FileJobPage):
             self.job_status.busy("Metadata scan stopped" if stopped else "Metadata scan complete", 1, 1)
             details = [f"{len(self.entries):,} files checked"]
             if stopped:
-                details.append("Partial results are kept; add the folder again to retry")
+                details.append("What was found so far is kept. Add the folder again to retry.")
             if self._unreadable:
                 details.append(f"{self._unreadable:,} unreadable files (see row status and log)")
             result = worker.result

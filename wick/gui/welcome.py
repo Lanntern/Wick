@@ -12,8 +12,8 @@ from .widgets import button, text
 
 PROMISES = (
     ("lock", "Your files stay on this computer",
-     "No account, no uploads, no tracking. The only connection is a check for a newer version (weekly unless "
-     "you choose otherwise in Settings)."),
+     "Wick doesn't need an account and never uploads your files. It only goes online to check for a newer version, "
+     "weekly by default."),
     ("eye", "Nothing changes until you say so",
      "Scans only look. Every result is checked against its original before anything is replaced."),
     ("undo", "Everything can be undone",

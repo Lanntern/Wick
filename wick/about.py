@@ -48,15 +48,14 @@ CREDITS: tuple[Credit, ...] = (
     Credit("Brotli", "WOFF2 compression", "MIT", "https://github.com/google/brotli"),
 )
 
-PRIVACY = ("Wick works entirely on this computer. It has no accounts, no telemetry and no ads, and it never "
-           "sends your files or anything about them anywhere. It goes online only to check for a newer version "
-           "(weekly by default; Settings → About) and, when you ask for it, to download Pandoc for "
-           "converting documents.")
+PRIVACY = ("Wick works entirely on this computer. It has no accounts, ads or tracking, and never sends your files "
+           "or anything about them anywhere. It only goes online to check for a newer version, weekly by default, "
+           "and to download Pandoc if you ask it to convert a document.")
 
-LICENSE_NOTE = ("Wick is free software, © Lanntern, licensed under the GNU GPL version 3 (LICENSE), with "
-                "NO WARRANTY. Encoders in the tools folder are separate, unmodified programs that Wick runs; "
-                "their license files are next to them. Where to get the source code of every GPL component: "
-                "THIRD-PARTY-NOTICES.md.")
+LICENSE_NOTE = ("Wick is free software by Lanntern, licensed under the GNU GPL version 3 and provided with NO "
+                "WARRANTY. The encoders in the tools folder are separate, unmodified programs, with their license "
+                "files next to them. THIRD-PARTY-NOTICES.md lists where to get the source code of every GPL "
+                "component.")
 
 
 PRIVACY_URL = "https://github.com/Lanntern/Wick/blob/main/PRIVACY.md"

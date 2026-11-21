@@ -46,16 +46,16 @@ class MusicCopyCard(Card):
         self.qs = qs
         self.worker: _Sync | None = None
         self.lay.addLayout(hbox(text("Music for your phone", Type.HEADLINE, bold=True), None))
-        self.lay.addWidget(text("A smaller copy of your music library that stays in sync: lossless songs become "
-                                "Opus, AAC or MP3 with their tags and album art; songs that are already MP3 or AAC "
-                                "are copied as they are. Only what changed is done again, and your library is "
-                                "never changed.", Type.FOOTNOTE, secondary=True, wrap=True))
+        self.lay.addWidget(text("Keeps a smaller copy of your music library in sync, for a phone or SD card. "
+                                "Lossless songs are converted to Opus, AAC or MP3 with their tags and album art, "
+                                "and MP3 and AAC songs are copied as they are. Your library itself isn't changed.",
+                                Type.FOOTNOTE, secondary=True, wrap=True))
         self.library_label = ElidedLabel("", Type.BODY, secondary=True)   # paths: shortened, full in the tooltip
         self.dest_label = ElidedLabel("", Type.BODY, secondary=True)
         pick_lib = button("Choose…", "", "folder", "Choose your music library")
         pick_lib.setAccessibleName("Choose music library")
         pick_lib.clicked.connect(lambda: self._pick("library", "Your music library"))
-        pick_dest = button("Choose…", "", "folder", "Choose where the copy goes (a phone, SD card or a folder)")
+        pick_dest = button("Choose…", "", "folder", "Choose where the copy goes, like a phone, SD card or folder")
         pick_dest.setAccessibleName("Choose where the copy goes")
         pick_dest.clicked.connect(lambda: self._pick("dest", "Put the copy in"))
         grid = QGridLayout()          # labels in one column, paths beside them, buttons aligned on the right

@@ -102,7 +102,7 @@ class AboutDialog(QDialog):
         policy = QLabel(f'<a href="{PRIVACY_URL}">Read the full privacy policy</a>')
         policy.setOpenExternalLinks(True)
         policy.setTextInteractionFlags(Qt.TextBrowserInteraction)        # (Tab reaches it; Enter opens it)
-        policy.setToolTip("Everything Wick keeps and when it goes online (opens GitHub)")
+        policy.setToolTip("What Wick stores and when it goes online. Opens GitHub.")
         titles.addWidget(policy)
         head.addLayout(titles, 1)
         lay.addLayout(head)
@@ -144,7 +144,8 @@ class AboutDialog(QDialog):
             files = button("License Files", "", "folder", "Show the license files of the bundled tools")
             files.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(licenses))))
             buttons.addWidget(files)
-        copy = button("Copy Versions", "", None, "Copy every component's version (useful when reporting a problem)")
+        copy = button("Copy Versions", "", None, "Copy every component's version, which helps when reporting a "
+                                                 "problem")
         copy.clicked.connect(self._copy_versions)
         buttons.addWidget(copy)
         buttons.addStretch(1)

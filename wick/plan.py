@@ -58,9 +58,9 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
     if s.output_mode == "folder" and not s.output_dir.strip():
         return _skip("Choose an output folder")
     if entry.live_pair:
-        return _skip("Part of a Live Photo (the photo and its video belong together)")
+        return _skip("Part of a Live Photo, so the photo and its video stay together")
     if entry.image is not None and entry.image.motion:
-        return _skip("Motion Photo: its short video is stored inside the file and would be lost")
+        return _skip("Motion Photo. Its short video is stored inside the file and would be lost")
     if entry.kind == VIDEO:
         p = _plan_video(entry, s)
     elif entry.kind == AUDIO:
@@ -93,7 +93,7 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
         return _skip(f"Smaller than {s.min_image_kb} KB")
     info = e.image
     if info is None:
-        return _skip("Couldn't read this image (damaged or unsupported)")
+        return _skip("Couldn't read this image. It may be damaged or in an unsupported format")
 
     kind, q = e.kind, s.image_quality
     lossy_src = not info.lossless_source
@@ -114,14 +114,14 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
     out_w, out_h = resize or (info.width, info.height)
 
     if info.pages > 1 and not (fmt == "keep" and kind == TIFF):
-        return _skip("Multi-page TIFF (only 'Keep format' can handle it)")
+        return _skip("Multi-page TIFFs can only be compressed with Keep format")
     if kind == WEBP and info.animated and fmt in ("keep", "jxl"):
         return _skip("Animated WebP is already efficient" if fmt == "keep"
                      else "Animated WebP can't be converted to JPEG XL")
     if kind == HEIC and fmt == "keep":
         from .formats import register_heif
         if not register_heif():
-            return _skip("HEIC support (pillow-heif) is missing")
+            return _skip("HEIC support isn't installed")
 
     route, target, lossless, reversible = "", "", mode == "lossless", False
 
@@ -142,7 +142,7 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
                 route = "png_quant" if mode == "lossy" else "png_opt"
         elif kind == GIF:
             if not tools.find_tool("gifsicle"):
-                return _skip("Needs gifsicle (not installed)")
+                return _skip("Needs gifsicle, which isn't installed")
             route = "gif"
         elif kind == TIFF:
             if deep:
@@ -161,7 +161,7 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
             route, lossless = "avif", False
     elif fmt == "jxl":
         if not (tools.find_tool("cjxl") and tools.find_tool("djxl")):
-            return _skip("Needs cjxl/djxl (not installed)")
+            return _skip("Needs the JPEG XL tools, which aren't installed")
         target = ".jxl"
         if kind == JPEG and mode == "lossless" and not resize:
             route, reversible = "jxl_transcode", s.metadata == "keep"
@@ -171,17 +171,17 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
     elif fmt == "webp":
         target, route = ".webp", "webp"
         if kind == JPEG and mode == "lossless":
-            return _skip("WebP has no lossless mode for JPEGs (pick Lossy, or JPEG XL)")
+            return _skip("WebP can't store JPEGs losslessly. Choose Lossy, or use JPEG XL")
         lossless = mode == "lossless" and not lossy_src
         if lossless and deep:
-            return _skip("16-bit image would lose precision as WebP (use JPEG XL)")
+            return _skip("This 16-bit image would lose precision as WebP. Use JPEG XL instead")
         if max(out_w, out_h) > WEBP_MAX_DIM:
             return _skip(f"Larger than WebP's {WEBP_MAX_DIM}px limit")
     elif fmt == "avif":
         if mode == "lossless" and not lossy_src:
-            return _skip("AVIF has no efficient lossless mode (use JPEG XL or WebP, or pick Lossy)")
+            return _skip("AVIF isn't efficient at lossless. Use JPEG XL or WebP, or choose Lossy")
         if kind == JPEG and mode == "lossless":
-            return _skip("JPEG can't be stored losslessly as AVIF (use JPEG XL, or pick Lossy)")
+            return _skip("AVIF can't store JPEGs losslessly. Use JPEG XL, or choose Lossy")
         target, route, lossless = ".avif", "avif", False
 
     if lossy_src and kind != JPEG and route in ("webp", "avif", "heic", "jxl"):
@@ -288,7 +288,7 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
     if v is None:
         return _skip("Couldn't read video info")
     if v.hdr == "Dolby Vision":
-        return _skip("Dolby Vision video: re-encoding would lose its Dolby Vision layer")
+        return _skip("Dolby Vision video. Re-encoding would lose its Dolby Vision layer")
     from .video import codec_for, drops_repeats, output_fps, select_tracks
 
     resized = s.video_target_size(v.width, v.height) != (v.width - v.width % 2, v.height - v.height % 2)
@@ -408,7 +408,7 @@ def _plan_audio(e: FileEntry, s: Settings) -> Plan:
     if a.duration <= 0:
         return _skip("Unknown duration")
     if not tools.find_tool("ffmpeg"):
-        return _skip("Needs ffmpeg (not installed)")
+        return _skip("Needs FFmpeg, which isn't installed")
     src = source_label(e.path, a)
     lossless_src = is_lossless(a.codec)
     extra = []

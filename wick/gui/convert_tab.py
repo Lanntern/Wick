@@ -85,10 +85,11 @@ class ConvertTab(FileJobPage):
                                       "Format for documents (Word, OpenDocument, Markdown, web pages, EPUB, RTF)")
         fonts = [(v[0], k) for k, v in convert.FONT_TARGETS.items()] + [("Don't convert", "none")]
         self.font_target = _combo(fonts, qs.value("convert/font", "none", str),
-                                  "What to make of fonts (WOFF2 for websites; Latin-only in More Settings)")
+                                  "Font output. WOFF2 is for websites, and More Settings can make smaller "
+                                  "Latin-only fonts.")
         pdfs = [(convert.PDF_TARGETS[k][0], k) for k in convert.PDF_PAGE_TARGETS] + [("Don't convert", "none")]
         self.pdf_target = _combo(pdfs, qs.value("convert/pdf", "none", str),
-                                 "What to make of PDFs (more in the context menu: turn pages, passwords, combine)")
+                                 "PDF output. Right-click a PDF to rotate pages, set a password or combine files.")
         self.quality = QSpinBox()
         self.quality.setRange(1, 100)
         self.quality.setValue(qs.value("convert/quality", 90, int))
@@ -468,7 +469,7 @@ class ConvertTab(FileJobPage):
         from . import convert_presets
         from .dialogs import ask
 
-        name, ok = QInputDialog.getText(self, "Save as Preset", "Name (as it appears in Explorer's menu):")
+        name, ok = QInputDialog.getText(self, "Save as Preset", "Name in Explorer's menu:")
         name = name.strip()
         if not ok or not name:
             return
@@ -606,7 +607,7 @@ class ConvertTab(FileJobPage):
             if group == "pdfs":
                 out.append(("PDF", self._pdf_menu(entries)))
             if group in ("image", "video"):
-                out.append(("Turn", self._turn_menu(entries, field)))
+                out.append(("Rotate", self._turn_menu(entries, field)))
             groups = {group}
 
         def edit() -> None:
@@ -669,8 +670,8 @@ class ConvertTab(FileJobPage):
             self._set_own(entries, lambda o: dataclasses.replace(o, pdf_target=target, pdf_password=password))
 
         def protect() -> None:
-            pw = self._ask_password("Add a Password", "The copy opens only with this password. Keep it "
-                                    "somewhere safe: it can't be recovered.", confirm=True)
+            pw = self._ask_password("Add a Password", "The copy will only open with this password. Keep it "
+                                                      "somewhere safe, as it can't be recovered.", confirm=True)
             if pw:
                 own("protect", pw)
 
@@ -679,8 +680,8 @@ class ConvertTab(FileJobPage):
             if pw:
                 own("unlock", pw)
 
-        return [("Turn Pages Right", lambda: own("rotate90")), ("Turn Pages Left", lambda: own("rotate270")),
-                ("Turn Pages Upside Down", lambda: own("rotate180")), None,
+        return [("Rotate Pages Right", lambda: own("rotate90")), ("Rotate Pages Left", lambda: own("rotate270")),
+                ("Rotate Pages Upside Down", lambda: own("rotate180")), None,
                 ("Split Into Single Pages", lambda: own("split")), None,
                 ("Add a Password…", protect), ("Remove the Password…", unlock)]
 
@@ -747,7 +748,7 @@ class ConvertTab(FileJobPage):
         dest = _unique(e.path.with_name(f"{e.path.stem} (trimmed){e.path.suffix}"))
         self.run_made(dest, lambda out, step, cancel: cutjoin.trim(
             e.path, start, end, out, exact, lambda f: step(round(f * 100), 100), cancel), [e.path],
-            f"Trimmed to {clock(start)}–{clock(end)}" + (" (re-encoded)" if exact else " (copied, no quality lost)"),
+            f"Trimmed to {clock(start)}–{clock(end)}" + (", re-encoded" if exact else " without re-encoding"),
             "Trimming")
 
     def _join(self, entries: list[FileEntry]) -> None:
@@ -772,7 +773,7 @@ class ConvertTab(FileJobPage):
         out = Path(dest).with_suffix(ext)
         self.run_made(out, lambda tmp, step, cancel: cutjoin.join(
             paths, tmp, reencode, lambda f: step(round(f * 100), 100), cancel), paths,
-            f"{len(paths)} files joined" + (" (re-encoded)" if reencode else " (copied, no quality lost)"), "Joining")
+            f"{len(paths)} files joined" + (", re-encoded" if reencode else " without re-encoding"), "Joining")
 
     def run_made(self, dest: Path, work, inputs: list[Path], method: str, busy: str) -> None:
         """Make one new file from several (``work(temp, progress, cancel)``) in the background, then put it at
@@ -886,9 +887,9 @@ class ConvertTab(FileJobPage):
             if not office.available():
                 return "Needs Microsoft Office or LibreOffice"
         elif ext not in PANDOC_INPUTS:
-            return "Only Office or LibreOffice reads this: choose PDF"
+            return "Only Office or LibreOffice can read this. Choose PDF instead."
         if convert.needs_pandoc(e.path, target) and tools.find_tool("pandoc") is None:
-            return "Needs Pandoc (see above)"
+            return "Needs Pandoc, see above"
         return ""
 
     @staticmethod
@@ -897,13 +898,13 @@ class ConvertTab(FileJobPage):
         from ..formats import VIDEO
 
         if t[0] == "keep" and not (opts.turn or opts.flip):
-            return "Nothing to change (choose a turn or a flip, or a format)"
+            return "Nothing to change yet. Choose a format, or rotate or flip the file."
         if e.kind == VIDEO and (opts.turn or opts.flip):
             if t[0] == "keep" and e.path.suffix.lower() not in convert.MP4_FAMILY:
-                return "Only MP4 and MOV turn without re-encoding: choose MP4"
+                return "Only MP4 and MOV can be rotated without re-encoding. Choose MP4."
             if t[0] != "keep" and t[0] not in ("mp4_h264", "mp4_hevc", *convert.ANIMATION_TARGETS) \
                     and t[0] not in convert.SOUND_TARGETS:
-                return "To turn a video, convert it to MP4 (or keep its format, for MP4 and MOV)"
+                return "To rotate a video, convert it to MP4, or keep the format if it's already MP4 or MOV."
         if t[0] == "keep" and e.kind not in (*convert.KEEP_TARGET, VIDEO):
             return f"{KIND_LABEL.get(e.kind, e.kind)} can't be saved in its own format: choose one"
         return ""
@@ -918,21 +919,21 @@ class ConvertTab(FileJobPage):
         elif t is not None and e.kind in (DOC, DOCUMENT) and self._document_problem(e, t[0]):
             status = self._document_problem(e, t[0])
         elif t is not None and t[0] == "mp4":
-            status = "Not an animation (only animations become videos)"
+            status = "Only animations can become videos."
         elif t is not None and t[0] == "svg":
-            status = "Not an SVG (only SVG drawings are optimized)"
+            status = "Only SVG drawings can be optimized."
         elif t is not None and _same_format(e.path.suffix, t[1]):
             status = f"Already {KIND_LABEL.get(e.kind, e.kind)}"
         elif self.output.currentData() == "folder" and not self.folder.text().strip():
             status = "Choose an output folder"
         elif e.kind == PDF and t is None:
-            status = "Choose “PDFs to” above (more in the context menu)"
+            status = "Choose an option under PDFs to, above. Right-click for more."
         elif e.kind == COMIC and t is None:
             status = "To make it a PDF: Convert To in its context menu"
         elif e.kind == ARCHIVE and t is None:
             status = "To repack it: Convert To in its context menu"
         else:
-            status = "Not converted (check the format settings)"
+            status = "Not converted. Check the format settings."
         kind = e.path.suffix[1:].upper() if e.kind == PICTURE else KIND_LABEL.get(e.kind, e.kind)
         return [e.path.name, e.path.parent.name, kind, human(e.size),
                 p.reason if p else "–", status]

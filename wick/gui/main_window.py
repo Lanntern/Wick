@@ -635,8 +635,8 @@ class MainWindow(QMainWindow):
         if total < self.MONTHLY_MIN:
             return
         self._last_notice = "monthly"
-        self.tray_message(f"About {human(total)} could be freed. Open Wick to see where "
-                          "(nothing has been changed).", force=True)
+        self.tray_message(f"About {human(total)} could be freed. Open Wick to see where. Nothing has been changed "
+                          "yet.", force=True)
 
     def _message_clicked(self) -> None:
         if getattr(self, "_last_notice", "") == "monthly":

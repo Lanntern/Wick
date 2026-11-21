@@ -384,7 +384,7 @@ class HomeTab(Page):
         groups = sorted(ov.efficient.values(), key=lambda g: g.size, reverse=True)
         self.eff_box.setText("<br><br>".join(
             f"<b>{g.label}</b><br>{g.count:,} file{'s' if g.count != 1 else ''} · {human(g.size)}<br>{g.explanation}"
-            for g in groups) or "None found: every file could shrink.")
+            for g in groups) or "None found. Every file could be made smaller.")
         self.qs.setValue("home/last", time.time())
         self._update_send()
 

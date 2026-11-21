@@ -29,11 +29,9 @@ FREQUENCIES: dict[str, tuple[str, int | None]] = {
     "never": ("Never", None),
 }
 DEFAULT_FREQUENCY = "weekly"
-HELP = ("Wick opens your files with bundled decoders (ffmpeg, image and PDF libraries) that regularly get "
-        "security fixes. It asks GitHub whether a newer Wick exists (weekly unless you choose otherwise), so "
-        "you hear about them. "
-        "Only the version number is fetched: nothing about you or your files is sent (GitHub sees your IP "
-        "address, like any website). Nothing is downloaded or installed by itself.")
+HELP = ("Wick's bundled decoders regularly get security fixes, so it checks GitHub for a newer version, weekly by "
+        "default. Only the version number is fetched, and nothing about you or your files is sent, though GitHub "
+        "sees your IP address like any website. Nothing is downloaded or installed automatically.")
 
 
 # Installed by a package manager: it updates Wick, so the app says the command instead of offering the download.

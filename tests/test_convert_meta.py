@@ -388,7 +388,7 @@ def test_turning_pictures_without_losing_quality(media_dir):
     img.save(media_dir / "shot.png")
     s = Settings(output_mode="beside", min_image_kb=0, output_suffix="_turned")
     opts = convert.ConvertOptions(image_target="keep", turn=90, only_if_smaller=False)
-    assert convert.describe("jpeg", opts) == "Same format, turned right"
+    assert convert.describe("jpeg", opts) == "Same format, rotated right"
     entries = {e.path.name: e for e in scan(media_dir, s).entries}
     data = (media_dir / "photo.jpg").read_bytes()
     r = process_convert(entries["photo.jpg"], Plan(True, "", ".jpg", route="keep"), s, None, opts=opts)

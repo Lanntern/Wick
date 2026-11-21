@@ -350,7 +350,7 @@ class WatchTab(Page):
         if power.user_busy():          # a game or presentation is full-screen: don't make it stutter
             if not getattr(self, "_waiting_for_quiet", False):
                 self._waiting_for_quiet = True
-                self._log("Waiting: something is running full-screen")
+                self._log("Waiting while something runs full-screen")
             QTimer.singleShot(60_000, self._next)
             return
         self._waiting_for_quiet = False

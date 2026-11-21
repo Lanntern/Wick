@@ -179,8 +179,8 @@ class SpaceCard(Card):
 
     @staticmethod
     def _tip(key: str) -> str:
-        return {space.CACHES: "Review app caches on Clean Up (nothing is removed until you confirm)",
-                space.BIN: "Open it to see what's there (emptying it frees this space)"}.get(
+        return {space.CACHES: "Review app caches on Clean Up. Nothing is removed until you confirm.",
+                space.BIN: "Open it to see what's there. Emptying it frees this space."}.get(
             key, "Review these files on Compress")
 
 

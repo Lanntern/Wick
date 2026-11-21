@@ -92,8 +92,8 @@ class ActivityMonitor:
             layout.addWidget(self.table)
             go = button("Go to Task", "", None, "")
             go.clicked.connect(self.go)
-            self.stop_btn = button("Stop", "", "stop", "Stop the selected task (the file being processed keeps "
-                                                       "its original)")
+            self.stop_btn = button("Stop", "", "stop", "Stop the selected task. The file it's working on keeps its "
+                                                       "original.")
             self.stop_btn.clicked.connect(lambda: self.stop_task())
             self.stop_all_btn = button("Stop All", "", None, "Stop every running task")
             self.stop_all_btn.clicked.connect(self.stop_all)

@@ -29,7 +29,7 @@ BUILTIN: dict[str, tuple[str, dict]] = {
         "resize_mode": "none", "video_codec": "av1", "video_quality": "high", "video_max_height": 0,
         "video_max_fps": 0, "audio_bitrate": 0, "smart_quality": False,
         "audio_lossless": "flac", "audio_lossy": "keep", "audio_mono": True, "audio_cd_quality": False}),
-    "Screenshots": ("Lossless JPEG XL for screenshots and graphics; videos untouched.", {
+    "Screenshots": ("Lossless JPEG XL for screenshots and graphics. Videos are left as they are.", {
         "image_format": "jxl", "jpeg_mode": "lossless", "png_mode": "lossless", "metadata": "keep",
         "resize_mode": "none", "video_codec": "none", "smart_quality": False,
         "audio_lossless": "keep", "audio_lossy": "keep"}),
@@ -40,8 +40,7 @@ BUILTIN: dict[str, tuple[str, dict]] = {
         "video_codec": "hevc", "video_quality": "balanced", "video_max_height": 1080, "video_max_fps": 60,
         "audio_bitrate": 128, "smart_quality": False,
         "audio_lossless": "lossy", "audio_lossy": "reencode", "audio_format": "aac", "audio_quality": "balanced"}),
-    "Maximum savings": ("Smart quality aiming for 'good': lossy JPEG XL and AV1, videos up to 1080p, "
-                        "Opus music.", {
+    "Maximum savings": ("Smart quality set to Good, with lossy JPEG XL and AV1, videos up to 1080p and Opus music.", {
         "image_format": "jxl", "jpeg_mode": "lossy", "png_mode": "lossy", "image_quality": 80,
         "resize_mode": "none", "metadata": "keep", "video_codec": "av1", "video_quality": "small",
         "video_max_height": 1080, "video_max_fps": 0, "audio_bitrate": 96, "smart_quality": True,
