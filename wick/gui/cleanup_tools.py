@@ -15,6 +15,7 @@ from ..cleanup import (
 )
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
+from ..cleanup import apps as apps_mod
 from .cleanup_section import Tool, ToolSection, _existing
 from .widgets import SizeInput, button, dialog_buttons, dialog_layout
 
@@ -65,7 +66,8 @@ def _similar_options(sec: "ToolSection"):
     for label, value in (("Nearly identical", "very"), ("Similar", "similar")):
         how.addItem(label, value)
     how.setCurrentIndex(max(0, how.findData(sec.qs.value("cleanup/similar/strictness", "very", str))))
-    how.setToolTip("Nearly identical: re-saved, resized or slightly edited copies. Similar: also burst shots.")
+    how.setToolTip("Nearly identical finds re-saved, resized or slightly edited copies. Similar also finds burst "
+                   "shots.")
     how.currentIndexChanged.connect(lambda: sec.qs.setValue("cleanup/similar/strictness", how.currentData()))
     sec.extra_how = how
     sec.extra_min = _size_setting(sec, "cleanup/similar", 50 * 1024)
@@ -99,8 +101,8 @@ def _videos_options(sec: "ToolSection"):
     for label, value in (("Nearly identical", "very"), ("Similar", "similar")):
         how.addItem(label, value)
     how.setCurrentIndex(max(0, how.findData(sec.qs.value("cleanup/videos/strictness", "very", str))))
-    how.setToolTip("Nearly identical: the same video in another size or format. Similar: also copies with "
-                   "changed colors, a watermark or subtitles burned in.")
+    how.setToolTip("Nearly identical finds the same video in another size or format. Similar also finds copies with "
+                   "changed colors, a watermark or burned-in subtitles.")
     how.currentIndexChanged.connect(lambda: sec.qs.setValue("cleanup/videos/strictness", how.currentData()))
     sec.extra_how = how
     return [("Match", how)]
@@ -111,8 +113,8 @@ def _music_options(sec: "ToolSection"):
     for label, value in (("Same recording", "sound"), ("Same title and artist", "tags")):
         how.addItem(label, value)
     how.setCurrentIndex(max(0, how.findData(sec.qs.value("cleanup/music/by", "sound", str))))
-    how.setToolTip("Same recording: listens to the songs, whatever their names and tags. Same title and artist: "
-                   "only reads the tags (faster).")
+    how.setToolTip("Same recording listens to the songs, whatever their names and tags. Same title and artist only "
+                   "reads the tags, which is faster.")
     how.currentIndexChanged.connect(lambda: sec.qs.setValue("cleanup/music/by", how.currentData()))
     sec.extra_how = how
     return [("Match", how)]
@@ -272,16 +274,16 @@ def _appcompress_options(sec: ToolSection):
 
 def _takeout_options(sec: ToolSection):
     albums = QComboBox()
-    for label, value in (("As links (no extra space)", "link"), ("As copies", "copy"), ("Leave out", "skip")):
+    for label, value in (("As links, using no extra space", "link"), ("As copies", "copy"), ("Leave out", "skip")):
         albums.addItem(label, value)
-    albums.setToolTip("Takeout repeats every album photo in the year folders. Links keep your albums as folders "
-                      "without storing the photos twice (they're hard links: the same file in two places).")
+    albums.setToolTip("Takeout puts a copy of every album photo in the year folders as well. Links keep your albums "
+                      "as folders without storing each photo twice.")
     albums.setCurrentIndex(max(0, albums.findData(sec.qs.value("cleanup/takeout/albums", "link", str))))
     albums.currentIndexChanged.connect(lambda: sec.qs.setValue("cleanup/takeout/albums", albums.currentData()))
     edited = QComboBox()
     for label, value in (("Keep both", "both"), ("Only the edited one", "edited"), ("Only the original", "original")):
         edited.addItem(label, value)
-    edited.setToolTip("Photos you edited in Google Photos come out twice: the original and \"…-edited\".")
+    edited.setToolTip("Photos you edited in Google Photos come out twice, as the original and an \"-edited\" copy.")
     edited.setCurrentIndex(max(0, edited.findData(sec.qs.value("cleanup/takeout/edited", "both", str))))
     edited.currentIndexChanged.connect(lambda: sec.qs.setValue("cleanup/takeout/edited", edited.currentData()))
     sec.takeout_albums, sec.takeout_edited = albums, edited
@@ -376,8 +378,8 @@ def _dev_options(sec: ToolSection):
     opts = _days_option("devclean", 30, "Pre-select projects untouched for",
                         "Projects with changed files or git activity more recently are listed but not "
                         "pre-selected")(sec)
-    btn = button("Protected", "", "lock", "Projects and folders that are never listed. Right-click a result to "
-                                          "protect it.")
+    btn = button("Protected", "", "lock", "These projects and folders are never listed. Right-click a result to add "
+                                          "it here.")
     menu = QMenu(btn)
 
     def fill():
@@ -447,44 +449,44 @@ def _dup_group_title(g: str, items: list[Candidate]) -> str:
 def tools() -> list[Tool]:
     return [
         Tool("duplicates", "Duplicates",
-             "Finds files that are byte-for-byte identical (checked with a full checksum, not just the name). "
-             f"Keep one copy and move the others to the {BIN_NAME}, or replace them with hard links so every "
-             "path keeps working while the contents are stored once.",
+             "Finds files with exactly the same contents, whatever their names. Keep one copy and move the others "
+             f"to the {BIN_NAME}, or replace them with hard links so every copy keeps working but the space is only "
+             "used once.",
              lambda: _existing("Pictures", "Videos", "Documents", "Downloads", "Desktop", "Music"),
              _scan_duplicates,
              [(actions.HARDLINK, "Replace with Hard Links", ""), (actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_keep_options, group_title=_dup_group_title),
         Tool("similar", "Similar Photos",
-             "Finds photos that look alike even when the files differ: re-saved, resized or edited copies, and "
-             "(on Similar) burst shots. The best one of each group stays (most pixels, then sharpest). Only "
-             "obvious copies are pre-selected; hover a row to see the photo.",
+             "Finds photos that look alike even when the files are different, like re-saved, resized or edited "
+             "copies, and burst shots on Similar. The best photo in each group stays. Only obvious copies are "
+             "selected for you, and you can hover a row to see the photo.",
              lambda: _existing("Pictures", "Desktop", "Downloads"), _scan_similar,
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_similar_options, group_title=_similar_group_title),
         Tool("videos", "Similar Videos",
-             "Finds the same video saved more than once as different files: a smaller copy, another resolution "
-             "or format, a second download. The copy with the most pixels stays; lower-resolution copies that "
-             "look the same are pre-selected.",
+             "Finds the same video saved more than once, like a smaller copy, another format or a second download. "
+             "The copy with the most pixels stays, and lower-resolution copies that look the same are selected for "
+             "you.",
              lambda: _existing("Videos", "Pictures", "Downloads", "Desktop"),
              lambda s, p, c: videos.find_similar_videos(s.folders, strictness=s.extra_how.currentData(),
                                                         progress=p, cancel=c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_videos_options,
              group_title=videos.group_title),
         Tool("music", "Same Music",
-             "Finds songs saved more than once, even as different files: an MP3 and a FLAC of the same "
-             "recording, or two downloads at different bitrates. The best copy stays (lossless, then the "
-             "highest bitrate). Only copies in the same format as the one that stays are pre-selected.",
+             "Finds songs saved more than once, even as different files, like an MP3 and a FLAC of the same "
+             "recording. The best-quality copy stays. Only copies in the same format as that one are selected for "
+             "you.",
              lambda: _existing("Music", "Downloads", "Desktop", "Documents"), _scan_music,
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_music_options,
              group_title=music.group_title),
         Tool("large", "Large Files",
-             "The biggest files in these folders, largest first: old videos, disk images, downloads you forgot. "
-             "Nothing is pre-selected.",
+             "The biggest files in these folders, like old videos, disk images and forgotten downloads. Nothing is "
+             "selected for you.",
              lambda: [Path.home()], _scan_large, [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_large_options),
         Tool("folders", "Folder Sizes",
-             "How much space each folder takes, biggest first. Open a folder to see what's inside it, all the way "
-             "down. Hidden and program folders are measured too; folders apps and Windows need can't be selected.",
+             "How much space each folder takes, biggest first. Open a folder to see what's inside. Folders that "
+             "apps and Windows need can't be selected.",
              lambda: [Path.home()], lambda s, p, c: folders.find_folder_sizes(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("extensions", "Wrong Extensions",
@@ -493,9 +495,9 @@ def tools() -> list[Tool]:
              lambda: [Path.home()], lambda s, p, c: extensions.find_wrong_extensions(s.folders, p, c),
              [(actions.RENAME, "Fix Names", "primary")]),
         Tool("broken", "Broken Files",
-             "Photos, videos, music, archives and PDFs that can't be opened, or whose end is missing after an "
-             "interrupted download or copy. Files that can't be opened at all are pre-selected; damaged ones "
-             "often still open in part, so you decide.",
+             "Photos, videos, music, archives and PDFs that can't be opened, or were cut short by an interrupted "
+             "download or copy. Files that won't open at all are selected for you. Damaged ones often still partly "
+             "open, so those are up to you.",
              lambda: _existing("Pictures", "Videos", "Music", "Documents", "Downloads", "Desktop"),
              lambda s, p, c: broken.find_broken(s.folders, s.extra_thorough.isChecked(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_broken_options),
@@ -506,54 +508,64 @@ def tools() -> list[Tool]:
                  s.folders, progress=p, cancel=c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("installers", "Installers",
-             "Installers and disk images you downloaded a while ago. Installers for programs that look installed "
-             "are marked; disk images are never pre-selected.",
+             "Installers and disk images you downloaded a while ago. Installers for programs you seem to have "
+             "installed are marked.",
              lambda: _existing("Downloads"),
              lambda s, p, c: installers.find_installers(s.folders, s.extra_days.value(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_days_option("installers", 30, "Older than", "Only list files older than this")),
+        Tool("apps", "Apps",
+             "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
+             f"uninstaller, then moves the folders it left behind to the {BIN_NAME}.",
+             None, lambda s, p, c: apps_mod.find_apps(p, c),
+             [(actions.UNINSTALL, "Uninstall…", "primary")],
+             note="When an app was last opened comes from Windows' own records for your account. Apps started "
+                  "another way, like by a game launcher, may show no record.",
+             available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
+        Tool("leftovers", "App Leftovers",
+             "Folders in AppData and ProgramData that no installed app seems to use and that haven't changed in "
+             "months, often left by apps you removed. Nothing is selected for you.",
+             None, lambda s, p, c: apps_mod.find_leftovers(p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
         Tool("empty", "Empty Items",
-             "Empty folders and zero-byte files. Files that mean something even when empty (like __init__.py "
-             "or .gitkeep) are left alone, and zero-byte files are never pre-selected.",
+             "Empty folders and empty files. Files that matter even when empty, like .gitkeep, are left alone.",
              lambda: _existing("Documents", "Downloads", "Desktop", "Pictures"),
              lambda s, p, c: empties.find_empty(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("caches", "Caches",
-             "Caches that apps rebuild by themselves: browsers, Discord, Spotify, shader caches, Lightroom "
-             "previews and old catalog backups, Adobe's media cache, Telegram, Slack and Teams, and leftover "
-             "driver installers. Developer caches are on the Developer tab.",
+             "Caches that apps rebuild by themselves, from browsers, Discord, Spotify, Adobe apps, Telegram, Slack, "
+             "Teams and games, plus leftover driver installers. Developer caches are on the Developer tab.",
              None, _scan_caches, [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("devclean", "Developer",
-             "Folders in your code projects that tools rebuild, such as node_modules, build output, Pods, "
-             "virtual environments and Unity's Library, plus package and IDE caches like DerivedData, npm, Gradle "
-             "and pip. Source code, settings and anything committed to git are never touched.",
+             "Folders in your code projects that tools can rebuild, like node_modules, build output and virtual "
+             "environments, plus package caches like npm, Gradle and pip. Source code and anything in git is left "
+             "alone.",
              lambda: [Path.home()], _scan_dev, [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              folder_label="Projects in",
              options=_dev_options, menu=_dev_menu,
-             note="A folder is only listed when the file that recreates it is next to it (package.json beside "
-                  f"node_modules, Podfile beside Pods...). Everything goes to the {BIN_NAME} and can be "
-                  "restored later.",
+             note="A folder is only listed when the file that rebuilds it sits next to it, like package.json "
+                  f"beside node_modules. Everything goes to the {BIN_NAME}, so you can restore it later.",
              group_title=devclean.group_title),
         Tool("winclean", "Windows",
-             "Leftovers Windows itself makes: the previous Windows installation after a big update, Windows Update "
-             "leftovers, Delivery Optimization's download cache, error reports, memory dumps and upgrade logs, plus "
-             "your old temporary files.",
+             "Files Windows leaves behind, like the previous installation after a big update, update downloads, "
+             "error reports, memory dumps and old temporary files.",
              None, lambda s, p, c: winclean.find(p, c), [(actions.TRASH, "Clean Up", "primary")],
-             note="System items are removed with Windows' own tools (the same ones Disk Cleanup uses), never "
-                  f"deleted file by file. Your own files go to the {BIN_NAME}.",
+             note="System items are removed with the same Windows tools Disk Cleanup uses. Your own files go to "
+                  f"the {BIN_NAME}.",
              available=lambda: "" if winclean.supported() else "Available on Windows only."),
         Tool("appcompress", "Compress Apps",
-             "Compress games and apps transparently on NTFS. They stay usable in place; Windows decompresses files "
-             "when read.",
+             "Compresses games and apps on NTFS drives. They keep working as usual, and Windows decompresses files "
+             "as they're read.",
              appcompress.default_sources,
              lambda s, p, c: appcompress.find_compressible(appcompress.expand_sources(s.folders), p, c, **s._app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
              available=lambda: "" if appcompress.supported() else "Available on Windows (NTFS drives) only."),
         Tool("takeout", "Google Takeout",
-             "Turns a Google Photos Takeout (many takeout-….zip or .tgz files) into one folder of photos and videos "
-             "with the dates they were taken: Google keeps those in separate JSON files and gives every photo the "
-             "export date. Album copies don't take extra space, and running it again picks up where it stopped.",
+             "Turns a Google Photos Takeout into one folder of photos and videos, each with the date it was taken. "
+             "Google stores those dates in separate files, so without this every photo shows the export date. If "
+             "it's stopped, running it again picks up where it left off.",
              lambda: _existing("Downloads"), lambda s, p, c: takeout.find(s.folders, p, c),
              [(actions.TAKEOUT, "Merge Into Folder…", "primary")], folder_label="Takeout files in",
              options=_takeout_options),

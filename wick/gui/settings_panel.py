@@ -20,8 +20,9 @@ METADATA_CHOICES = [("Keep all", "keep"), ("Remove location", "strip_gps"),
                     ("Remove all except date taken", "strip_all_keep_date"), ("Remove all", "strip_all")]
 OUTPUT_CHOICES = [("Replace originals", "replace"), ("Next to originals", "beside"),
                   ("Save with a new name", "suffix"), ("Save to another folder", "folder")]
-NAME_TIP = ("Plain text is added to the name (_compressed). Or use a pattern: %name% (the original name), %ext%, "
-    "%date%, %time%, %datetime%, %unix%, %modified% (the file's modified date). Example: %name% %date%")
+NAME_TIP = ("Text is added to the end of the name, like _compressed. You can also use a pattern such as %name% "
+            "%date%. Available: %name%, %ext%, %date%, %time%, %datetime%, %unix% and %modified%, the file's "
+            "modified date.")
 
 
 def _combo(items: list[tuple[str, str]], tip: str = "") -> QComboBox:
@@ -60,8 +61,8 @@ def _set_combo(c: QComboBox, value) -> None:
         c.setCurrentIndex(i)
 
 
-VIDEO_CRF_TIP = ("The encoder's constant-quality value (CRF). Lower means better quality and larger files; about "
-                 "6 steps doubles or halves the size. Typical: 20–28 for HEVC, 26–38 for AV1.")
+VIDEO_CRF_TIP = ("The encoder's quality value (CRF). Lower numbers mean better quality and bigger files. Most "
+                 "people use 20 to 28 for HEVC and 26 to 38 for AV1.")
 
 
 def _spin(lo: int, hi: int, suffix: str = "", tip: str = "") -> QSpinBox:
@@ -155,17 +156,17 @@ class SettingsPanel(QWidget):
         self.image_format = _combo(
             [("Keep format", "keep"), ("JPEG XL", "jxl"),
              ("WebP", "webp"), ("AVIF", "avif"), ("Don't convert", "none")],
-            "Keep format: same file type, just smaller - safest for sharing.\n"
-            "JPEG XL: smallest, and JPEGs convert losslessly & reversibly; fewer apps open it (see below).\n"
-            "WebP/AVIF: open in browsers and most apps.")
+            "Keep format makes each file smaller without changing its type, so it still opens everywhere.\nJPEG XL "
+            "makes the smallest files and can turn back into the exact original JPEG, but fewer apps open it.\nWebP "
+            "and AVIF open in browsers and most apps.")
         self.jpeg_mode = _combo([("Lossless", "lossless"), ("Lossy", "lossy")],
                                 "Lossless: JPEG XL rebuilds the exact original; 'Keep format' re-packs the "
                                 "JPEG without touching image quality.")
         self.png_mode = _combo([("Lossless", "lossless"), ("Lossy", "lossy")],
-                               "PNG, GIF, BMP, TIFF and lossless WebP. HEIC, AVIF and lossy WebP are always "
-                               "re-encoded lossily (they're lossy to begin with).")
+                               "Applies to PNG, GIF, BMP, TIFF and lossless WebP. HEIC, AVIF and lossy WebP are "
+                               "already lossy, so they're always re-encoded that way.")
         self.quality = _spin(1, 100, tip="Quality for lossy images. 85-90 is visually near-identical for photos.")
-        self.effort = _spin(1, 9, tip="JPEG XL effort: higher = smaller but slower. 7 is the sweet spot.")
+        self.effort = _spin(1, 9, tip="Higher JPEG XL effort makes smaller files more slowly. 7 is a good balance.")
         f.addRow("Convert to", self.image_format)
         from ..compat import jxl_note
 
@@ -173,13 +174,12 @@ class SettingsPanel(QWidget):
         f.addRow(self.jxl_note)
         f.addRow("JPEG", self.jpeg_mode)
         f.addRow("Other images", self.png_mode)
-        self.png_mode.setToolTip("PNG, GIF, BMP, TIFF and lossless WebP. HEIC, AVIF and lossy WebP are always "
-                                 "re-encoded lossily (they're lossy to begin with).")
+        self.png_mode.setToolTip("Applies to PNG, GIF, BMP, TIFF and lossless WebP. HEIC, AVIF and lossy WebP are "
+                                 "already lossy, so they're always re-encoded that way.")
         f.addRow("Lossy quality", self.quality)
         self.smart = QCheckBox("Smart quality")
-        self.smart.setToolTip("Find the smallest result per file that still meets a measured quality target "
-                              "(SSIMULACRA2 for images, VMAF for videos). Slower: each file is encoded several "
-                              "times.")
+        self.smart.setToolTip("Tries several settings for each file and keeps the smallest one that still measures "
+                              "as good enough. It's slower, since each file is encoded more than once.")
         self.smart_target = _combo([("Visually identical", "identical"), ("High", "high"), ("Good", "good")],
                                    "How close to the original the result must measure")
         f.addRow(self.smart)
@@ -197,7 +197,7 @@ class SettingsPanel(QWidget):
                                        "always writes progressive.")
         self.jpeg_subsampling = _combo(
             [("Automatic", "auto"), ("4:4:4", "444"), ("4:2:2", "422"), ("4:2:0", "420")],
-            "Automatic keeps the source's subsampling; for other sources it uses 4:4:4 at quality ≥ 90.")
+            "Automatic keeps the original's chroma subsampling, or uses 4:4:4 at quality 90 and above.")
         f.addRow("Encoding", self.jpeg_progressive)
         f.addRow("Chroma", self.jpeg_subsampling)
         self.jpeg_group = g
@@ -209,7 +209,7 @@ class SettingsPanel(QWidget):
         v = _vbox(g)
         self.resize_mode = _combo([("Don't resize", "none"), ("Limit long edge", "long_edge"),
                                    ("Fit inside a box", "fit"), ("Scale by percent", "percent")],
-                                  "Images are only ever made smaller, never enlarged.")
+                                  "Images are never enlarged.")
         self.resize_mode.setAccessibleName("Resize")
         v.addWidget(self.resize_mode)
         self.resize_stack = QStackedWidget()
@@ -234,10 +234,9 @@ class SettingsPanel(QWidget):
         g = QWidget()
         v = _vbox(g)
         self.fit_on = QCheckBox("Make each file smaller than")
-        self.fit_on.setToolTip("For upload and attachment limits (Discord, email, forms). Images get the best "
-                               "quality that fits, and smaller dimensions only if they must; videos get the "
-                               "bitrate that fits, at a lower resolution if needed. Files already under the "
-                               "limit are compressed as usual.")
+        self.fit_on.setToolTip("Useful for upload limits on Discord, email or forms. Each file gets the best "
+                               "quality that fits, and is only made smaller in size if it has to be. Files already "
+                               "under the limit are compressed as usual.")
         self.fit_mb = SizeInput(10 * 1024 ** 2, presets=(1, 5, 8, 10, 25, 50, 100, 500))
         self.fit_mb.setAccessibleName("Size limit")
         self.fit_on.toggled.connect(self.fit_mb.setEnabled)
@@ -251,8 +250,9 @@ class SettingsPanel(QWidget):
         g = QWidget()
         f = _form(g)
         self.metadata = _combo(METADATA_CHOICES,
-                               "Location: GPS coordinates. Personal info: also camera, serial numbers, owner, author "
-                               "and comments.\nRotation and color profile are always kept so images look right.")
+                               "Location removes GPS coordinates. Personal info also removes the camera, serial "
+                               "numbers, owner, author and comments.\nRotation and color profile always stay, so "
+                               "images look the same.")
         f.addRow("Metadata", self.metadata)
         self.preserve_dates = QCheckBox("Keep original file dates")
         self.preserve_dates.setToolTip("Results get the original's modified and created dates, so photos stay "
@@ -271,23 +271,28 @@ class SettingsPanel(QWidget):
         self.video_codec.setToolTip("Automatic: HEVC for videos from cameras and phones (AV1 smooths away fine grain "
                                     "and detail in those), AV1 for everything else.\nAV1: smallest files. HEVC: "
                                     "plays on more older devices.")
-        self.video_encoder.setToolTip("Automatic uses the NVIDIA GPU when available (fast), otherwise the CPU (slow).")
+        self.video_encoder.setToolTip("Automatic uses the graphics card when it can, which is fast, and the processor "
+                                      "otherwise.")
+        self.video_effort = _combo([("Faster", "medium"), ("Slower, smaller files", "slow")],
+                                   "How hard the processor works on each video. Slower makes files about 5% "
+                                   "smaller but takes about twice as long. Graphics card encodes aren't affected.")
         self.video_quality = _combo([("Visually identical", "identical"), ("High", "high"),
                                      ("Balanced", "balanced"), ("Smallest", "small"), ("Custom", "custom")],
-                                    "Visually identical: test encodes short stretches and measures them against the "
-                                    "original (VMAF), then uses the smallest setting that still looks the same. "
-                                    "Slower, but you don't have to guess.\nCustom: set the encoder's quality value "
-                                    "yourself.\nEvery finished video shows how close it is to the original.")
+                                    "Visually identical encodes short test clips, compares them with the original "
+                                    "and picks the smallest setting that still looks the same. It's slower, but you "
+                                    "don't have to guess.\nCustom lets you set the encoder's quality value "
+                                    "yourself.\nEach finished video shows how close it is to the original.")
         self.video_crf = _spin(1, 63, tip=VIDEO_CRF_TIP)
         self.gpu_label = _muted("Checking GPU…")
         f.addRow("Codec", self.video_codec)
         f.addRow("Encoder", self.video_encoder)
+        f.addRow("Processor speed", self.video_effort)
         f.addRow("Quality", self.video_quality)
         f.addRow("Quality value", self.video_crf)
         self.video_height = _combo([("Original", 0), ("4K (2160p)", 2160), ("1440p", 1440), ("1080p", 1080),
                                     ("720p", 720), ("480p", 480)],
-                                   "Videos larger than this are scaled down (never up). Measured on the short "
-                                   "side, so portrait phone videos are handled too.")
+                                   "Larger videos are scaled down to this. It's measured on the short side, so it "
+                                   "works for portrait phone videos too.")
         self.video_fps = _combo([("Original", 0), ("60 fps", 60), ("30 fps", 30), ("24 fps", 24)],
                                 "Videos with a higher frame rate are reduced to this.")
         self.audio = _combo([("Copy as-is", 0), ("192 kbps", 192), ("128 kbps", 128), ("96 kbps", 96),
@@ -297,8 +302,8 @@ class SettingsPanel(QWidget):
         self.audio.setAccessibleName("Soundtrack")
         f.addRow("Soundtrack", self.audio)
         self.video_tracks = _combo([("Keep all", "all"), ("Only my languages", "mine")],
-                                   "Leave out audio and subtitle tracks in languages you don't use (films often "
-                                   "carry several dubs). The main soundtrack and untagged tracks always stay.")
+                                   "Films often come with several dubbed soundtracks and subtitles. This removes "
+                                   "the ones in languages you don't use, but always keeps the main soundtrack.")
         self.video_tracks.setAccessibleName("Audio and subtitle tracks")
         f.addRow("Tracks", self.video_tracks)
         self._languages = ""
@@ -308,26 +313,24 @@ class SettingsPanel(QWidget):
         f.addRow("Languages", self.languages_btn)
         self._show_languages()
         self.video_cadence = QCheckBox("Remove duplicated frames")
-        self.video_cadence.setToolTip("Some uploads repeat frames to reach a standard rate (a 24 fps film stored as "
-                                      "30 fps). The repeats are dropped and the original frame rate restored: "
-                                      "smoother motion and a smaller file.")
+        self.video_cadence.setToolTip("Some videos repeat frames to reach a standard frame rate, like a 24 fps film "
+                                      "stored as 30 fps. Removing the repeats gives smoother motion and a smaller "
+                                      "file.")
         f.addRow(self.video_cadence)
         self.video_crop = QCheckBox("Remove black bars")
-        self.video_crop.setToolTip("Letterbox or pillarbox bars (black bands around the picture) are cut off: "
-                                   "the encoder stops spending space on them. Only bars that stay black through "
-                                   "the whole video are removed.")
+        self.video_crop.setToolTip("Crops black bands around the picture so no space is spent on them. Bars are "
+                                   "only removed if they stay black for the whole video.")
         f.addRow(self.video_crop)
         self.video_grain = QCheckBox("Re-create film grain")
-        self.video_grain.setToolTip("AV1 on the processor: grainy videos (film, low light) are stored without their "
-                                    "grain, and similar grain is added back when they play. Grain takes a lot of "
-                                    "space and nobody sees the difference, so these videos get much smaller. Clean "
-                                    "videos are left as they are.")
+        self.video_grain.setToolTip("For AV1 on the processor. Grain from film or low light takes a lot of space, "
+                                    "so it's removed and a matching grain is added back during playback. Grainy "
+                                    "videos get much smaller and look the same.")
         f.addRow(self.video_grain)
         self.video_chunked = QCheckBox("Encode scene by scene")
-        self.video_chunked.setToolTip("Processor encodes of videos over 90 seconds: the video is split at scene "
-                                      "changes and the parts encoded side by side (faster on many-core "
-                                      "processors). With Smart quality each scene gets the quality it needs. A "
-                                      "video that's stopped or interrupted carries on where it was next time.")
+        self.video_chunked.setToolTip("For processor encodes of videos over 90 seconds. Splitting at scene changes "
+                                      "lets the parts encode at the same time, which is faster on processors with "
+                                      "many cores. With Smart quality, each scene gets the quality it needs, and an "
+                                      "interrupted video picks up where it left off.")
         f.addRow(self.video_chunked)
         from .. import quality as _quality
 
@@ -346,8 +349,8 @@ class SettingsPanel(QWidget):
         f = _form(g)
         self.audio_lossless = _combo([("FLAC (lossless)", "flac"), ("Lossy format", "lossy"),
                                       ("Don't change", "keep")],
-                                     "WAV, AIFF, ALAC, APE, WavPack and FLAC files. FLAC keeps every sample (checked "
-                                     "after conversion) at about half the size of WAV.")
+                                     "Applies to WAV, AIFF, ALAC, APE, WavPack and FLAC files. FLAC keeps every "
+                                     "sample at about half the size of WAV.")
         self.audio_lossy = _combo([("Keep as they are", "keep"), ("Re-encode high bitrates", "reencode")],
                                   "MP3, AAC, Vorbis, WMA and Opus files. Re-encoding only happens when the file's "
                                   "bitrate is well above the target, since every lossy step costs some quality.")
@@ -357,11 +360,11 @@ class SettingsPanel(QWidget):
         self.audio_quality = _combo([("High", "high"), ("Balanced", "balanced"), ("Smallest", "small")],
                                     "Opus 160/128/96 kbps, AAC 256/192/128 kbps, MP3 VBR V0/V2/V5 (stereo).")
         self.audio_mono = QCheckBox("Mono when channels match")
-        self.audio_mono.setToolTip("Stereo files whose left and right channels are identical are stored as mono: "
-                                   "half the data, nothing audible changes.")
+        self.audio_mono.setToolTip("Stereo files with identical left and right channels are saved as mono. That "
+                                   "halves the size and sounds the same.")
         self.audio_cd = QCheckBox("Reduce hi-res to CD quality")
-        self.audio_cd.setToolTip("96/192 kHz and 24-bit audio becomes 44.1/48 kHz, 16-bit: removes ultrasonic "
-                                 "content and dynamic range beyond human hearing.")
+        self.audio_cd.setToolTip("Converts 96 or 192 kHz and 24-bit audio to 44.1 or 48 kHz and 16-bit. The "
+                                 "difference is beyond what people can hear.")
         f.addRow("Lossless files", self.audio_lossless)
         f.addRow("Compressed files", self.audio_lossy)
         f.addRow("Lossy format", self.audio_format)
@@ -391,15 +394,15 @@ class SettingsPanel(QWidget):
         v = _vbox(g)
         self.output_mode = _combo(OUTPUT_CHOICES)
         self.output_mode.setAccessibleName("Where results go")
-        self.output_mode.setToolTip(f"Replace: originals go to the {BIN_NAME} after each file is verified.\n"
-                                    "Next to originals: same name, new file type; originals kept.\n"
-                                    "New name: the result is saved next to the original with a new name.\n"
-                                    "Another folder: results go elsewhere; originals are untouched.")
+        self.output_mode.setToolTip(f"Replace moves originals to the {BIN_NAME} once each result is checked.\n"
+                                    "Next to originals saves the result beside the original, with its new file "
+                                    "type.\nNew name saves the result beside the original under a new name.\n"
+                                    "Another folder saves results somewhere else and leaves the originals alone.")
         v.addWidget(self.output_mode)
         self.output_stack = QStackedWidget()
         self.allow_delete = QCheckBox(f"Delete permanently on drives\nwithout a {BIN_NAME}")
-        self.allow_delete.setToolTip("USB sticks and network drives have no Recycle Bin: with this on, originals "
-                                     "there are deleted permanently after the result is verified.")
+        self.allow_delete.setToolTip("USB sticks and network drives have no Recycle Bin. With this on, originals "
+                                     "there are deleted for good once the result is checked.")
         replace_box = QWidget()
         rl = QVBoxLayout(replace_box)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -448,10 +451,9 @@ class SettingsPanel(QWidget):
         self.min_image_kb = _spin(0, 100000, " KB")
         self.min_video_mb = _spin(0, 100000, " MB")
         self.skip_programs = QCheckBox("Skip program folders")
-        self.skip_programs.setToolTip("Program and game folders (any folder with .dll/.so files) are "
-                                      "skipped: converting their images would break the program.")
+        self.skip_programs.setToolTip("Folders containing programs or games are skipped, since converting their "
+                                      "images would break them.")
         self.include_hidden = QCheckBox("Include hidden items")
-        self.include_hidden.setToolTip("Also look in hidden files and folders")
         f.addRow("Skip images under", self.min_image_kb)
         f.addRow("Skip videos under", self.min_video_mb)
         self.min_audio_kb = _spin(0, 100000, " KB")
@@ -470,8 +472,9 @@ class SettingsPanel(QWidget):
         self.low_priority.setToolTip("Encoders run at low priority so the computer stays responsive")
         f.addRow("Parallel images", self.workers)
         self.video_jobs = _combo([("Automatic", 0), ("One at a time", 1), ("Two at once", 2)],
-                                 "Automatic: two at once with an NVIDIA GPU (RTX 40-series and newer have two video "
-                                 "encoders), otherwise one, since CPU encoders already use every core.")
+                                 "Automatic encodes two at once on NVIDIA RTX 40-series and newer graphics cards, "
+                                 "which have two video encoders. Otherwise it's one at a time, since processor "
+                                 "encoders already use every core.")
         f.addRow("Videos at once", self.video_jobs)
         f.addRow(self.low_priority)
         self.sections.append(Section("Performance", g, False))
@@ -524,7 +527,8 @@ class SettingsPanel(QWidget):
 
     def _signals(self):
         combos = (self.image_format, self.jpeg_mode, self.png_mode, self.jpeg_progressive, self.jpeg_subsampling,
-                  self.resize_mode, self.metadata, self.video_codec, self.video_encoder, self.video_quality,
+                  self.resize_mode, self.metadata, self.video_codec, self.video_encoder, self.video_effort,
+                  self.video_quality,
                   self.output_mode, self.smart_target, self.video_height, self.video_fps, self.audio,
                   self.audio_lossless, self.audio_lossy, self.audio_format, self.audio_quality, self.video_jobs,
                   self.video_tracks, self.documents, self.video_metric)
@@ -573,6 +577,7 @@ class SettingsPanel(QWidget):
         sec["Resize images"].setVisible(has("image") and images)
 
         videos = self.video_codec.currentData() != "none"
+        show(self.video_effort, videos and self.video_encoder.currentData() != "gpu")
         for w in (self.video_encoder, self.video_quality, self.video_height, self.video_fps, self.audio,
                   self.video_cadence, self.gpu_label, self.video_tracks):
             show(w, videos)
@@ -615,6 +620,7 @@ class SettingsPanel(QWidget):
         _set_combo(self.metadata, s.metadata)
         _set_combo(self.video_codec, s.video_codec)
         _set_combo(self.video_encoder, s.video_encoder)
+        _set_combo(self.video_effort, s.video_effort)
         _set_combo(self.video_quality, s.video_quality)
         self.video_crf.setValue(s.video_crf)
         _set_combo(self.video_tracks, s.video_tracks)
@@ -670,6 +676,7 @@ class SettingsPanel(QWidget):
             resize_height=self.resize_h.value(), resize_percent=self.resize_pct.value(),
             metadata=self.metadata.currentData(),
             video_codec=self.video_codec.currentData(), video_encoder=self.video_encoder.currentData(),
+            video_effort=self.video_effort.currentData(),
             video_quality=self.video_quality.currentData(), video_crf=self.video_crf.value(),
             video_tracks=self.video_tracks.currentData(),
             languages=self._languages,
@@ -778,7 +785,7 @@ class SettingsPanel(QWidget):
         elif hevc:
             text = f"{maker(hevc)} GPU found: HEVC on the GPU; AV1 needs a newer GPU, so it uses the CPU (slow)."
         elif enc:
-            text = "No supported GPU encoder found: videos encode on the CPU (slow)."
+            text = "No supported graphics card found, so videos are encoded on the processor, which is slower."
         else:
-            text = "ffmpeg not found: video conversion unavailable."
+            text = "Video conversion isn't available because FFmpeg is missing."
         self.gpu_label.setText(text)

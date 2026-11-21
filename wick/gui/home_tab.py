@@ -338,11 +338,13 @@ class HomeTab(Page):
         from .. import space
 
         if key == space.CACHES:
-            cu = self.win.cleanup
-            self.win.go_to(cu)
-            names = [cu.tabs.tabText(i) for i in range(cu.tabs.count())]
-            if "Caches" in names:
-                cu.tabs.setCurrentIndex(names.index("Caches"))
+            self.win.open_cleanup_tool("caches")
+        elif key == "other":
+            from . import hidden_space
+
+            b = self.space_card.breakdown
+            drive = b.drive if b is not None else str(Path(self.roots[0]).anchor if self.roots else Path.home().anchor)
+            hidden_space.show(drive, self.win.open_cleanup_tool, self)
         elif key == space.BIN:
             if os.name == "nt":
                 import subprocess
@@ -384,7 +386,7 @@ class HomeTab(Page):
         groups = sorted(ov.efficient.values(), key=lambda g: g.size, reverse=True)
         self.eff_box.setText("<br><br>".join(
             f"<b>{g.label}</b><br>{g.count:,} file{'s' if g.count != 1 else ''} · {human(g.size)}<br>{g.explanation}"
-            for g in groups) or "None found: every file could shrink.")
+            for g in groups) or "None found. Every file could be made smaller.")
         self.qs.setValue("home/last", time.time())
         self._update_send()
 

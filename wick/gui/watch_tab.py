@@ -104,7 +104,7 @@ class WatchTab(Page):
         self.job: WatchJobThread | None = None
         self.saved_total = 0
 
-        self.add_btn = button("Add Folder…", "", "folder", "Watch another folder")
+        self.add_btn = button("Add Folder…", "", "folder", "")
         self.add_btn.clicked.connect(self.add_folder)
         self.switch = ToggleSwitch("Watch folders")
         self.switch_label = text("Off", Type.BODY, bold=True)
@@ -350,7 +350,7 @@ class WatchTab(Page):
         if power.user_busy():          # a game or presentation is full-screen: don't make it stutter
             if not getattr(self, "_waiting_for_quiet", False):
                 self._waiting_for_quiet = True
-                self._log("Waiting: something is running full-screen")
+                self._log("Waiting while something runs full-screen")
             QTimer.singleShot(60_000, self._next)
             return
         self._waiting_for_quiet = False

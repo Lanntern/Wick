@@ -869,3 +869,45 @@ def test_errors_carried_on_from_are_logged_but_never_flood(caplog):
     assert len(lines) == wlog.IGNORED_LOGGED + 1
     assert lines[0].exc_info and "unreadable" in str(lines[0].exc_info[1])
     assert "aren't logged" in lines[-1].getMessage()
+
+
+def test_tool_runs_are_logged_when_they_fail_or_are_slow(caplog, monkeypatch):
+    """Quick successful runs aren't logged (hundreds per scan used to push everything else out of the log); a
+    failure is, with its command and the end of what it said."""
+    import logging
+    import sys
+
+    from wick import tools
+
+    with caplog.at_level(logging.INFO, logger="wick"):
+        tools.run([sys.executable, "-c", "print('ok')"])
+        assert not [r for r in caplog.records if "python" in r.getMessage().lower()]
+        tools.run([sys.executable, "-c", "import sys; sys.stderr.write('bad input\\nmore detail\\n'); sys.exit(3)"],
+                  check=False)
+        failed = [r.getMessage() for r in caplog.records if "exited with 3" in r.getMessage()]
+        assert failed and "sys.exit(3)" in failed[0] and "more detail" in failed[0]
+        caplog.clear()
+        monkeypatch.setattr(tools, "SLOW_RUN", 0.0)
+        tools.run([sys.executable, "-c", "pass"])
+        assert any(" took " in r.getMessage() for r in caplog.records)
+
+
+def test_log_lines_carry_the_thread_number_crash_records_use(tmp_path):
+    import logging
+    import threading
+
+    from wick import log as wlog
+
+    record = logging.LogRecord("wick", logging.INFO, __file__, 1, "x", None, None)
+    assert wlog._thread_id(record)
+    assert record.tid == f"[0x{threading.get_ident():016x}]"
+
+
+def test_diagnostics_include_the_last_crash_record(tmp_path, monkeypatch):
+    from wick import log as wlog
+
+    monkeypatch.setattr(wlog, "log_dir", lambda: tmp_path)
+    (tmp_path / "crash-previous.txt").write_text("Fatal Python error: Segmentation fault\nThread 0x01 (most recent)\n",
+                                                 encoding="utf-8")
+    text = wlog.diagnostics(include_log=False)
+    assert "Last crash record" in text and "Segmentation fault" in text

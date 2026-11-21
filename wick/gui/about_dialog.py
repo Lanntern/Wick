@@ -10,7 +10,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QFrame, QHBoxLayout, QLabel, QTreeWidget, QVBoxLayout
 
 from .. import APP_NAME, __version__
-from ..about import CREDITS, DONATE_URL, LICENSE_NOTE, PRIVACY, PRIVACY_URL
+from ..about import CREDITS, LICENSE_NOTE, PRIVACY, PRIVACY_URL
 from .devmode import CLICKS
 from .filelist import SortItem, make_sortable
 from .style import Size, Space, Type
@@ -102,7 +102,7 @@ class AboutDialog(QDialog):
         policy = QLabel(f'<a href="{PRIVACY_URL}">Read the full privacy policy</a>')
         policy.setOpenExternalLinks(True)
         policy.setTextInteractionFlags(Qt.TextBrowserInteraction)        # (Tab reaches it; Enter opens it)
-        policy.setToolTip("Everything Wick keeps and when it goes online (opens GitHub)")
+        policy.setToolTip("What Wick stores and when it goes online. Opens GitHub.")
         titles.addWidget(policy)
         head.addLayout(titles, 1)
         lay.addLayout(head)
@@ -144,12 +144,10 @@ class AboutDialog(QDialog):
             files = button("License Files", "", "folder", "Show the license files of the bundled tools")
             files.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(licenses))))
             buttons.addWidget(files)
-        copy = button("Copy Versions", "", None, "Copy every component's version (useful when reporting a problem)")
+        copy = button("Copy Versions", "", None, "Copy every component's version, which helps when reporting a "
+                                                 "problem")
         copy.clicked.connect(self._copy_versions)
         buttons.addWidget(copy)
-        donate = button("Support on Ko-fi", "", None, "Wick is free: a donation helps keep it going (opens Ko-fi)")
-        donate.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(DONATE_URL)))
-        buttons.addWidget(donate)
         buttons.addStretch(1)
         close = button("Close", "primary", None, "", "Esc")
         close.clicked.connect(self.accept)

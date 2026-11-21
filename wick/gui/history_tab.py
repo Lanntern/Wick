@@ -75,8 +75,9 @@ class HistoryTab(Page):
         self._bin_check: _BinCheck | None = None
         self._bin_checked = 0.0
 
-        self.report_btn = button("Export Report…", "", None, "Save the selected runs (or all of them) as a "
-                                                           "spreadsheet (CSV): every file, its sizes and what was done")
+        self.report_btn = button("Export Report…", "", None, "Save the selected runs, or all of them, as a CSV "
+                                                             "spreadsheet listing every file, its sizes and what "
+                                                             "was done")
         self.report_btn.clicked.connect(self.export_report)
         self.action_bar.addWidget(self.report_btn)
         self.refresh_btn = button("Refresh", "", "refresh", "Read the history again and check what can still be "
@@ -85,8 +86,8 @@ class HistoryTab(Page):
         self.refresh_btn.setAccessibleName("Refresh")
         self.refresh_btn.clicked.connect(self.reload)
         self.action_bar.insertWidget(0, self.refresh_btn)
-        self.delete_btn = button("Delete", "", "trash", "Remove runs from the history (names included). Your files "
-                                                      "don't change.")
+        self.delete_btn = button("Delete", "", "trash", "Remove runs from the history, including file names. Your "
+                                                        "files don't change.")
         menu = QMenu(self.delete_btn)
         self.delete_selected_action = menu.addAction("Delete Selected", self.delete_selected)
         self.delete_selected_action.setShortcut(QKeySequence.Delete)   # (shown in the menu; the key works in the list)
@@ -136,12 +137,11 @@ class HistoryTab(Page):
         delete.setContext(Qt.WidgetShortcut)
         card.lay.addWidget(self.tree, 1)
         self.body.addWidget(card, 1)
-        self.hint = text(f"Undo works while originals are in the {BIN_NAME}. Lossless JPEG → JPEG XL files can always "
-                         "be turned back into the exact original. Copies saved elsewhere are removed; hard links "
-                         "get their own copy back; compressed apps are decompressed.",
+        self.hint = text(f"Undo works while the originals are in the {BIN_NAME}. JPEGs converted losslessly to JPEG XL "
+                         "can always be turned back into the exact original.",
                          Type.FOOTNOTE, secondary=True, wrap=True)
         if os.name == "nt":       # beside the note about it, not among the page's actions
-            self.bin_btn = button("Open Recycle Bin", "link", None, "Open the Windows Recycle Bin")
+            self.bin_btn = button("Open Recycle Bin", "link", None, "")
             self.bin_btn.clicked.connect(lambda: subprocess.Popen(["explorer", "shell:RecycleBinFolder"]))
             self.body.addLayout(hbox(self.hint, self.bin_btn, spacing=Space.L))
             hint_row = self.body.itemAt(self.body.count() - 1).layout()
@@ -207,8 +207,8 @@ class HistoryTab(Page):
             if n:
                 parts.append(f"{n} can't be undone any more")
             top.setText(4, " · ".join(parts))
-            top.setToolTip(4, f"{n} original{'s are' if n != 1 else ' is'} no longer in the {BIN_NAME} "
-                              "(it was emptied): those can't be restored." if n else top.text(4))
+            top.setToolTip(4, f"{n} original{'s are' if n != 1 else ' is'} no longer in the {BIN_NAME} because it "
+                              "was emptied, so they can't be restored." if n else top.text(4))
             for j in range(top.childCount()):
                 child = top.child(j)
                 cd = child.data(0, Qt.UserRole)
@@ -402,7 +402,7 @@ class HistoryTab(Page):
         if not jobs:
             inform(self, "Nothing here can be undone." if blocked else
                    "Select a run or files that haven't been undone.",
-                   f"The originals are no longer in the {BIN_NAME} (it was emptied)." if blocked else "")
+                   f"The originals are gone because the {BIN_NAME} was emptied." if blocked else "")
             return
         count = sum(len(r) for _, r in jobs)
         extra = (f"\n\n{blocked} other file{'s' if blocked != 1 else ''} can't be undone: "

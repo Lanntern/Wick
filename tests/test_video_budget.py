@@ -246,3 +246,48 @@ class VerifyDecodeTests(unittest.TestCase):
             self._verify("[hevc @ 0x1] Invalid NAL unit size", "")
         with self.assertRaisesRegex(video.VerificationFailed, "decoding errors"):
             self._verify("", "", out_code=1)
+
+
+class GpuTuningTests(unittest.TestCase):
+    """Extra GPU settings are only used where the driver takes them; AMD's QVBR level is matched to the QP."""
+
+    def setUp(self):
+        video.gpu_extras.cache_clear()
+        video.amf_extras.cache_clear()
+        video.amf_qvbr_level.cache_clear()
+
+    tearDown = setUp
+
+    def test_nvenc_keeps_only_what_the_driver_accepts(self):
+        refused = "-temporal-aq"
+        with patch.object(tools, "find_tool", return_value="ffmpeg"), \
+                patch.object(video, "nvenc_tuning", return_value=("-preset", "p7")), \
+                patch.object(video, "_test_encode", side_effect=lambda f, e, opts=None, **k: refused not in opts):
+            extras = video.gpu_extras("hevc_nvenc")
+        self.assertIn("-multipass", extras)
+        self.assertIn("-b_ref_mode", extras)
+        self.assertNotIn(refused, extras)
+
+    def test_amd_qvbr_level_gives_the_same_size_as_the_qp(self):
+        def size(ffmpeg, encoder, args):
+            if "cqp" in args:
+                return 25_500                                    # the QP's size
+            return int(args[args.index("-qvbr_quality_level") + 1]) * 1000    # higher level: bigger
+        with patch.object(tools, "find_tool", return_value="ffmpeg"), patch.object(video, "_clip_size", side_effect=size):
+            self.assertEqual(video.amf_qvbr_level("hevc_amf", 26), 25)
+            args = video._gpu_quality_args("hevc_amf", 26)
+        self.assertIn("qvbr", args)
+        self.assertIn("-preanalysis", args)
+
+    def test_amd_keeps_its_qp_when_qvbr_goes_the_unexpected_way(self):
+        def size(ffmpeg, encoder, args):
+            if "cqp" in args:
+                return 25_500
+            return 60_000 - int(args[args.index("-qvbr_quality_level") + 1]) * 1000      # (inverted)
+        with patch.object(tools, "find_tool", return_value="ffmpeg"), patch.object(video, "_clip_size", side_effect=size):
+            self.assertIsNone(video.amf_qvbr_level("hevc_amf", 26))
+            self.assertIn("cqp", video._gpu_quality_args("hevc_amf", 26))
+
+    def test_slower_processor_encodes_when_chosen(self):
+        self.assertEqual(video.svt_preset(Settings()), 6)
+        self.assertEqual(video.svt_preset(Settings(video_effort="slow")), 5)

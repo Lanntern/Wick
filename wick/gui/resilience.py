@@ -88,8 +88,40 @@ def install() -> str:
             _bridge.error.emit(args.exc_type.__name__, str(args.exc_value))
 
     threading.excepthook = thread_hook
+    _log_qt_messages()
     _start_stall_watch()
     return previous
+
+
+QT_REPEATS_LOGGED = 3       # the same Qt message (some come on every resize): logged this often per session
+
+
+def _log_qt_messages() -> None:
+    """Qt's own warnings and errors (a plugin that didn't load, a thread destroyed while running…) go to the
+    console, which the installed app doesn't have: send them to the log."""
+    import logging
+
+    from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+    from ..log import log
+
+    levels = {QtMsgType.QtWarningMsg: logging.WARNING, QtMsgType.QtCriticalMsg: logging.ERROR,
+              QtMsgType.QtFatalMsg: logging.CRITICAL, QtMsgType.QtInfoMsg: logging.INFO}
+    seen: dict[str, int] = {}
+
+    def handler(kind, context, message) -> None:
+        level = levels.get(kind)
+        if level is None:                       # (debug messages)
+            return
+        n = seen[message] = seen.get(message, 0) + 1
+        if n > QT_REPEATS_LOGGED:
+            return
+        where = f" ({context.file}:{context.line})" if getattr(context, "file", None) else ""
+        more = " (further repeats aren't logged)" if n == QT_REPEATS_LOGGED else ""
+        log.log(level, "Qt: %s%s%s", message, where, more)
+
+    qInstallMessageHandler(handler)
+    _log_qt_messages.handler = handler  # type: ignore[attr-defined]   # (kept alive)
 
 
 def _show_background_error(kind: str, message: str) -> None:
@@ -101,8 +133,8 @@ def _show_background_error(kind: str, message: str) -> None:
     _show_background_error.showing = True  # type: ignore[attr-defined]
     try:
         warn(None, "A background task stopped with an error",
-             f"{kind}: {message}\n\nWhat was being done may be unfinished; your files are as the task left them "
-             f"(each file is only replaced once its result is checked). The details are in the log ({log_file()}).")
+             f"{kind}: {message}\n\nThe task may not have finished. Files are only replaced once their result is "
+             f"checked, so none were left half-done. The log has the details: {log_file()}")
     finally:
         _show_background_error.showing = False  # type: ignore[attr-defined]
 

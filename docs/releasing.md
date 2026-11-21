@@ -1,6 +1,6 @@
 # Releasing
 
-1. Bump `__version__` in `wick/__init__.py`, merge, and push a tag: `git tag v0.1.1 && git push origin v0.1.1`.
+1. Bump `__version__` in `wick/__init__.py` (the only place it's set), merge, and push a tag: `git tag v0.1.1 && git push origin v0.1.1`.
 2. The build attaches `Wick-setup.exe`, `Wick-windows.zip`, `Wick.mcpb` and `SHA256SUMS.txt` to a **draft**
    release. Check it, write the notes and publish it.
 3. Publishing runs `.github/workflows/package-managers.yml`:

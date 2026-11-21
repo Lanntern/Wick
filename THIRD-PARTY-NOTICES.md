@@ -37,6 +37,7 @@ Wick runs these as separate programs; it does not link to them.
 | lxml | BSD-3-Clause | https://github.com/lxml/lxml |
 | Send2Trash | BSD-3-Clause | https://github.com/arsenetar/send2trash |
 | fontTools, Brotli | MIT | https://github.com/fonttools/fonttools, https://github.com/google/brotli |
+| blake3 (Python bindings for BLAKE3) | CC0-1.0 or Apache-2.0 | https://github.com/oconnor663/blake3-py |
 
 The Qt libraries are separate DLLs in the app folder (`_internal\PySide6`); you may replace them with your
 own build of the same Qt version.

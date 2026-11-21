@@ -70,8 +70,8 @@ class FileJobPage(Page):
         self.job_thread: JobThread | None = None
         self._rescan = False
 
-        self.add_files_btn = button("Add Files…", "", "files", "Add individual files", "")
-        self.add_folder_btn = button("Add Folder…", "", "folder", "Add a folder")
+        self.add_files_btn = button("Add Files…", "", "files", "", "")
+        self.add_folder_btn = button("Add Folder…", "", "folder", "")
         self.clear_btn = button("Clear", "", None, "Remove everything from the list")
         self.run_btn = button(self.action_label, "primary", None, "")
         self.run_btn.setEnabled(False)

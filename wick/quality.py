@@ -44,7 +44,8 @@ VIDEO_METRIC_HELP = {     # (shown under the choice: for people who don't know t
                    "blocky patches.",
     "xpsnr": "A quick measure of how much the picture changed, with some weight on what the eye notices. Less "
              "like a person's judgment. Needs FFmpeg 7.1 or newer.",
-    "butteraugli": "The strictest: looks for the smallest difference a careful viewer could spot in still frames.",
+    "butteraugli": "The strictest measure. It looks for the smallest difference a careful viewer could spot in a "
+                   "still frame.",
 }
 TARGET_LABELS = {"identical": "Visually identical", "high": "High", "good": "Good"}
 

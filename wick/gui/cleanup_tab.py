@@ -144,8 +144,9 @@ class CleanupTab(Page):
             return
         dialog = QDialog(self)
         dialog.setWindowTitle("Scan Several Tools")
-        layout = dialog_layout(dialog, "Scan Several Tools", "Runs the chosen tools on this tool's folders in one "
-                               "pass. Each tool's results appear in its own tab; nothing is changed.")
+        layout = dialog_layout(dialog, "Scan Several Tools", "Runs the chosen tools on these folders in one go. "
+                                                             "Each tool's results show in its own tab, and nothing "
+                                                             "is changed until you choose.")
         choices = []
         keys = {"extensions", "large", "empty", "installers", "broken", "duplicates", "archives"}
         for i, tool in enumerate(self._tools):

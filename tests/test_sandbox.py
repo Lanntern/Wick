@@ -102,3 +102,30 @@ def test_without_workers_the_same_work_happens_in_wick(tmp_path, monkeypatch):
     Image.new("RGB", (50, 50), (1, 2, 3)).save(tmp_path / "c.png")
     got = sandbox.rgba("thumbnail", str(tmp_path / "c.png"), "png", 32, max_pixels=32 * 32, timeout=60)
     assert got is not None and got[:2] == (32, 32) and not sandbox._all
+
+
+def test_a_worker_that_fails_is_logged_with_its_file(tmp_path, caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="wick"):
+        with pytest.raises(sandbox.DecoderCrashed):
+            sandbox.call("_test_sleep", 30, timeout=1)
+        w = sandbox._borrow()
+        w.proc.kill()
+        w.proc.join()
+        sandbox._give_back(w)
+        sandbox.broken_check(tmp_path / "evil.jpg", 10, False)
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("_test_sleep" in m for m in messages)
+    assert any("broken_check" in m and "evil.jpg" in m and "exit code" in m for m in messages)
+
+
+def test_a_worker_can_be_started_ahead_of_time():
+    import time
+
+    sandbox.prewarm()
+    for _ in range(300):
+        if sandbox._idle:
+            break
+        time.sleep(0.05)
+    assert len(sandbox._idle) == 1

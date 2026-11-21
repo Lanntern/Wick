@@ -30,30 +30,40 @@ the originals to the Recycle Bin) and `--max-files=N` (the largest run allowed; 
 | `plan_compression` | Finds what can be compressed in a folder and estimates the savings | No |
 | `compress_planned_files` | Compresses exactly the files in a plan, **after you approve it** | Yes |
 | `list_history` | Past runs in the allowed folders | No |
+| `find_cleanup` | Lists what Clean Up would: duplicates, similar photos, large, broken or empty files and old installers in the allowed folders, or app caches, installed apps and app leftovers on the whole computer | No |
 | `undo_run` | Puts a run's originals back, **after you approve it** | Yes |
 
 ## Why it's safe
 
 The worst case for a tool like this is an assistant that misunderstands, or is misled by something it read,
-and loses your files. Wick is built so that can't happen:
+and loses your files. Wick is built to prevent that.
 
-- **Only the folders you chose.** Every path is fully resolved (shortcuts like symbolic links and junctions are
-  followed) and must be inside one of them. Windows, Program Files, ProgramData, AppData and Wick's own
-  History are always refused, even inside a chosen folder.
-- **You approve every change, in Wick's own window.** Planning changes nothing. Before files are compressed
-  or a run is undone, Wick shows you a dialog with what will happen; the assistant can't see or answer it.
-  Cancel, closing it, or not answering within 10 minutes leaves everything as it is. (Outside Windows the
-  assistant's app asks you instead; if it can't, nothing is changed.)
-- **Plans, not paths.** Compressing takes only a plan ID from a plan you could see, not a list of files. Plans
-  expire after 30 minutes and work once; files changed since the plan was made are left alone.
-- **Nothing is deleted permanently.** Originals go to the Recycle Bin, never deleted outright (if a drive has no
-  Recycle Bin, or a file is too big for it, that file is left as it is). Every run is recorded in History and can
-  be undone, from the app or by asking the assistant. If you've turned History off in Wick, originals are
-  always kept. Undo never removes a compressed file you've edited since.
-- **Bounded.** Runs are limited in size (1000 files by default), calls are rate-limited, and one run happens at
-  a time. File names are passed on without hidden or control characters.
-- **Private.** Wick doesn't keep anything from the conversation; its log notes which tool ran, not what
-  was asked. See [Privacy](#privacy).
+**Folders.** The assistant can only work in the folders you chose. Every path is fully resolved, following
+symbolic links and junctions, and must be inside one of them. Windows, Program Files, ProgramData, AppData and
+Wick's own History are always refused, even inside a chosen folder.
+
+**Approval.** Planning doesn't change anything. Before files are compressed or a run is undone, Wick shows you
+what will happen in its own window, which the assistant can't see or answer. If you cancel, close it or don't
+answer within 10 minutes, nothing changes. Outside Windows, the assistant's app asks you instead, and if it
+can't, nothing is changed.
+
+**Plans.** Compressing takes a plan ID from a plan you could see, never a list of files. Plans expire after 30
+minutes and can only be used once, and files that changed since the plan was made are left alone.
+
+**Undo.** Originals go to the Recycle Bin. If a drive has no Recycle Bin, or a file is too big for it, that file
+isn't changed. Every run is recorded in History and can be undone from the app or by asking the assistant. If
+you've turned History off in Wick, originals are always kept. Undo never removes a compressed file you've
+edited since.
+
+**Limits.** Runs are capped at 1000 files by default, calls are rate-limited, and only one run happens at a
+time. File names are passed on without hidden or control characters.
+
+**Looking, not removing.** `find_cleanup` only lists things, with sizes and reasons. Nothing here removes them:
+you do that yourself on Wick's Clean Up page. Its overviews of app caches, installed apps and app leftovers
+cover the whole computer, so the assistant sees their names and sizes.
+
+**Privacy.** Wick doesn't keep anything from the conversation. Its log notes which tool ran, not what was
+asked. See [Privacy](#privacy).
 
 ## Examples
 

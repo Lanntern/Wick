@@ -232,7 +232,7 @@ def register_file_types(exe: str | None = None) -> None:
     with winreg.CreateKey(hk, _CAPABILITIES) as k:
         winreg.SetValueEx(k, "ApplicationName", 0, winreg.REG_SZ, APP_NAME)
         winreg.SetValueEx(k, "ApplicationDescription", 0, winreg.REG_SZ,
-                          "Shrink photos, videos and music safely: every result verified, every change undoable.")
+                          "Shrinks photos, videos and music. Every result is checked, and every change can be undone.")
         winreg.SetValueEx(k, "ApplicationIcon", 0, winreg.REG_SZ, icon)
     exe_name = Path(exe or launch_command()[0]).name
     with winreg.CreateKey(hk, _CAPABILITIES + r"\FileAssociations") as assoc, \

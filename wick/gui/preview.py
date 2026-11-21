@@ -195,8 +195,8 @@ class CompareView(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setAccessibleName("Comparison")
-        self.setAccessibleDescription("Left: original. Right: compressed. Arrow keys move the line, "
-                                      "plus and minus zoom, 0 fits, 1 shows actual size.")
+        self.setAccessibleDescription("The original is on the left and the compressed version on the right. Arrow "
+                                      "keys move the line, plus and minus zoom, 0 fits and 1 shows actual size.")
 
     def set_images(self, before: QPixmap, after: QPixmap) -> None:
         self.before, self.after = before, after
@@ -429,9 +429,9 @@ class PreviewDialog(QDialog):
         self.details.setAccessibleName("Details")
         title_box.addWidget(self.details)
         head.addLayout(title_box, 1)
-        fit = button("Fit", "", None, "Fit to window", "0")
+        fit = button("Fit", "", None, "", "0")
         fit.clicked.connect(lambda: self.view.fit())
-        one = button("Actual Size", "", None, "Show actual pixels", "1")
+        one = button("Actual Size", "", None, "", "1")
         one.clicked.connect(lambda: self.view.actual_size())
         self.mode = QTabBar()
         self.mode.setObjectName("segmented")
@@ -478,11 +478,11 @@ class PreviewDialog(QDialog):
         actions.setSpacing(Space.S)
         close = button("Close", "", None, "", "Esc")
         close.clicked.connect(self.reject)
-        self.use = button("Use for All Files", "", None, "Use this quality for every file in the list (nothing is "
-                                                       "compressed yet)")
+        self.use = button("Use for All Files", "", None, "Use this quality for every file in the list. Nothing is "
+                                                         "compressed until you press Compress.")
         self.use.clicked.connect(self._use)
-        self.save_as = button("Save a Copy…", "", None, "Save the result as a new file where you choose; the "
-                                                      "original stays as it is", "Ctrl+S")
+        self.save_as = button("Save a Copy…", "", None, "Save the result as a new file and leave the original as it "
+                                                        "is", "Ctrl+S")
         self.save_as.clicked.connect(self._save_as)
         self.compress = button({"replace": "Compress and Replace", "folder": "Compress to Folder"}.get(
             self.settings.output_mode, "Compress Beside Original"), "primary", None, self._compress_tip(), "Ctrl+Enter")
@@ -601,9 +601,10 @@ class PreviewDialog(QDialog):
         self.split_label.setVisible(not on)
         self.split.setVisible(not on)
         self.view.setAccessibleDescription(
-            "Left: original. Right: compressed. Plus and minus zoom, 0 fits, 1 shows actual size."
-            if on else "Left of the line: original. Right: compressed. Arrow keys move the line, plus and minus "
-                       "zoom, 0 fits, 1 shows actual size.")
+            "The original is on the left and the compressed version on the right. Plus and minus zoom, 0 fits and 1 "
+            "shows actual size."
+            if on else "The original is left of the line and the compressed version right of it. Arrow keys move "
+                       "the line, plus and minus zoom, 0 fits and 1 shows actual size.")
 
     def keyPressEvent(self, e) -> None:
         ctrl = e.modifiers() & Qt.ControlModifier
@@ -641,9 +642,9 @@ class PreviewDialog(QDialog):
             self.value.setRange(1, 63)
             self.value.setValue(settings.video_crf)
             self.value.setToolTip(VIDEO_CRF_TIP)
-            self.quality.setToolTip("Visually identical: measures short test encodes against the original (VMAF) "
-                                    "and uses the smallest setting that still looks the same.\nHigh, Balanced, "
-                                    "Smallest: fixed settings.\nCustom: the encoder's quality value, set by you.")
+            self.quality.setToolTip("Visually identical compares short test clips with the original and picks the "
+                                    "smallest setting that still looks the same.\nHigh, Balanced and Smallest are "
+                                    "fixed settings.\nCustom lets you set the encoder's quality value yourself.")
         else:
             for label, key in self.IMAGE_CHOICES:
                 self.quality.addItem(label, key)
@@ -652,15 +653,15 @@ class PreviewDialog(QDialog):
             self.value.setValue(settings.image_quality)
             self.value.setToolTip("Quality 1–100: higher means better quality and larger files. 85–90 is close to "
                                   "the original for most photos.")
-            self.quality.setToolTip("Visually identical, High, Good: Smart quality measures the result "
-                                    "(SSIMULACRA2) and picks the smallest quality that meets this target.\n"
-                                    "Custom: choose the quality value yourself.")
+            self.quality.setToolTip("With Visually identical, High or Good, Smart quality measures the result and "
+                                    "picks the smallest setting that meets that target.\nCustom lets you choose the "
+                                    "quality value yourself.")
         self.quality.setCurrentIndex(max(0, self.quality.findData(start)))
         self.quality.activated.connect(self._quality_picked)
         self.value.editingFinished.connect(self._value_changed)
         self.rerun = button("Try", "", "refresh", "Make the preview again with this quality", "Enter")
         self.rerun.clicked.connect(self.run)
-        self.lossless_note = text("Lossless: the same pixels, nothing to choose", Type.BODY, secondary=True)
+        self.lossless_note = text("Lossless keeps every pixel, so there's no quality to set", Type.BODY, secondary=True)
         self.quality_label = text("Quality", Type.BODY, secondary=True)
         for w in (self.quality_label, self.quality, self.value, self.rerun, self.lossless_note):
             bottom.addWidget(w)

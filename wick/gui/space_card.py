@@ -18,7 +18,7 @@ _COLORS = {
     True: ("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300"),
 }
 _ACTIONS = {space.PHOTOS: "Compress", space.VIDEOS: "Compress", space.MUSIC: "Compress",
-            space.DOCUMENTS: "Compress", space.CACHES: "Clean Up", space.BIN: "Open"}
+            space.DOCUMENTS: "Compress", space.CACHES: "Clean Up", space.BIN: "Open", "other": "Explain"}
 
 
 def color_of(key: str) -> QColor:
@@ -179,8 +179,9 @@ class SpaceCard(Card):
 
     @staticmethod
     def _tip(key: str) -> str:
-        return {space.CACHES: "Review app caches on Clean Up (nothing is removed until you confirm)",
-                space.BIN: "Open it to see what's there (emptying it frees this space)"}.get(
+        return {space.CACHES: "Review app caches on Clean Up. Nothing is removed until you confirm.",
+                "other": "See what else takes space, like system files and virtual disks",
+                space.BIN: "Open it to see what's there. Emptying it frees this space."}.get(
             key, "Review these files on Compress")
 
 

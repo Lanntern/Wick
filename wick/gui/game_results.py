@@ -25,9 +25,10 @@ class GameResultsDialog(QDialog):
         self.data = game_results.load()
         self.reply = None
         self.manager = QNetworkAccessManager(self)
-        layout = dialog_layout(self, "Community Results", "How much space other people saved compressing each game "
-                               "(public CompactGUI results; game versions, exclusions and hardware differ). "
-                               "Downloading fetches the public list only; your installed games aren't sent.")
+        layout = dialog_layout(self, "Community Results", "How much space other people saved by compressing each "
+                                                          "game, from CompactGUI's public results. Your results may "
+                                                          "differ. Only the public list is downloaded, and nothing "
+                                                          "about your games is sent.")
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search game names or Steam IDs")
         self.search.setAccessibleName("Search community games")
@@ -42,7 +43,8 @@ class GameResultsDialog(QDialog):
         for column in range(1, 6):
             header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         for column in range(2, 6):
-            self.table.horizontalHeaderItem(column).setToolTip("Space saved; hover over a result for sample counts")
+            self.table.horizontalHeaderItem(column).setToolTip("Space saved. Hover over a result to see how many "
+                                                               "people reported it.")
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setAlternatingRowColors(True)

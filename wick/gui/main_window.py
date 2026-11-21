@@ -34,17 +34,17 @@ SIDEBAR_COMPACT_BELOW = 1040   # window width at which the sidebar shows icons o
 
 # (sequence, description, group) - shown in the Keyboard Shortcuts window
 SHORTCUTS = [
-    ("Ctrl+O", "Add files (to the page you're on)", "Files"),
+    ("Ctrl+O", "Add files to the page you're on", "Files"),
     ("Ctrl+Shift+O", "Add a folder", "Files"),
-    ("Ctrl+A / Ctrl+Shift+A", "Tick all / none (every list)", "Lists"),
-    ("Space", "Tick or untick the row (Compress: preview)", "Lists"),
+    ("Ctrl+A / Ctrl+Shift+A", "Tick all or none in any list", "Lists"),
+    ("Space", "Tick or untick the row, or preview it on Compress", "Lists"),
     ("Menu key, Shift+F10", "Actions for the selected files", "Lists"),
     ("Ctrl+Return", "Run the page's main action", "Lists"),
     ("Esc", "Stop the running job", "Lists"),
     ("↑ ↓, Home, End", "Move through the list", "Lists"),
     ("Ctrl+L", "Type a path", "Compress"),
-    ("Ctrl+R / F5", "Rescan (Clean Up: scan this tool)", "Compress"),
-    ("Space", "Preview the selected file (audio: play)", "Compress"),
+    ("Ctrl+R / F5", "Rescan, or scan the current Clean Up tool", "Compress"),
+    ("Space", "Preview the selected file, or play it if it's audio", "Compress"),
     ("Delete / Insert", "Exclude / include the selected files", "Compress"),
     ("Ctrl+Shift+R", "Retry failed files", "Compress"),
     ("Ctrl+I", "Show or hide options", "Compress"),
@@ -52,6 +52,7 @@ SHORTCUTS = [
     ("F5", "Refresh", "History"),
     ("Ctrl+1 … 7", "Home, Compress, Convert, Metadata, Clean Up, Watch, History", "Navigation"),
     ("Ctrl+,", "Settings", "Navigation"),
+    ("Ctrl+K", "Go to a page or tool, or run an action, by typing", "Navigation"),
     ("F1", "Keyboard shortcuts", "Navigation"),
     ("Ctrl+Q", "Quit", "Navigation"),
     ("← →", "Move the comparison line", "Preview"),
@@ -175,6 +176,7 @@ class ShortcutsDialog(QDialog):
 
 class MainWindow(QMainWindow):
     power_changed = Signal(bool)          # plugged in / on battery (see battery_pause)
+    _low_space_done = Signal(str, object, object)   # drive name, free bytes, bytes cleared (from a thread)
 
     def __init__(self):
         style.scale_to_text()   # text-bound sizes follow the text size before anything is built (once)
@@ -255,6 +257,7 @@ class MainWindow(QMainWindow):
         self._setup_updates()
         self._setup_power()
         self._setup_monthly()
+        self._setup_low_space()
         from .activity import ActivityMonitor
 
         self._activity_monitor = ActivityMonitor(self)
@@ -334,6 +337,14 @@ class MainWindow(QMainWindow):
     def go_to(self, page: QWidget) -> None:
         self._go(self.pages.indexOf(page))
 
+    def open_cleanup_tool(self, key: str) -> None:
+        """Clean Up, on the tool with this key ("caches", "apps"…)."""
+        cu = self.cleanup
+        self.go_to(cu)
+        index = next((i for i, tool in enumerate(cu._tools) if tool.key == key), None)
+        if index is not None:
+            cu.tabs.setCurrentIndex(index)
+
     def focus_page(self) -> None:
         """After a keyboard page switch, put the focus where work happens: the page's list if it has rows,
         otherwise its first control (so the page's own shortcuts work straight away)."""
@@ -386,6 +397,7 @@ class MainWindow(QMainWindow):
         add("Ctrl+,", lambda: (self.go_to(self.app_settings), self.focus_page()))
         add("F1", self.show_shortcuts)
         add("Ctrl+/", self.show_shortcuts)
+        add("Ctrl+K", self.show_command_bar)
         add("Ctrl+Q", self.quit)
 
     def _shortcut(self, seq, slot, parent=None, ctx=Qt.WindowShortcut):
@@ -430,6 +442,81 @@ class MainWindow(QMainWindow):
 
     def show_shortcuts(self) -> None:
         ShortcutsDialog(self).exec()
+
+    def commands(self) -> list:
+        """Everything the command bar (Ctrl+K) offers."""
+        from .command_bar import Command
+        from .cleanup_tools import tools
+
+        def page(attr: str):
+            def go() -> None:
+                self.go_to(getattr(self, attr))
+                self.focus_page()
+            return go
+
+        def scan_home() -> None:
+            self.go_to(self.home)
+            self.home.analyze()
+
+        def copy_diagnostics() -> None:
+            from PySide6.QtGui import QGuiApplication
+
+            from ..log import diagnostics
+            from .dialogs import inform
+
+            QGuiApplication.clipboard().setText(diagnostics())
+            inform(self, "Diagnostics copied", "Paste them into an email or bug report.")
+
+        def open_log_folder() -> None:
+            from ..log import log_dir
+            from .file_model import open_in_file_manager
+
+            open_in_file_manager(str(log_dir()))
+
+        def explain_space() -> None:
+            from . import hidden_space
+
+            b = self.home.space_card.breakdown
+            drive = b.drive if b is not None else str(Path.home().anchor)
+            hidden_space.show(drive, self.open_cleanup_tool, self)
+
+        def report() -> None:
+            from .dialogs import report_problem
+
+            report_problem(self)
+
+        out = [Command("Home", "Page", page("home"), "start overview savings storage"),
+               Command("Compress", "Page", page("compress"), "shrink photos videos music"),
+               Command("Convert", "Page", page("converter"), "format change heic jpeg mp4 pdf"),
+               Command("Metadata", "Page", page("metadata"), "location gps exif privacy"),
+               Command("Clean Up", "Page", page("cleanup"), "free space"),
+               Command("Watch Folders", "Page", page("watch"), "automatic new files"),
+               Command("History", "Page", page("history"), "undo restore"),
+               Command("Settings", "Page", page("app_settings"), "preferences options")]
+        def tool(key: str):
+            def go() -> None:
+                self.open_cleanup_tool(key)
+            return go
+
+        out += [Command(t.tab, "Clean Up", tool(t.key), t.key) for t in tools()]
+        out += [Command("Add Files…", "Action", lambda: self._add_files(False), "open"),
+                Command("Add Folder…", "Action", lambda: self._add_files(True), "open"),
+                Command("Scan My Folders", "Action", scan_home, "home analyze"),
+                Command("What Else Takes Space", "Action", explain_space,
+                        "hidden system hibernation restore points wsl everything else"),
+                Command("Check for Updates", "Action", lambda: self.check_for_updates(manual=True), "new version"),
+                Command("Report a Problem…", "Action", report, "bug issue crash"),
+                Command("Copy Diagnostics", "Action", copy_diagnostics, "bug log versions"),
+                Command("Open Log Folder", "Action", open_log_folder, "logs crash"),
+                Command("Keyboard Shortcuts", "Action", self.show_shortcuts, "keys help"),
+                Command("About Wick", "Action", self.show_about, "version licenses privacy"),
+                Command("Quit Wick", "Action", self.quit, "exit close")]
+        return out
+
+    def show_command_bar(self) -> None:
+        from .command_bar import CommandBar
+
+        CommandBar(self.commands(), self).exec()
 
     def show_support(self, asked: bool = False) -> None:
         """The "star on GitHub / donate" window (the sidebar's Support link, or the one-time prompt)."""
@@ -635,13 +722,99 @@ class MainWindow(QMainWindow):
         if total < self.MONTHLY_MIN:
             return
         self._last_notice = "monthly"
-        self.tray_message(f"About {human(total)} could be freed. Open Wick to see where "
-                          "(nothing has been changed).", force=True)
+        self.tray_message(f"About {human(total)} could be freed. Open Wick to see where. Nothing has been changed "
+                          "yet.", force=True)
 
     def _message_clicked(self) -> None:
-        if getattr(self, "_last_notice", "") == "monthly":
+        if getattr(self, "_last_notice", "") in ("monthly", "low_space"):
             self.show_window()
             self.go_to(self.home)
+
+    # When a drive is almost full (Settings › When a drive is almost full): "off", "notify", or "clean", which
+    # also clears the app caches Clean Up marks as safe. Those are deleted for good: on a full drive, moving them
+    # to the Recycle Bin (on the same drive) wouldn't free anything. Apps rebuild them.
+    LOW_SPACE_CHOICES = {"off": "Do nothing", "notify": "Let me know",
+                         "clean": "Let me know and clear app caches"}
+    LOW_SPACE_FRACTION = 0.10        # almost full: less than 10% free…
+    LOW_SPACE_CAP = 20 * 1024 ** 3   # …or less than 20 GB on big drives
+
+    @classmethod
+    def almost_full(cls, total: int, free: int) -> bool:
+        return free < min(total * cls.LOW_SPACE_FRACTION, cls.LOW_SPACE_CAP)
+
+    def _setup_low_space(self) -> None:
+        self._low_space_busy = False
+        self._low_space_done.connect(self._low_space_cleared)
+        self._low_space_timer = QTimer(self, interval=30 * 60 * 1000)
+        self._low_space_timer.timeout.connect(self.check_low_space)
+        self._low_space_timer.start()
+        QTimer.singleShot(2 * 60 * 1000, self.check_low_space)           # once start-up has settled
+
+    def _watched_drives(self) -> list[Path]:
+        system = Path((os.environ.get("SystemDrive") or "C:") + "\\") if os.name == "nt" else Path("/")
+        drives = [system]
+        for root in getattr(self.home, "roots", [])[:1]:
+            anchor = Path(Path(root).anchor or "/")
+            if anchor not in drives:
+                drives.append(anchor)
+        return drives
+
+    def check_low_space(self) -> list[Path]:
+        """Drives that are almost full and haven't been mentioned today; mentions them (and clears caches in
+        "clean" mode). Returns them."""
+        import shutil
+
+        mode = str(self.qsettings.value("low_space", "notify", str))
+        if mode == "off" or self._low_space_busy:
+            return []
+        low = []
+        for drive in self._watched_drives():
+            try:
+                usage = shutil.disk_usage(drive)
+            except OSError:
+                continue
+            key = "low_space/last/" + (drive.drive or str(drive)).replace("\\", "").replace("/", "root")
+            if not self.almost_full(usage.total, usage.free) \
+                    or time.time() - self.qsettings.value(key, 0.0, float) < 86400:
+                continue
+            self.qsettings.setValue(key, time.time())
+            low.append((drive, usage.free))
+        if not low:
+            return []
+        drive, free = low[0]
+        name = drive.drive or "Your main drive"
+        self._last_notice = "low_space"
+        if mode != "clean":
+            self.tray_message(f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
+                              force=True)
+            return [d for d, _ in low]
+        self._low_space_busy = True
+
+        def clear() -> None:
+            freed = 0
+            try:
+                from ..cleanup import actions, caches
+
+                safe = [c for c in caches.find_caches().items if c.selected]
+                outcomes, _run = actions.apply(safe, actions.TRASH, "caches", Path.home())
+                freed = actions.empty_from_trash(outcomes)[1]
+            except Exception:  # noqa: BLE001 - the notice still goes out
+                from ..log import ignored
+                ignored("gui.main_window.check_low_space")
+            self._low_space_done.emit(name, int(free), int(freed))
+
+        import threading
+
+        threading.Thread(target=clear, name="low-space-clean", daemon=True).start()
+        return [d for d, _ in low]
+
+    def _low_space_cleared(self, name: str, free, freed) -> None:
+        self._low_space_busy = False
+        self._last_notice = "low_space"
+        self.tray_message(f"{name} is almost full. Wick cleared {human(freed)} of app caches; open it to see what "
+                          f"else can be freed." if freed else
+                          f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
+                          force=True)
 
     def _setup_power(self) -> None:
         from .. import power
@@ -943,6 +1116,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_welcome_pending", False):
             self._welcome_pending = False
             QTimer.singleShot(300, self._welcome)       # once the window is on screen
+        elif not getattr(self, "_tradeoff_checked", False) and self.qsettings.value("welcome_done", False, bool):
+            self._tradeoff_checked = True                # (people who used Wick before the question existed)
+            QTimer.singleShot(1500, self.ask_tradeoff)
 
     def _welcome(self) -> None:
         from .welcome import WelcomeDialog
@@ -955,8 +1131,30 @@ class MainWindow(QMainWindow):
             if result == WelcomeDialog.Accepted:
                 self.go_to(self.home)
                 self.home.analyze()
+            QTimer.singleShot(400, self.ask_tradeoff)
         dlg.finished.connect(closed)
         dlg.open()                    # (window-modal, doesn't block the event loop)
+
+    TRADEOFF_ASKED = "tradeoff/asked"
+
+    def ask_tradeoff(self) -> None:
+        """Once: smaller files, or faster? The answer sets JPEG XL effort and the processor speed for videos
+        (both still in the compression options)."""
+        if self.qsettings.value(self.TRADEOFF_ASKED, False, bool):
+            return
+        from .. import tradeoff
+        from .tradeoff_dialog import TradeoffDialog
+
+        dlg = TradeoffDialog(self)
+        self._tradeoff_dialog = dlg
+
+        def closed(_result: int) -> None:
+            self.qsettings.setValue(self.TRADEOFF_ASKED, True)
+            s = tradeoff.apply(dlg.choice(), self.compress.panel.settings())
+            self.compress.panel.load(s)
+            self.save_settings()
+        dlg.finished.connect(closed)
+        dlg.open()
 
     def show_window(self) -> None:
         from .. import power

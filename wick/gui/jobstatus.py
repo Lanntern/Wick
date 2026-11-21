@@ -45,9 +45,9 @@ class JobStatus(Card):
         self.detail = text("", Type.FOOTNOTE, secondary=True, wrap=True)
         self.detail.setTextFormat(Qt.PlainText)
         self.detail.setAccessibleName("Details")
-        self.stop_btn = button("Stop", "", "stop", "Stop after the current file; its original is kept", "Esc")
+        self.stop_btn = button("Stop", "", "stop", "Stop after the current file, keeping its original", "Esc")
         self.stop_btn.clicked.connect(self.stop_requested)
-        self.pause_btn = button("Pause", "", None, "Pause after the current file (it finishes first)")
+        self.pause_btn = button("Pause", "", None, "Pause once the current file is done")
         self.pause_btn.setCheckable(True)
         self.pause_btn.toggled.connect(self._pause_clicked)
         self._paused_reason = ""
@@ -61,10 +61,11 @@ class JobStatus(Card):
                                                          "as a spreadsheet (CSV)")
         self.report_btn.clicked.connect(self._save_report)
         self._results: list = []
-        self.undo_btn = button("Undo", "", "undo", "Put the originals back and remove the results (asks first)")
+        self.undo_btn = button("Undo", "", "undo", "Put the originals back and remove the results. You'll be asked "
+                                                   "first.")
         self.undo_btn.clicked.connect(self._undo)
         self._on_undo = None
-        self.close_btn = button("Dismiss", "", None, "Hide this message")
+        self.close_btn = button("Dismiss", "", None, "")
         self.close_btn.clicked.connect(self.hide)
         # The title has the whole width (file names can be long); details and buttons share the line below.
         self.lay.addWidget(self.title)
@@ -109,7 +110,7 @@ class JobStatus(Card):
         self._taskbar("normal" if total else "indeterminate", done / total if total else 0.0)
 
     def stopping(self) -> None:
-        self.detail.setText("Stopping after the current file; its original is kept.")
+        self.detail.setText("Stopping after the current file. Its original is kept.")
         self.detail.setVisible(True)
         self.stop_btn.setEnabled(False)
 
@@ -452,7 +453,7 @@ class PauseControl:
     """Pauses a job's thread when the user presses Pause, or on battery power (Settings): the file being
     worked on finishes, nothing new starts. Battery pauses lift on their own; the user's don't."""
 
-    BATTERY = "On battery power: continues when you plug in (Settings › Pause on battery power)."
+    BATTERY = "Paused on battery power. It carries on when you plug in."
 
     def __init__(self, status: JobStatus, window):
         self.status, self.win, self.thread, self.by_user = status, window, None, False

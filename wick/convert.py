@@ -40,12 +40,12 @@ IMAGE_TARGETS = {
     "pdf": ("PDF", ".pdf", False, True, False),                          # JPEGs kept as they are: pdftools.py
     "icns": ("ICNS (Mac icon)", ".icns", False, True, False),            # icons.make_icns
     "cur": ("CUR (Windows cursor)", ".cur", False, True, False),          # icons.make_cur
-    "keep": ("Same format (to turn or flip)", "", True, True, False),    # see turn_label / _turn_jpeg
+    "keep": ("Same format (to rotate or flip)", "", True, True, False),    # see turn_label / _turn_jpeg
 }
 # The format a picture keeps when only turned or flipped.
 KEEP_TARGET = {"jpeg": "jpeg", "png": "png", "gif": "gif", "webp": "webp", "tiff": "tiff", "bmp": "bmp",
                "heic": "heic", "avif": "avif", "jxl": "jxl"}
-TURN_LABELS = {90: "turned right", 180: "turned upside down", 270: "turned left"}
+TURN_LABELS = {90: "rotated right", 180: "rotated upside down", 270: "rotated left"}
 FLIP_LABELS = {"h": "mirrored", "v": "flipped upside down"}
 MP4_FAMILY = {".mp4", ".m4v", ".mov", ".3gp"}       # containers that store a turn as a display matrix
 # id: (label, extension, codec)
@@ -54,7 +54,7 @@ VIDEO_TARGETS = {
     "mp4_hevc": ("MP4 (HEVC)", ".mp4", "hevc"),
     "mkv_av1": ("MKV (AV1)", ".mkv", "av1"),
     "webm_vp9": ("WebM (VP9)", ".webm", "vp9"),
-    "keep": ("Same format (to turn or flip)", "", "keep"),
+    "keep": ("Same format (to rotate or flip)", "", "keep"),
     "gif": ("GIF (animation, no sound)", ".gif", "gif"),
     "webp_anim": ("Animated WebP (no sound)", ".webp", "webp"),
     # The sound only (copied as it is when it's already in that format: no quality lost).
@@ -114,9 +114,9 @@ PDF_TARGETS = {
     "png": ("Pages as PNG images", ""),
     "jpeg": ("Pages as JPEG images", ""),
     "split": ("Single-page PDFs", ""),
-    "rotate90": ("Pages turned right", ".pdf"),
-    "rotate270": ("Pages turned left", ".pdf"),
-    "rotate180": ("Pages turned upside down", ".pdf"),
+    "rotate90": ("Pages rotated right", ".pdf"),
+    "rotate270": ("Pages rotated left", ".pdf"),
+    "rotate180": ("Pages rotated upside down", ".pdf"),
     "protect": ("With a password", ".pdf"),
     "unlock": ("Without its password", ".pdf"),
 }
@@ -222,7 +222,7 @@ def describe(kind: str, opts: ConvertOptions) -> str:
     if t is not None and kind not in (AUDIO, DOC, DOCUMENT, PDF, FONT, COMIC, ARCHIVE) \
             and t[0] not in SOUND_TARGETS \
             and turn_label(opts):
-        text = (text.replace("Same format (to turn or flip)", "Same format") + ", " + turn_label(opts))
+        text = (text.replace("Same format (to rotate or flip)", "Same format") + ", " + turn_label(opts))
     return text
 
 
@@ -300,7 +300,7 @@ def convert_image(src: Path, kind: str, info, target: str, opts: ConvertOptions,
         if kind == "jpeg" and getattr(info, "frames", 1) <= 1:
             return _turn_jpeg(src, opts)
         if kind not in KEEP_TARGET:
-            raise ValueError(f"A {kind.upper()} file can't be saved in its own format here: choose a format")
+            raise ValueError(f"A {kind.upper()} file can't be saved in its own format here. Choose another format.")
         import dataclasses
 
         target = KEEP_TARGET[kind]
@@ -468,7 +468,7 @@ def _turn_jpeg(src: Path, opts: ConvertOptions) -> Path:
     same bytes (every current viewer and browser follows the orientation)."""
     from PIL import Image
 
-    steps.report("Turning (no quality lost)")
+    steps.report("Rotating without losing quality")
     data = src.read_bytes()
     with Image.open(src) as im:
         meta = md.read_meta(im)
@@ -536,7 +536,7 @@ def turn_video(src: Path, opts: ConvertOptions, cancel: threading.Event | None =
     from .probe import probe_video
 
     if src.suffix.lower() not in MP4_FAMILY:
-        raise ValueError("Only MP4 and MOV videos can be turned without re-encoding: convert it to MP4")
+        raise ValueError("Only MP4 and MOV videos can be rotated without re-encoding. Convert it to MP4 first.")
     before = video_rotation(src)
     ccw = (before - opts.turn) % 360
     ccw = ccw - 360 if ccw > 180 else ccw
@@ -549,7 +549,7 @@ def turn_video(src: Path, opts: ConvertOptions, cancel: threading.Event | None =
         args += ["-display_vflip:v:0"]
     args += ["-i", str(src), "-map", "0", "-map_metadata", "0", "-c", "copy", "-movflags", "+faststart", str(out)]
     try:
-        steps.report("Turning (no quality lost)")
+        steps.report("Rotating without losing quality")
         tools.run(args, timeout=3600)
         steps.report("Checking the result")
         a, b = probe_video(src), probe_video(out)
@@ -971,7 +971,7 @@ def extract_audio(src: Path, target: str, opts: ConvertOptions, s: Settings,
                 raise VerificationFailed("The sound couldn't be read back")
             if info.duration > 0 and abs(got.duration - info.duration) > max(0.5, info.duration * 0.01):
                 raise VerificationFailed(f"The sound lasts {got.duration:.1f} s instead of {info.duration:.1f} s")
-            return out, "sound copied as it was (no quality lost)"
+            return out, "sound copied as it was"
         except BaseException:
             remove_quietly(out)
             raise

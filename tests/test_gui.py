@@ -3,6 +3,7 @@ watch-folder options, the preview dialog and the Settings page."""
 
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -63,6 +64,7 @@ def win(tmp_path_factory):
     qs = QSettings(str(ini), QSettings.IniFormat)
     qs.setValue("home/auto_analyze", False)  # don't scan the real Pictures folder
     qs.setValue("welcome_done", True)        # (the welcome has its own test)
+    qs.setValue("tradeoff/asked", True)      # (so has the speed-or-size question)
     qs.sync()
     del qs
 
@@ -1228,7 +1230,7 @@ def test_monthly_check_only_when_on_and_due(win, monkeypatch):
     ov = overview.Overview()
     ov.space = space.Breakdown("C:", 10 ** 12, 10 ** 11, sizes={space.CACHES: 2 * 1024 ** 3})
     win.home.analyzed.emit(ov)
-    assert messages and "could be freed" in messages[0] and "nothing has been changed" in messages[0]
+    assert messages and "could be freed" in messages[0] and "Nothing has been changed" in messages[0]
     assert _time.time() - win.qsettings.value("monthly/last", 0.0, float) < 60
     messages.clear()
     win._monthly_running = True
@@ -1476,8 +1478,8 @@ def test_convert_lists_documents_and_offers_pandoc(win, tmp_path, monkeypatch):
     assert _wait(lambda: not conv.busy() and conv.tree.topLevelItemCount() == 2, 30)
     rows = {conv.tree.topLevelItem(i).text(0): conv.tree.topLevelItem(i) for i in range(2)}
     row = rows["notes.md"]
-    assert row.text(conv.STATUS_COL) == "Needs Pandoc (see above)"
-    assert rows["sheet.xlsx"].text(conv.STATUS_COL) == "Only Office or LibreOffice reads this: choose PDF"
+    assert row.text(conv.STATUS_COL) == "Needs Pandoc, see above"
+    assert rows["sheet.xlsx"].text(conv.STATUS_COL) == "Only Office or LibreOffice can read this. Choose PDF instead."
     assert not conv.pandoc_row.isHidden() and "Pandoc" in conv.pandoc_note.text()
     monkeypatch.setattr(tools, "find_tool", real)
     conv.document_target.setCurrentIndex(conv.document_target.findData("none"))
@@ -1606,7 +1608,7 @@ def test_turning_from_the_convert_menu_adds_up(win, tmp_path):
 
     def do(label):
         menu = dict(x for x in conv.menu_entries([e]) if x)
-        dict(x for x in menu["Turn"] if x)[label]()
+        dict(x for x in menu["Rotate"] if x)[label]()
 
     do("Right")
     assert (conv.opts_for(e).turn, conv.opts_for(e).image_target) == (90, "keep")
@@ -2505,3 +2507,157 @@ def test_update_notice_for_a_package_manager_install(win, monkeypatch):
     asked.clear()
     win._show_update()
     assert asked[0][1] == "Open Download Page" and opened
+
+
+def test_qt_warnings_reach_the_log_without_flooding_it(win, caplog):
+    import logging
+
+    from PySide6.QtCore import qWarning
+
+    from wick.gui import resilience
+
+    resilience._log_qt_messages()
+    with caplog.at_level(logging.INFO, logger="wick"):
+        for _ in range(6):
+            qWarning("a plugin didn't load")
+    got = [r for r in caplog.records if "a plugin didn't load" in r.getMessage()]
+    assert len(got) == resilience.QT_REPEATS_LOGGED and got[0].levelno == logging.WARNING
+    assert "further repeats" in got[-1].getMessage()
+
+
+def test_the_crash_notice_offers_a_bug_report(win, monkeypatch):
+    from wick.gui import app, dialogs
+
+    asked, reported = [], []
+    monkeypatch.setattr(dialogs, "choose", lambda parent, title, info, default, other: asked.append(other) or True)
+    monkeypatch.setattr(dialogs, "report_problem", lambda parent: reported.append(parent))
+    app._mention_crash(win)
+    assert asked == ["Report a Problem"] and reported == [win]
+
+
+def test_everything_else_is_explained_with_safe_actions(win, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from wick import systemspace
+    from wick.gui import hidden_space
+
+    items = [systemspace.Hidden("journal", "System logs", 3 * 1024 ** 3, "Logs.", systemspace.COMMAND,
+                                "Copy Command", "sudo journalctl --vacuum-time=4weeks"),
+             systemspace.Hidden("virtual_disks", "Linux (WSL) and Docker disks", 5 * 1024 ** 3, "Disks.",
+                                systemspace.VIRTUAL_DISKS, "Compact on Clean Up"),
+             systemspace.Hidden("swap", "Swap file", 2 * 1024 ** 3, "Leave it.")]
+    monkeypatch.setattr(systemspace, "measure", lambda drive: items)
+    monkeypatch.setattr(hidden_space, "inform", lambda *a, **k: None)
+    opened = []
+    d = hidden_space.HiddenSpaceDialog(Path("/"), opened.append, win)
+    assert _wait(lambda: not d.worker.isRunning() and d.list.count() == 3, 10)
+    QApplication.processEvents()
+    buttons = {b.text(): b for b in d.findChildren(QPushButton)}
+    assert "Copy Command" in buttons and "Compact on Clean Up" in buttons
+    buttons["Copy Command"].click()
+    assert QGuiApplication.clipboard().text() == "sudo journalctl --vacuum-time=4weeks"
+    buttons["Compact on Clean Up"].click()
+    assert opened == ["devclean"]
+    win.open_cleanup_tool("apps")
+    assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "apps"
+
+
+def test_an_almost_full_drive_is_mentioned_once_a_day(win, monkeypatch):
+    import shutil as _shutil
+    from collections import namedtuple
+
+    from wick.cleanup import actions, caches
+    from wick.cleanup.common import Candidate, ScanResult
+    from wick.gui.main_window import MainWindow
+
+    gb = 1024 ** 3
+    assert MainWindow.almost_full(100 * gb, 9 * gb) and not MainWindow.almost_full(100 * gb, 11 * gb)
+    assert MainWindow.almost_full(2000 * gb, 19 * gb) and not MainWindow.almost_full(2000 * gb, 25 * gb)
+
+    Usage = namedtuple("Usage", "total used free")
+    monkeypatch.setattr(_shutil, "disk_usage", lambda p: Usage(100 * gb, 95 * gb, 5 * gb))
+    messages = []
+    monkeypatch.setattr(win, "tray_message", lambda m, force=False, **k: messages.append(m))
+    for key in win.qsettings.allKeys():
+        if key.startswith("low_space"):
+            win.qsettings.remove(key)
+    win.qsettings.setValue("low_space", "notify")
+    assert win.check_low_space() and "almost full" in messages[-1]
+    assert not win.check_low_space()                                   # not again today
+
+    for key in win.qsettings.allKeys():
+        if key.startswith("low_space/last"):
+            win.qsettings.remove(key)
+    win.qsettings.setValue("low_space", "clean")
+    safe = Candidate(Path("/tmp/cache"), 3 * gb, selected=True)
+    unsure = Candidate(Path("/tmp/other"), gb, selected=False)
+    monkeypatch.setattr(caches, "find_caches", lambda *a, **k: ScanResult("caches", [safe, unsure]))
+    applied = []
+    monkeypatch.setattr(actions, "apply", lambda items, *a, **k: (applied.append(items) or ["x"], None))
+    monkeypatch.setattr(actions, "empty_from_trash", lambda outcomes, *a, **k: (1, 3 * gb, []))
+    messages.clear()
+    assert win.check_low_space()
+    assert _wait(lambda: bool(messages), 10)
+    assert applied == [[safe]] and "cleared 3.0 GB" in messages[-1]
+    win.qsettings.setValue("low_space", "notify")
+
+
+def test_the_command_bar_finds_pages_tools_and_actions(win, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from wick.gui.command_bar import CommandBar, matches
+
+    commands = win.commands()
+    titles = [c.title for c in matches(commands, "dup")]
+    assert titles and titles[0] == "Duplicates"
+    assert [c.title for c in matches(commands, "hibernation")] == ["What Else Takes Space"]
+    assert not matches(commands, "zzzz nothing")
+    bar = CommandBar(commands, win)
+    bar.field.setText("apps")
+    QApplication.processEvents()
+    assert bar.list.currentItem().data(Qt.UserRole).title == "Apps"
+    bar._run_current()
+    assert win.pages.currentWidget() is win.cleanup
+    assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "apps"
+    bar.field.setText("history")
+    bar._run_current()
+    assert win.pages.currentWidget() is win.history
+
+
+
+def test_speed_or_size_is_asked_once_and_sets_the_defaults(win, monkeypatch):
+    from wick import tradeoff
+    from wick.gui import tradeoff_dialog
+
+    assert tradeoff.suggest(16, 32)[0] == "smaller" and tradeoff.suggest(4, 16)[0] == "faster"
+    assert tradeoff.suggest(8, 16)[0] == "balanced" and "8 processor threads" in tradeoff.suggest(8, 16)[1]
+    d = tradeoff_dialog.TradeoffDialog(win, suggested=("smaller", "Many cores."))
+    assert d.choice() == "smaller"
+    radios = {b.property("choice"): b for b in d.group.buttons()}
+    radios["faster"].setChecked(True)
+    assert d.choice() == "faster"
+
+    shown = []
+
+    class Fake:
+        def __init__(self, parent):
+            self.finished = type("S", (), {"connect": lambda _s, f: shown.append(f)})()
+
+        def choice(self):
+            return "smaller"
+
+        def open(self):
+            shown[-1](1)
+
+    monkeypatch.setattr(tradeoff_dialog, "TradeoffDialog", Fake)
+    win.qsettings.setValue("tradeoff/asked", False)
+    win.ask_tradeoff()
+    s = win.compress.panel.settings()
+    assert s.image_effort == 9 and s.video_effort == "slow" and tradeoff.choice_of(s) == "smaller"
+    assert win.qsettings.value("tradeoff/asked", False, bool)
+    shown.clear()
+    win.ask_tradeoff()                                       # once only
+    assert not shown
+    win.compress.panel.load(tradeoff.apply("balanced", win.compress.panel.settings()))

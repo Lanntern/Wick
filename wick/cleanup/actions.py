@@ -14,10 +14,10 @@ from .. import cfa, journal
 from ..formats import human
 from ..fileops import BIN_NAME, copy_times, move_to_trash, remove_quietly, temp_name, trash_available
 from . import appcompress
-from .common import Candidate
+from .common import Candidate, folder_size
 
 TRASH, HARDLINK, COMPACT, TAKEOUT, RENAME = "trash", "hardlink", "compact", "takeout", "rename"
-DECOMPACT = "decompact"
+DECOMPACT, UNINSTALL = "decompact", "uninstall"
 
 
 @dataclass
@@ -113,6 +113,39 @@ def trash_paths(item: Candidate, writer: journal.RunWriter, label: str) -> Outco
         return Outcome(item, False, "Nothing could be moved (all in use)")
     return Outcome(item, True, f"Moved {moved:,} to the {BIN_NAME}" + (f", {skipped:,} in use" if skipped else ""),
                    freed, at)
+
+
+def uninstall_item(item: Candidate, writer: journal.RunWriter, others: list, cancel=None) -> Outcome:
+    """Run an app's own uninstaller; once it's gone, folders it left behind go to the Recycle Bin (recorded, so
+    History can bring them back). The uninstall itself can't be undone from Wick."""
+    from . import apps as apps_mod
+
+    app = item.extra["app"]
+    try:
+        removed, message = apps_mod.uninstall(app, cancel)
+    except OSError as e:
+        return _failed(item, e, "Couldn't uninstall")
+    if not removed:
+        return Outcome(item, False, message)
+    writer.add(journal.FileRecord(
+        original=f"App: {app.name}", output="", original_size=item.size, output_size=0, kind="cleanup",
+        method="Uninstalled with its own uninstaller", reversible=False, trashed_at=time.time(), mode="uninstall"))
+    freed, moved, at = item.size, 0, time.time()
+    for path in apps_mod.leftovers_of(app, others):
+        size = folder_size(path)[0]
+        if not size or not trash_available(path):
+            continue
+        try:
+            move_to_trash(path, size)
+        except Exception:  # noqa: BLE001 - in use: left where it is
+            from wick.log import ignored
+            ignored("cleanup.actions.uninstall_item")
+            continue
+        _record(writer, Candidate(path, size), "removed", f"Left behind by {app.name} → {BIN_NAME}", size, at)
+        moved += 1
+        freed += size
+    return Outcome(item, True, "Uninstalled" + (f", and {moved} leftover folder{'s' if moved != 1 else ''} moved to "
+                                               f"the {BIN_NAME}" if moved else ""), freed, at)
 
 
 def windows_items(items: list[Candidate], writer: journal.RunWriter, cancel=None) -> list[Outcome]:
@@ -322,7 +355,7 @@ def apply(items: list[Candidate], action: str, tool: str, root: Path,
               "caches": f"Cache → {BIN_NAME}", "devclean": f"Rebuildable folder → {BIN_NAME}",
               "installers": f"Old installer → {BIN_NAME}", "empty": f"Empty item → {BIN_NAME}",
               "similar": f"Similar photo → {BIN_NAME}", "winclean": f"Windows leftover → {BIN_NAME}",
-              "large": f"Large file → {BIN_NAME}"}
+              "large": f"Large file → {BIN_NAME}", "leftovers": f"App leftover → {BIN_NAME}"}
     if action == TAKEOUT:
         outcomes = takeout_items(items, writer, cancel, on_line)
         if progress:
@@ -365,7 +398,12 @@ def apply(items: list[Candidate], action: str, tool: str, root: Path,
             if progress:
                 progress(o, done_before + i + 1, done_before + len(items))
             continue
-        if action == RENAME:
+        if action == UNINSTALL:
+            from . import apps as apps_mod
+
+            others = [a for a in apps_mod.installed() if a.name != item.extra["app"].name]
+            o = uninstall_item(item, writer, others, cancel)
+        elif action == RENAME:
             o = rename_item(item, writer)
         elif action == HARDLINK:
             o = hardlink_item(item, writer)

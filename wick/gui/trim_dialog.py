@@ -95,9 +95,9 @@ class TrimDialog(QDialog):
         lay.addLayout(grid)
         self.summary = text("", Type.FOOTNOTE, secondary=True, wrap=True)
         lay.addWidget(self.summary)
-        self.exact = QCheckBox("Cut exactly (re-encodes the video)")
-        self.exact.setToolTip("Without it nothing is re-encoded and no quality is lost, but the copy starts at the "
-                              "video's nearest keyframe before Start: usually up to a few seconds earlier.")
+        self.exact = QCheckBox("Cut exactly, re-encoding the video")
+        self.exact.setToolTip("Without this, no quality is lost, but the copy starts at the nearest keyframe before "
+                              "the start time, usually a few seconds earlier.")
         if is_video:
             lay.addWidget(self.exact)
         lay.addLayout(dialog_buttons(self, ("Save Trimmed Copy", self.accept)))

@@ -31,7 +31,7 @@ BITRATES = [("Automatic", 0), ("320 kbps", 320), ("256 kbps", 256), ("192 kbps",
 SAMPLE_RATES = [("Keep", 0), ("48 kHz", 48000), ("44.1 kHz", 44100), ("32 kHz", 32000), ("22.05 kHz", 22050)]
 CHANNELS = [("Keep", 0), ("Stereo", 2), ("Mono", 1)]
 TURNS = [("Don't turn", 0), ("Right (90°)", 90), ("Left (90°)", 270), ("Upside down (180°)", 180)]
-FLIPS = [("Don't flip", ""), ("Mirror (left to right)", "h"), ("Upside down (top to bottom)", "v")]
+FLIPS = [("Don't flip", ""), ("Mirror", "h"), ("Flip upside down", "v")]
 
 
 def kind_group(kind: str) -> str:
@@ -112,12 +112,12 @@ class ConvertSettingsDialog(QDialog):
             self.size_row = size_row
             self.pdf_page = _combo([("The picture's own size", "picture"), ("A4", "a4"), ("Letter", "letter")],
                                    opts.pdf_page)
-            self.pdf_page.setToolTip("Pictures made into a PDF: each page the picture's size, or on A4 or Letter "
-                                     "paper with a margin (never enlarged)")
+            self.pdf_page.setToolTip("Page size when pictures become a PDF. Each page can match its picture, or use "
+                                     "A4 or Letter with a margin.")
             form.addRow("PDF page size", self.pdf_page)
             self.image_turn, self.image_flip = _combo(TURNS, opts.turn), _combo(FLIPS, opts.flip)
-            self.image_turn.setToolTip("JPEGs are turned without re-encoding (only their orientation tag changes)")
-            form.addRow("Turn", self.image_turn)
+            self.image_turn.setToolTip("JPEGs are rotated without losing quality.")
+            form.addRow("Rotate", self.image_turn)
             form.addRow("Flip", self.image_flip)
             # Icons: the sizes inside, from a preset (MediaWiki and most sites: 16, 32, 48; Windows: up to 256).
             from PySide6.QtWidgets import QGridLayout
@@ -163,8 +163,8 @@ class ConvertSettingsDialog(QDialog):
             form.addRow("Resolution", self.resolution)
             form.addRow("Frame rate", self.fps)
             self.video_turn, self.video_flip = _combo(TURNS, opts.turn), _combo(FLIPS, opts.flip)
-            self.video_turn.setToolTip("MP4 and MOV are turned without re-encoding (players turn the picture)")
-            form.addRow("Turn", self.video_turn)
+            self.video_turn.setToolTip("MP4 and MOV videos are rotated without re-encoding.")
+            form.addRow("Rotate", self.video_turn)
             form.addRow("Flip", self.video_flip)
             self.video_target.currentIndexChanged.connect(self._enable)
         if AUDIO in kinds:
@@ -172,7 +172,7 @@ class ConvertSettingsDialog(QDialog):
             self.audio_target = _combo([(v[0], k) for k, v in convert.AUDIO_TARGETS.items()]
                                        + [("Don't convert", "none")], opts.audio_target)
             self.kbps = _combo(BITRATES, opts.audio_kbps)
-            self.kbps.setToolTip("Automatic: high quality for the format (MP3 uses variable bitrate)")
+            self.kbps.setToolTip("Automatic picks a high quality for the format.")
             self.rate = _combo(SAMPLE_RATES, opts.sample_rate)
             self.rate.setToolTip("Opus always plays at 48 kHz")
             self.channels = _combo(CHANNELS, opts.channels)
@@ -194,7 +194,7 @@ class ConvertSettingsDialog(QDialog):
                                      + [("Don't convert", "none")], opts.pdf_target
                                      if opts.pdf_target in convert.PDF_PAGE_TARGETS else "none")
             self.pdf_dpi = _combo(DPIS, opts.pdf_dpi)
-            self.pdf_dpi.setToolTip("For pages as images: how sharp they are (and how big)")
+            self.pdf_dpi.setToolTip("Sharpness of pages saved as images. Higher values make bigger files.")
             form.addRow("Format", self.pdf_target)
             form.addRow("Resolution", self.pdf_dpi)
             self.pdf_target.currentIndexChanged.connect(self._enable)
@@ -203,7 +203,7 @@ class ConvertSettingsDialog(QDialog):
             form = section("Fonts")
             self.font_target = _combo([(v[0], k) for k, v in convert.FONT_TARGETS.items()]
                                       + [("Don't convert", "none")], opts.font_target)
-            self.font_latin = _combo([("All of them", False), ("Latin only (smaller)", True)], opts.font_latin)
+            self.font_latin = _combo([("All of them", False), ("Latin only, smaller", True)], opts.font_latin)
             self.font_latin.setToolTip("Latin only keeps the letters of English and most European languages, with "
                                        "their punctuation and symbols, and drops the rest")
             form.addRow("Format", self.font_target)
@@ -219,9 +219,9 @@ class ConvertSettingsDialog(QDialog):
             form = section("Archives")
             self.archive_target = _combo([(v[0], k) for k, v in convert.ARCHIVE_TARGETS.items()]
                                          + [("Don't repack", "none")], opts.archive_target)
-            self.archive_target.setToolTip("Unpacks and packs each archive again, more tightly. Usually saves little "
-                                           "(photos and videos inside are compressed already); a result that isn't "
-                                           "smaller is thrown away.")
+            self.archive_target.setToolTip("Repacks each archive more tightly. It usually saves little, since "
+                                           "photos and videos inside are already compressed. If the result isn't "
+                                           "smaller, the original is kept.")
             form.addRow("Repack as", self.archive_target)
         lay.addStretch(1)
         _name_fields(self.form)

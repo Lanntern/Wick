@@ -115,11 +115,30 @@ Save your own from the options panel. Presets work on the Compress page, per wat
 visually identical, high or good. Pictures are measured with SSIMULACRA2 and videos with VMAF. It's slower,
 because each file is encoded several times. The chosen setting and score are shown for each file.
 
+### Speed or size
+
+The first time Wick starts, it asks whether a few percent smaller is worth taking about twice as long, and
+suggests an answer for the computer: Smallest files with 12 or more processor threads and 16 GB of memory,
+Faster with 4 threads or fewer. The answer sets two options, both changeable later:
+
+- **JPEG XL effort** (5, 7 or 9). Effort 9 is used up to 24 megapixels; larger images get 8.
+- **Processor speed** for videos: Faster (x265 *medium*, SVT-AV1 preset 6) or Slower, smaller files (*slow* and
+  preset 5, about 5% smaller). Graphics card encodes aren't affected.
+
+Graphics cards get the best settings they accept, each tried once with a tiny encode: NVIDIA adds a
+full-resolution first pass, temporal AQ and B-frame references; Intel adds look-ahead; AMD uses quality-defined
+VBR with pre-analysis and adaptive quantization, matched to the size its constant QP would give.
+
 ## Home, Convert and Metadata
 
 - **Home** reads the headers of the files in your Pictures, Videos, Downloads, Desktop and Documents folders in
   the background and ranks the best savings by size and confidence. It also shows what's already efficient, so
-  you don't spend time on it.
+  you don't spend time on it. Its storage overview explains *Everything else* too: the hibernation file, page
+  file, restore points and WSL or Docker disks on Windows, and the system journal, package caches, Flatpak
+  runtimes and old Snap versions on Linux, each with what can safely be done about it.
+- **When a drive is almost full** (under 10% free, or 20 GB on large drives), Wick lets you know, at most once a
+  day. Optionally it also clears the app caches Clean Up marks as safe. Those are deleted for good, since moving
+  them to the Recycle Bin on the same drive wouldn't free anything.
 - **Convert** changes formats regardless of size. Pictures: PNG, JPEG, WebP, AVIF, JPEG XL, HEIC, TIFF, BMP or GIF.
   Videos: MP4 (H.264 or HEVC), MKV (AV1) or WebM (VP9). Audio: MP3, AAC, Opus, FLAC or WAV.
 - **Metadata** shows what each photo or video reveals (location, camera, author, date taken, comments) and
@@ -141,6 +160,8 @@ Each tool scans first and only preselects what's safe. Everything can be undone 
 | Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL and Docker disks | Recycle Bin; Docker data removed by Docker; disks compacted |
 | Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files | Removed with Windows' own tools |
 | Installers | Installers and disk images older than N days | Recycle Bin |
+| Apps | Installed apps, with when each was last opened; those not opened in 6 months first | The app's own uninstaller, then its leftover folders go to the Recycle Bin |
+| App Leftovers | Folders in AppData and ProgramData that no installed app uses and that haven't changed in months. Never preselected | Recycle Bin |
 | Empty Items | Empty folders and empty files | Recycle Bin |
 
 **Developer** only lists a folder when the file that recreates it is next to it, never touches anything
@@ -194,6 +215,7 @@ wick speedtest                        # time compression on generated samples
 
 | Keys | Action |
 |---|---|
+| `Ctrl+K` | Go to any page or Clean Up tool, or run an action, by typing |
 | `F1` | List every shortcut |
 | `Ctrl+1` to `Ctrl+7` | Switch pages |
 | `Ctrl+O` | Add files |
