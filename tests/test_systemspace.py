@@ -17,7 +17,7 @@ def test_linux_space_comes_with_what_to_run(monkeypatch):
     sizes = {"/var/log/journal": 3 * gb, "/var/cache/apt/archives": gb, "/var/cache/dnf": 0,
              "/var/cache/pacman/pkg": 0}
     monkeypatch.setattr(systemspace, "IS_WINDOWS", False)
-    monkeypatch.setattr(systemspace, "_size", lambda p: sizes.get(str(p), 0))
+    monkeypatch.setattr(systemspace, "_size", lambda p: sizes.get(Path(p).as_posix(), 0))
     monkeypatch.setattr(systemspace, "_snap_old_versions", lambda: 10)          # (too small to list)
     monkeypatch.setattr(systemspace.shutil, "which", lambda name: None)
     monkeypatch.setattr(systemspace, "SWAP_FILES", ())                          # (the test machine's own)

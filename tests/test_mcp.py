@@ -305,7 +305,17 @@ def test_find_cleanup_lists_but_never_changes(tmp_path):
     assert err and "outside the folders" in text
     text, err = _call(s, "find_cleanup", kind="delete_everything")
     assert err and "kind must be one of" in text
-    apps_found, err = _call(s, "find_cleanup", kind="installed_apps")       # (whole computer: no paths)
-    assert not err and "items" in apps_found
+    from wick.cleanup import apps
+    from wick.cleanup.common import Candidate, ScanResult
+
+    fake = ScanResult("apps", [Candidate(Path("C:/Apps/Old"), 9_000_000, title="Old App", selected=False)])
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(apps, "find_apps", lambda *a, **k: fake)                   # (not every app on the test machine)
+    try:
+        apps_found, err = _call(s, "find_cleanup", kind="installed_apps")   # (whole computer: no paths)
+    finally:
+        mp.undo()
+    assert not err and apps_found["items"][0]["name"] == "Old App"
     tool = next(t for t in s.tools() if t["name"] == "find_cleanup")
     assert tool["annotations"]["readOnlyHint"] and not tool["annotations"]["destructiveHint"]
