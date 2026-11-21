@@ -310,12 +310,20 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         return Plan(True, f"{v.codec.upper()} → {'AV1' if codec == 'av1' else 'HEVC'}, made to fit under "
                     f"{human(limit)}", target, min(limit, int(e.size * 0.95)), route="video")
     if v.codec in EFFICIENT_VIDEO_CODECS and not (resized or capped or repeats or v.interlaced):
-        if not dropped:
-            return _skip(f"Already uses an efficient codec ({v.codec.upper()})")
-        saved = dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration
-        est = max(int(e.size * 0.5), int(e.size - saved)) if dropped_audio else int(e.size * 0.99)
-        return Plan(True, f"{v.codec.upper()} kept as it is; {tracks_note}",
-                    video_output_ext(e.path.suffix, v.codec), est, lossless=True, route="video_remux")
+        from . import subfonts
+        from .video import made_by_wick
+
+        ext = video_output_ext(e.path.suffix, v.codec)
+        made = made_by_wick(v)
+        fonts = subfonts.font_bytes(v) if s.video_fonts and ext == ".mkv" and "fonts cut" not in made else 0
+        fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
+        if not dropped and not fonts:
+            return _skip("Already compressed with Wick" if made
+                         else f"Already uses an efficient codec ({v.codec.upper()})")
+        saved = dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7
+        est = max(int(e.size * 0.5), int(e.size - saved)) if saved else int(e.size * 0.99)
+        why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "") if x)
+        return Plan(True, f"{v.codec.upper()} kept as it is; {why}", ext, est, lossless=True, route="video_remux")
     codec = codec_for(v, s)
 
     av1_r, hevc_r = _VIDEO_BASE.get(v.codec, _LEGACY_RATIO)

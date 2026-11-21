@@ -51,7 +51,9 @@ class Settings:
     video_fix_cadence: bool = True   # drop frames that were only repeated to pad the frame rate (24 -> 30 fps)
     video_crop_bars: bool = False    # remove black bars (letterboxing) found in the picture
     video_grain: str = "auto"        # AV1 film-grain synthesis: auto (grainy videos: grain removed, re-created on
-    #                                  playback, far smaller) | off
+    #                                  playback, far smaller) | banding (also a light grain on clean videos,
+    #                                  which hides banding in skies and dark scenes) | off
+    video_fonts: bool = True         # MKV: subtitle fonts cut to the characters used; unused fonts left out
     video_chunked: bool = True       # processor encodes: scene by scene, several parts at once (faster; Smart quality
     #                                  per scene; an interrupted video carries on where it stopped)
     video_metric: str = "auto"       # how Smart quality measures videos: auto (VMAF) | vmaf | ssimulacra2 | xpsnr |
@@ -157,7 +159,7 @@ class Settings:
         self.video_quality = pick(self.video_quality, VIDEO_QUALITIES, "balanced")
         self.video_effort = pick(self.video_effort, ("medium", "slow"), "medium")
         self.video_tracks = pick(self.video_tracks, VIDEO_TRACKS, "all")
-        self.video_grain = pick(self.video_grain, ("auto", "off"), "auto")
+        self.video_grain = pick(self.video_grain, ("auto", "banding", "off"), "auto")
         self.video_metric = pick(self.video_metric, ("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli"), "auto")
         self.documents = pick(self.documents, DOCUMENT_MODES, "lossless")
         self.languages = ",".join(x for x in (p.strip() for p in str(self.languages or "").split(",")) if x)

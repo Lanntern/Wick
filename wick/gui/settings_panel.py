@@ -296,7 +296,9 @@ class SettingsPanel(QWidget):
         self.video_fps = _combo([("Original", 0), ("60 fps", 60), ("30 fps", 30), ("24 fps", 24)],
                                 "Videos with a higher frame rate are reduced to this.")
         self.audio = _combo([("Copy as-is", 0), ("192 kbps", 192), ("128 kbps", 128), ("96 kbps", 96),
-                             ("64 kbps", 64)], "Re-encode audio (AAC in MP4, Opus in MKV/WebM) or keep it unchanged.")
+                             ("64 kbps", 64)], "Re-encode audio (AAC in MP4, Opus in MKV/WebM) or keep it unchanged. "
+                            "The rate is for stereo: 5.1 gets twice as much, 7.1 about 2.7 times. Tracks "
+                            "already at or under it are copied as they are.")
         f.addRow("Max resolution", self.video_height)
         f.addRow("Max frame rate", self.video_fps)
         self.audio.setAccessibleName("Soundtrack")
@@ -321,11 +323,19 @@ class SettingsPanel(QWidget):
         self.video_crop.setToolTip("Crops black bands around the picture so no space is spent on them. Bars are "
                                    "only removed if they stay black for the whole video.")
         f.addRow(self.video_crop)
-        self.video_grain = QCheckBox("Re-create film grain")
-        self.video_grain.setToolTip("For AV1 on the processor. Grain from film or low light takes a lot of space, "
-                                    "so it's removed and a matching grain is added back during playback. Grainy "
-                                    "videos get much smaller and look the same.")
-        f.addRow(self.video_grain)
+        self.video_grain = _combo([("Re-create it", "auto"), ("Re-create it, and hide banding", "banding"),
+                                   ("Keep it in the picture", "off")],
+                                  "For AV1 on the processor. Grain from film or low light takes a lot of space, so "
+                                  "it's removed and a matching grain is added back during playback. Grainy videos "
+                                  "get much smaller and look the same. Hiding banding also adds a light grain to "
+                                  "clean videos, which breaks up the visible steps in skies and dark scenes.")
+        self.video_grain.setAccessibleName("Film grain")
+        f.addRow("Film grain", self.video_grain)
+        self.video_fonts = QCheckBox("Smaller subtitle fonts")
+        self.video_fonts.setToolTip("MKV videos with styled subtitles often carry several large fonts. This keeps "
+                                    "only the characters the subtitles use, and leaves out fonts they don't use. "
+                                    "Works on AV1 and HEVC videos too, without re-encoding the picture.")
+        f.addRow(self.video_fonts)
         self.video_chunked = QCheckBox("Encode scene by scene")
         self.video_chunked.setToolTip("For processor encodes of videos over 90 seconds. Splitting at scene changes "
                                       "lets the parts encode at the same time, which is faster on processors with "
@@ -531,13 +541,13 @@ class SettingsPanel(QWidget):
                   self.video_quality,
                   self.output_mode, self.smart_target, self.video_height, self.video_fps, self.audio,
                   self.audio_lossless, self.audio_lossy, self.audio_format, self.audio_quality, self.video_jobs,
-                  self.video_tracks, self.documents, self.video_metric)
+                  self.video_tracks, self.documents, self.video_metric, self.video_grain)
         spins = (self.quality, self.effort, self.resize_long, self.resize_w, self.resize_h, self.resize_pct,
                  self.min_savings, self.min_savings_kb, self.min_image_kb, self.min_video_mb, self.workers,
                  self.min_audio_kb, self.video_crf)
         checks = (self.allow_delete, self.keep_structure, self.skip_programs, self.include_hidden,
                   self.low_priority, self.preserve_dates, self.require_savings, self.smart, self.audio_mono,
-                  self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_grain,
+                  self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -652,7 +662,8 @@ class SettingsPanel(QWidget):
         self.audio_cd.setChecked(s.audio_cd_quality)
         self.video_cadence.setChecked(s.video_fix_cadence)
         self.video_crop.setChecked(s.video_crop_bars)
-        self.video_grain.setChecked(s.video_grain == "auto")
+        _set_combo(self.video_grain, s.video_grain)
+        self.video_fonts.setChecked(s.video_fonts)
         self.video_chunked.setChecked(s.video_chunked)
         _set_combo(self.video_metric, s.video_metric)
         _set_combo(self.video_jobs, s.video_jobs)
@@ -697,7 +708,8 @@ class SettingsPanel(QWidget):
             audio_mono=self.audio_mono.isChecked(), audio_cd_quality=self.audio_cd.isChecked(),
             min_audio_kb=self.min_audio_kb.value(), video_fix_cadence=self.video_cadence.isChecked(),
             video_crop_bars=self.video_crop.isChecked(),
-            video_grain="auto" if self.video_grain.isChecked() else "off", video_chunked=self.video_chunked.isChecked(),
+            video_grain=self.video_grain.currentData(),
+            video_fonts=self.video_fonts.isChecked(), video_chunked=self.video_chunked.isChecked(),
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
         )

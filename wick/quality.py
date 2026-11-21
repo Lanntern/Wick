@@ -260,7 +260,9 @@ def _denoise_filter(grain: int) -> str:
     """A denoise roughly matching what the encoder removes before it re-creates grain (0: none): non-local
     means at about the measured noise level (grain level 6 ≈ noise 2, 18 ≈ 6). Weaker denoisers leave enough
     noise behind that every encode would look "different"."""
-    if not grain:
+    from .video import BANDING_GRAIN
+
+    if not grain or grain == BANDING_GRAIN:       # (nothing was removed before that grain was added)
         return ""
     return f"nlmeans=s={max(1.5, grain / 3):.1f}:p=5:r=9"
 

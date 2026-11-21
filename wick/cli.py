@@ -45,6 +45,10 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--audio-bitrate", type=int, default=0, metavar="KBPS", help="re-encode audio; 0 = copy")
     g.add_argument("--no-film-grain", action="store_true",
                    help="AV1: don't store grainy videos without their grain (re-created on playback)")
+    g.add_argument("--hide-banding", action="store_true",
+                   help="AV1: also add a light grain to clean videos, which hides banding")
+    g.add_argument("--keep-fonts", action="store_true",
+                   help="MKV: keep subtitle fonts whole (by default they're cut to the characters used)")
     g.add_argument("--whole", action="store_true",
                    help="encode videos as a whole, not scene by scene (no parts side by side, no carrying on)")
     g.add_argument("--video-metric", choices=("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli"),
@@ -104,7 +108,8 @@ def _settings(a: argparse.Namespace) -> Settings:
         smart_quality=bool(a.smart), smart_target=a.smart or "identical",
         audio_lossless=a.audio_lossless, audio_lossy=a.audio_lossy, audio_format=a.audio_format,
         audio_quality=a.audio_quality, audio_mono=not a.keep_stereo, audio_cd_quality=a.cd_quality,
-        min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "auto",
+        min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "banding" if a.hide_banding else "auto",
+        video_fonts=not a.keep_fonts,
         video_chunked=not a.whole, video_metric=a.video_metric,
     )
     if a.resize_long_edge:

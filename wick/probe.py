@@ -9,6 +9,13 @@ from pathlib import Path
 from . import tools
 
 
+def _int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 @dataclass
 class StreamInfo:
     index: int
@@ -19,6 +26,12 @@ class StreamInfo:
     title: str = ""
     default: bool = False
     forced: bool = False   # forced subtitles: shown for foreign-language lines only
+    channels: int = 0          # audio: channel count (0: unknown)
+    layout: str = ""           # audio: channel layout as ffmpeg names it ("5.1(side)")
+    bit_rate: int = 0          # audio: bits/s when the file says (0: unknown)
+    filename: str = ""         # attachment: its file name inside the video
+    mimetype: str = ""         # attachment: its type ("application/x-truetype-font")
+    size: int = 0              # attachment: bytes
 
 
 @dataclass
@@ -142,6 +155,14 @@ def probe_video(path: Path) -> VideoInfo | None:
         info = StreamInfo(int(s.get("index", len(streams))), kind, s.get("codec_name", "?"), attached,
                           "" if lang in ("und", "zxx", "mis") else lang, str(tags.get("title", "")),
                           bool(disp.get("default")), bool(disp.get("forced")))
+        if kind == "audio":
+            info.channels = _int(s.get("channels"))
+            info.layout = str(s.get("channel_layout") or "")
+            # (MKV keeps a track's rate in its statistics tags, written by mkvmerge, when the stream has none)
+            info.bit_rate = _int(s.get("bit_rate")) or _int(tags.get("bps")) or _int(tags.get("bps-eng"))
+        elif kind == "attachment":
+            info.filename, info.mimetype = str(tags.get("filename", "")), str(tags.get("mimetype", "")).lower()
+            info.size = _int(s.get("extradata_size"))
         streams.append(info)
         if kind == "video" and not attached and main is None:
             main = s

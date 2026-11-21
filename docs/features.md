@@ -38,7 +38,8 @@ Options:
 ## Videos
 
 - **Codec:** *Automatic* uses HEVC for videos straight from cameras and phones (AV1 encoders tend to smooth
-  away their grain and fine detail) and AV1 for everything else. Videos already in HEVC, AV1 or VP9 are skipped.
+  away their grain and fine detail) and AV1 for everything else. Videos already in HEVC, AV1 or VP9 are skipped
+  (apart from leaving out tracks and cutting subtitle fonts, which doesn't touch the picture).
 - **Graphics card or processor:** *Auto* tries NVIDIA (NVENC), Intel (Quick Sync) and AMD (AMF) with a short
   test encode, and uses the processor (SVT-AV1 or x265) if none works.
 
@@ -68,10 +69,19 @@ Options:
   where it left off next time. Unused parts are removed after 14 days.
 - **Film grain** (AV1 on the processor): grain is removed before encoding and similar grain is re-created during
   playback, which saves a lot on grainy footage. The grain level is measured per video; clean videos are left as
-  they are.
+  they are. *Re-create it, and hide banding* also adds a light grain to clean videos, which breaks up the steps
+  that show in skies and dark scenes.
+- **Subtitle fonts** (MKV): styled subtitles often bring several large fonts. Each is cut to the characters the
+  subtitles draw with it, plus ASCII, Latin-1 and common punctuation, and fonts no subtitle uses are left out. A
+  font whose licence doesn't allow cutting stays whole. On AV1 and HEVC videos this is done without re-encoding,
+  when the fonts add up to 1 MB or more.
 - **Only my languages:** leaves out audio and subtitle tracks in other languages. The main soundtrack and
   untagged tracks always stay.
-- **Limits:** maximum resolution (never upscales), maximum frame rate, and an audio bitrate.
+- **Limits:** maximum resolution (never upscales), maximum frame rate, and an audio bitrate. The audio bitrate is
+  for stereo: mono gets 60% of it, 5.1 twice and 7.1 about 2.7 times (at most 512 kbps). Tracks already at or
+  under it are copied as they are, since re-encoding would make them bigger.
+- **Made by Wick:** every video Wick makes carries a short tag with the version and settings used (for example
+  "0.2.0; libsvtav1 30; preset 4; audio 128k; fonts cut"), so it isn't compressed again.
 - **Format details:** AV1 is 10-bit. HEVC stays 8-bit unless the source is 10-bit, and is tagged so Windows and
   Apple players open it. MP4 and MOV stay MP4; MKV keeps every track, subtitle and attachment. HDR10 and HLG
   video keep 10-bit color and their HDR information. Interlaced video is deinterlaced.

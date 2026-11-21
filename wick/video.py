@@ -212,6 +212,7 @@ def svt_preset(s: Settings) -> int:
 # Film grain: the noise level (standard deviation, 8-bit scale) in flat areas -> SVT-AV1 film-grain level. Below
 # the first step the video counts as clean (digital cameras, animation, screen recordings).
 GRAIN_STEPS = ((1.6, 0), (2.5, 6), (3.5, 10), (5.0, 14), (float("inf"), 18))
+BANDING_GRAIN = 4       # "banding": a light grain on clean videos, nothing removed first (not one of GRAIN_STEPS)
 GRAIN_SAMPLES = 6
 CRF_MAX = {"av1_nvenc": 63, "libsvtav1": 63, "hevc_nvenc": 51, "libx265": 51, "av1_qsv": 51, "hevc_qsv": 51,
            "av1_amf": 255, "hevc_amf": 51}
@@ -596,7 +597,7 @@ def grain_level(src: Path, info: VideoInfo, s: Settings, encoder: str,
                 cancel: threading.Event | None = None) -> int:
     """The film-grain synthesis level for this video (0: none). Only for SVT-AV1, and not for interlaced video
     (its combing looks like noise)."""
-    if s.video_grain != "auto" or encoder != "libsvtav1" or info.interlaced:
+    if s.video_grain not in ("auto", "banding") or encoder != "libsvtav1" or info.interlaced:
         return 0
     try:
         sigma = noise_sigma(src, info, cancel)
@@ -606,19 +607,20 @@ def grain_level(src: Path, info: VideoInfo, s: Settings, encoder: str,
         from wick.log import ignored
         ignored("video.grain_level")
         return 0
-    return next(level for limit, level in GRAIN_STEPS if sigma < limit)
+    level = next(level for limit, level in GRAIN_STEPS if sigma < limit)
+    return level or (BANDING_GRAIN if s.video_grain == "banding" else 0)
 
 
 def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str, q: int | None = None,
                segment: tuple[float, float] | None = None, progress: bool = True, remux: bool = False,
                fit: tuple[int, int, tuple[int, int]] | None = None, hw_decode: bool = False, grain: int = 0,
-               threads: int = 0, video_from: Path | None = None, probe: bool = False) -> list[str]:
+               threads: int = 0, video_from: Path | None = None, probe: bool = False, fonts=None) -> list[str]:
     """ffmpeg command for the full encode, or (with ``segment=(start, length)``) a sample or one part of a
     scene-by-scene encode (video only). ``remux``: copy the video as it is and only leave out tracks (audio/subtitles
     in other languages). ``probe``: a quick, faster-preset encode for choosing the quality (scene by scene).
     ``grain``: AV1 film-grain synthesis level (0: none). ``threads``: limit the encoder's
     threads (parts encoded side by side). ``video_from``: the video is already encoded (the joined parts): copy it
-    from there and take everything else from ``src``."""
+    from there and take everything else from ``src``. ``fonts``: a subfonts.FontPlan for the subtitle fonts."""
     ffmpeg = tools.require("ffmpeg")
     mp4 = dst.suffix.lower() == ".mp4"
     if q is None and not remux:
@@ -648,7 +650,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         mapped += keep_audio
         mapped += [st for st in keep_subs if st.codec in _TEXT_SUBS]
     else:  # mkv / webm keep everything except data streams (and tracks in languages left out)
-        gone = {st.index for st in dropped}
+        gone = {st.index for st in dropped} | set(fonts.replace if fonts is not None else ())
         mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone]
     for st in mapped:
         joined = video_from is not None and st.index == info.main_video_index
@@ -668,10 +670,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
             if mp4 and codec_for(info, s) == "hevc":
                 args += [f"-tag:v:{v_out}", "hvc1"]
             args += _audio_args(keep_audio, s, mp4, fit)
-        if mp4:
-            if any(st.kind == "subtitle" for st in mapped):
-                args += ["-c:s", "mov_text"]
-            args += ["-movflags", "+faststart"]
+        args += _container_args(dst, s, mapped, fonts, "copy" if remux else f"{encoder} scenes", grain)
         args.append(str(dst))
         return args
     args += [f"-c:v:{v_out}", encoder]
@@ -682,9 +681,11 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     out_w, out_h = fit[2] if fit is not None else frame_size(info, s)
     pixels = out_w * out_h
     cap = source_rate_limit(info, s, encoder) if fit is None else 0
+    denoise = int(grain != BANDING_GRAIN)       # (the banding grain goes on top: nothing is removed first)
     svt = ":".join(p for p in (svt_tuning() if encoder == "libsvtav1" else "",
                                hdr10 if encoder == "libsvtav1" else "",
-                               f"film-grain={grain}:film-grain-denoise=1" if grain and encoder == "libsvtav1" else "",
+                               f"film-grain={grain}:film-grain-denoise={denoise}" if grain and encoder == "libsvtav1"
+                               else "",
                                f"lp={threads}" if threads and encoder == "libsvtav1" else "") if p)
     if cap and encoder == "libsvtav1":
         svt = ":".join(p for p in (svt, f"mbr={min(cap, 100000)}") if p)
@@ -746,25 +747,89 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
 
     if not segment:
         args += _audio_args(keep_audio, s, mp4, fit)
-        if mp4:
-            if any(st.kind == "subtitle" for st in mapped):
-                args += ["-c:s", "mov_text"]
-            args += ["-movflags", "+faststart"]
+        args += _container_args(dst, s, mapped, fonts,
+                                f"{encoder} {'size limit' if fit is not None else q}", grain)
     args.append(str(dst))
     return args
 
 
+TAG = "WICK"        # container tag: the Wick version and settings that made the file (a remux or re-encode)
+
+
+def settings_tag(s: Settings, video: str, grain: int = 0, fonts=None) -> str:
+    """What made this file, in short: "0.2.0; libsvtav1 30; preset 4; grain 6; audio 128k; fonts cut". Read
+    back by the plan, so a file Wick already made isn't done again."""
+    from . import __version__
+
+    parts = [__version__, video]
+    if video.startswith("libsvtav1"):
+        parts.append(f"preset {svt_preset(s)}")
+    elif video.startswith("libx265"):
+        parts.append(f"preset {s.video_effort}")
+    if grain:
+        parts.append(f"grain {grain}")
+    if s.audio_bitrate:
+        parts.append(f"audio {s.audio_bitrate}k")
+    if fonts is not None or s.video_fonts:
+        parts.append("fonts cut")
+    return "; ".join(parts)
+
+
+def made_by_wick(info: VideoInfo) -> str:
+    """The settings tag Wick left in this file ("" if none)."""
+    return next((str(v) for k, v in info.tags.items() if k.upper() == TAG), "")
+
+
+def _container_args(dst: Path, s: Settings, mapped: list, fonts, video: str, grain: int) -> list[str]:
+    """Subtitles for MP4, the subtitle fonts, and the settings tag."""
+    from . import subfonts
+
+    mp4 = dst.suffix.lower() == ".mp4"
+    args: list[str] = []
+    if mp4 and any(st.kind == "subtitle" for st in mapped):
+        args += ["-c:s", "mov_text"]
+    if fonts is not None and dst.suffix.lower() == ".mkv":
+        args += subfonts.args(fonts, sum(1 for st in mapped if st.kind == "attachment"))
+    args += ["-metadata", f"{TAG}={settings_tag(s, video, grain, fonts)}"]
+    if mp4:
+        args += ["-movflags", "+faststart+use_metadata_tags"]     # (custom tags need the second)
+    return args
+
+
+# Layouts the Opus encoder takes (others, like 5.1 with side speakers, are given the nearest of these).
+_OPUS_LAYOUTS = ("mono", "stereo", "3.0", "quad", "5.0", "5.1", "6.1", "7.1")
+_LOSSLESS_AUDIO = {"flac", "alac", "truehd", "mlp", "wavpack", "tta", "ape"}
+
+
+def audio_rate(base: int, channels: int) -> int:
+    """The audio setting is for stereo; surround gets more (5.1: twice, 7.1: about 2.7 times), mono less."""
+    if channels <= 0 or channels == 2:
+        return base
+    if channels == 1:
+        return max(32, round(base * 0.6))
+    return min(512, round(base * max(1.0, channels / 3)))
+
+
 def _audio_args(keep_audio: list, s: Settings, mp4: bool, fit) -> list[str]:
     args: list[str] = []
+    codec = "aac" if mp4 else "libopus"
     for i, st in enumerate(keep_audio):
         if fit is not None and fit[1]:
-            codec = "aac" if mp4 else "libopus"
-            args += [f"-c:a:{i}", codec, f"-b:a:{i}", f"{fit[1]}k"]
+            kbps = fit[1]
         elif s.audio_bitrate:
-            codec = "aac" if mp4 else "libopus"
-            args += [f"-c:a:{i}", codec, f"-b:a:{i}", f"{s.audio_bitrate}k"]
+            kbps = audio_rate(s.audio_bitrate, st.channels)
+            # Already at or under the target (and lossy, and fits the container): re-encoding would only make it
+            # bigger and sound worse.
+            if (st.bit_rate and st.bit_rate <= kbps * 1000 * 1.05 and st.codec not in _LOSSLESS_AUDIO
+                    and not st.codec.startswith("pcm_") and (not mp4 or st.codec in _MP4_AUDIO_OK)):
+                continue
         elif mp4 and st.codec not in _MP4_AUDIO_OK:
-            args += [f"-c:a:{i}", "aac", f"-b:a:{i}", "192k"]
+            codec, kbps = "aac", audio_rate(192, st.channels)
+        else:
+            continue
+        args += [f"-c:a:{i}", codec, f"-b:a:{i}", f"{kbps}k"]
+        if codec == "libopus" and st.layout and st.layout not in _OPUS_LAYOUTS:
+            args += [f"-filter:a:{i}", "aformat=channel_layouts=" + "|".join(reversed(_OPUS_LAYOUTS))]
     return args
 
 
@@ -994,18 +1059,51 @@ def convert_video(
     cancel: threading.Event | None = None,
 ) -> tuple[Path, str]:
     """Encode to a temp file next to ``src``; verify; return (temp path, encoder used)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="wick-fonts-") as folder:
+        fonts = _font_plan(src, info, s, plan.target_ext, Path(folder))
+        return _convert(src, info, plan, s, fonts, on_progress, cancel)
+
+
+def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
+    """The subtitle fonts' plan (subfonts.FontPlan), or None: nothing to change, or it couldn't be worked out."""
+    from . import subfonts
+
+    if not s.video_fonts or ext.lower() != ".mkv" or not any(subfonts.is_font(st) for st in info.streams):
+        return None
+    steps.report("Checking which characters the subtitles use")
+    try:
+        return subfonts.plan(src, info, select_tracks(info, s)[1], folder)
+    except tools.Cancelled:
+        raise
+    except Exception:  # noqa: BLE001 - the fonts stay as they are
+        from .log import log
+
+        log.warning("Couldn't work out the subtitle fonts of %s; they're kept as they are", src.name, exc_info=True)
+        return None
+
+
+def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:
     out = temp_name(src.parent, plan.target_ext)
     keep_audio, _subs, dropped = select_tracks(info, s)
-    if plan.route == "video_remux":   # efficient already: only leave out tracks in other languages
+    if plan.route == "video_remux":   # efficient already: only leave out tracks, and cut the fonts
+        if not dropped and fonts is None:
+            raise NotWorthIt("The subtitle fonts are already as small as they get; original kept")
         try:
-            steps.report("Copying the video without the tracks in other languages")
-            tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True), info.duration,
+            steps.report("Copying the video without the tracks in other languages" if dropped
+                         else "Copying the video with smaller subtitle fonts")
+            tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
                                       on_progress, cancel)
             steps.report("Checking the result")
             verify_video(info, out, info.codec, dst_is_mp4=out.suffix == ".mp4", audio_tracks=len(keep_audio),
                          src_path=src)
-            plan.outcome = (f"picture untouched, {len(dropped)} track{'s' if len(dropped) != 1 else ''} in other "
-                            "languages left out")
+            done = ["picture untouched"]
+            if dropped:
+                done.append(f"{len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages left out")
+            if fonts is not None:
+                done.append(fonts.note())
+            plan.outcome = ", ".join(done)
             return out, "copy"
         except BaseException:
             remove_quietly(out)
@@ -1021,16 +1119,18 @@ def convert_video(
             info = dataclasses.replace(info, crop=bars)
     limit = s.fit_under_kb * 1024
     if limit and src.stat().st_size > limit:
-        return _encode_to_fit(src, out, info, plan, s, codec, encoder, len(keep_audio), on_progress, cancel)
+        return _encode_to_fit(src, out, info, plan, s, codec, encoder, len(keep_audio), on_progress, cancel, fonts)
     from . import chunked
 
     q = None
     notes: list[str] = []
     grain = 0
-    if encoder == "libsvtav1" and s.video_grain == "auto":
+    if encoder == "libsvtav1" and s.video_grain in ("auto", "banding"):
         steps.report("Checking for film grain")
         grain = grain_level(src, info, s, encoder, cancel)
-        if grain:
+        if grain == BANDING_GRAIN:
+            notes.append("a light grain added to hide banding")
+        elif grain:
             notes.append(f"film grain re-created on playback (level {grain})")
 
     def finish(used: str) -> tuple[Path, str]:
@@ -1046,12 +1146,14 @@ def convert_video(
             notes.append(f"{len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages left out")
         if info.crop:
             notes.append(f"black bars removed ({info.crop[0]}×{info.crop[1]})")
+        if fonts is not None:
+            notes.append(fonts.note())
         plan.outcome = ", ".join(notes)
         return out, used
 
     if chunked.applies(info, s, encoder):
         try:
-            _, part_notes = chunked.encode(src, out, info, s, encoder, grain, on_progress, cancel)
+            _, part_notes = chunked.encode(src, out, info, s, encoder, grain, on_progress, cancel, fonts)
             notes += part_notes
             result = finish(encoder)
             chunked.finished(src, s, encoder, grain)
@@ -1065,27 +1167,28 @@ def convert_video(
             log.warning("Scene-by-scene encoding failed for %s, encoding it as a whole: %s", src.name, e)
             remove_quietly(out)
             chunked.finished(src, s, encoder, grain)
-            notes = [n for n in notes if n.startswith("film grain")] + ["encoded as a whole"]
+            notes = [n for n in notes if n.startswith(("film grain", "a light grain"))] + ["encoded as a whole"]
     if measures_quality(s):
         steps.report("Encoding short samples to choose the quality")
         q, choice = smart_quality(src, info, s, encoder, cancel, grain)
         if choice.endswith("(grain kept)"):
             grain = 0
-            notes = [n for n in notes if not n.startswith("film grain")]
+            notes = [n for n in notes if not n.startswith(("film grain", "a light grain"))]
         notes.append(choice)
     hw = s.video_encoder != "cpu" and HW_DECODE    # ("CPU only" keeps the graphics card out of it entirely)
     try:
         try:
             steps.report(f"Encoding {codec.upper()} video ({encoder})")
             try:
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, hw_decode=hw, grain=grain),
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, hw_decode=hw, grain=grain,
+                                                     fonts=fonts),
                                           info.duration, on_progress, cancel)
             except tools.ToolError:
                 if not hw:
                     raise
                 remove_quietly(out)        # hardware decoding failed on this file: decode it on the CPU
                 steps.report(f"Encoding {codec.upper()} video ({encoder}, decoding on the processor)")
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, grain=grain), info.duration,
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, grain=grain, fonts=fonts), info.duration,
                                           on_progress, cancel)
         except tools.ToolError:
             # Some sources exceed GPU limits (e.g. > 8K, unusual formats). On Auto,
@@ -1100,7 +1203,8 @@ def convert_video(
                 notes.append(choice)
             steps.report(f"The graphics card couldn't encode this video: encoding {codec.upper()} on the processor "
                          f"({encoder})")
-            tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q), info.duration, on_progress, cancel)
+            tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, fonts=fonts), info.duration, on_progress,
+                                      cancel)
         return finish(encoder)
     except BaseException:
         remove_quietly(out)
@@ -1108,7 +1212,7 @@ def convert_video(
 
 
 def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Settings, codec: str, encoder: str,
-                   audio_tracks: int, on_progress, cancel) -> tuple[Path, str]:
+                   audio_tracks: int, on_progress, cancel, fonts=None) -> tuple[Path, str]:
     """Encode at the bitrate that fits ``s.fit_under_kb``; if the encoder overshoots, again a little lower."""
     from .formats import human
 
@@ -1122,14 +1226,14 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
             steps.report(f"Encoding {codec.upper()} at {video_kbps:,} kbps to fit under {human(limit)} ({encoder})")
             fit = (video_kbps, audio_kbps, size)
             try:
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit), info.duration,
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit, fonts=fonts), info.duration,
                                           on_progress, cancel)
             except tools.ToolError:
                 if s.video_encoder != "auto" or encoder == CPU_ENCODERS[codec]:
                     raise
                 remove_quietly(out)
                 encoder = CPU_ENCODERS[codec]
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit), info.duration,
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit, fonts=fonts), info.duration,
                                           on_progress, cancel)
             got = out.stat().st_size
             if got <= limit:
