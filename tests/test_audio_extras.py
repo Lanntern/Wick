@@ -204,3 +204,20 @@ def test_big_tag_padding_is_removed_and_nothing_else_changes(tmp_path, ext):
         assert probe_audio(out).tags == info.tags
     finally:
         out.unlink(missing_ok=True)
+
+
+@needs_ffmpeg
+def test_m4a_keeps_its_album_art(tmp_path):
+    cover = _big_png(tmp_path / "cover.png")
+    src = tmp_path / "song.m4a"
+    ffmpeg("-f", "lavfi", "-i", MUSIC.format(d=10), "-i", str(cover), "-map", "0", "-map", "1", "-c:a", "aac",
+           "-b:a", "96k", "-c:v", "copy", "-disposition:v:0", "attached_pic", str(src))
+    info = probe_audio(src)
+    s = Settings(audio_lossy="reencode", audio_format="aac")          # (96k AAC: already efficient)
+    plan = plan_entry(_entry(src, info), s)
+    assert plan.route == "audio_art", plan.reason
+    out = audio.convert_audio(src, info, plan, s)
+    try:
+        assert len(audio.pictures_of(probe_audio(out))) == 1
+    finally:
+        out.unlink(missing_ok=True)

@@ -294,9 +294,7 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
     v = e.video
     if v is None:
         return _skip("Couldn't read video info")
-    if v.hdr == "Dolby Vision":
-        return _skip("Dolby Vision video. Re-encoding would lose its Dolby Vision layer")
-    from .video import codec_for, drops_repeats, output_fps, packs_as_flac, select_tracks
+    from .video import codec_for, dolby_vision_base, drops_repeats, output_fps, packs_as_flac, select_tracks
     from .video import tracks_note as tracks_note_of
 
     resized = s.video_target_size(v.width, v.height) != (v.width - v.width % 2, v.height - v.height % 2)
@@ -304,12 +302,17 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
     repeats = drops_repeats(v, s)
     if v.duration <= 0:
         return _skip("Unknown duration")
+    base = dolby_vision_base(v) if s.video_dolby_vision else ""
+    dv_skip = ("Dolby Vision video. Re-encoding would lose its Dolby Vision layer"
+               if v.hdr == "Dolby Vision" and not base else "")
     kept_audio, _subs, dropped = select_tracks(v, s)
     dropped_audio = sum(1 for st in dropped if st.kind == "audio")
     tracks_note = tracks_note_of(v, s).replace(" left out", "")
     tracks_note = f"leaves out {tracks_note}" if tracks_note else ""
     limit = s.fit_under_kb * 1024
     fit = bool(limit) and e.size > limit
+    if fit and dv_skip:
+        return _skip(dv_skip)
     if fit:
         from .formats import human
 
@@ -327,18 +330,22 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
         pcm = [a for a in kept_audio if packs_as_flac(a, ext == ".mp4")]
         stereo = [a for a in kept_audio if s.video_stereo and a.channels > 2]
-        if not (dropped or fonts or pcm or stereo):
+        broadcast = v.container == "mpegts" and ext == ".mkv"        # (TV recordings: padding, teletext...)
+        if not (dropped or fonts or pcm or stereo or broadcast):
             return _skip("Already compressed with Wick" if made
                          else f"Already uses an efficient codec ({v.codec.upper()})")
         pcm_bytes = sum(a.bit_rate or 1_536_000 for a in pcm) / 8 * v.duration
         stereo_bytes = sum(a.bit_rate or 640_000 for a in stereo if a not in pcm) / 8 * v.duration
         saved = (dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7 + pcm_bytes * 0.45
-                 + stereo_bytes * 0.6)
+                 + stereo_bytes * 0.6 + (e.size * 0.08 if broadcast else 0))
         est = max(int(e.size * 0.3), int(e.size - saved)) if saved else int(e.size * 0.99)
         why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "",
                                     "uncompressed audio packed as FLAC" if pcm else "",
-                                    "surround mixed down to stereo" if stereo else "") if x)
+                                    "surround mixed down to stereo" if stereo else "",
+                                    "broadcast padding removed" if broadcast else "") if x)
         return Plan(True, f"{v.codec.upper()} kept as it is; {why}", ext, est, lossless=True, route="video_remux")
+    if dv_skip:
+        return _skip(dv_skip)
     codec = codec_for(v, s)
 
     av1_r, hevc_r = _VIDEO_BASE.get(v.codec, _LEGACY_RATIO)
@@ -367,7 +374,9 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         extra.append(f"{min(tw, th)}p")
     if v.interlaced:
         extra.append("deinterlaced")
-    if v.hdr:
+    if v.hdr == "Dolby Vision":
+        extra.append(f"{base} kept, Dolby Vision layer left out")
+    elif v.hdr:
         extra.append(f"{v.hdr} kept")
     if repeats and not capped:
         extra.append(f"{fps_label(v.content_fps)} fps (repeated frames removed)")

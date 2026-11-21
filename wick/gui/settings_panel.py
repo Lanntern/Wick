@@ -317,6 +317,15 @@ class SettingsPanel(QWidget):
         self.video_stereo.setToolTip("For watching on laptops, phones and headphones. 5.1 and 7.1 soundtracks "
                                      "become stereo, which takes about a third of the space.")
         f.addRow(self.video_stereo)
+        self.video_drop_silent = QCheckBox("Leave out silent soundtracks")
+        self.video_drop_silent.setToolTip("Dashcams, drones and screen recordings often have a soundtrack that "
+                                          "stays silent from start to end.")
+        f.addRow(self.video_drop_silent)
+        self.video_dolby_vision = QCheckBox("Include iPhone HDR (Dolby Vision) videos")
+        self.video_dolby_vision.setToolTip("These keep an ordinary HDR picture that every player shows, plus a "
+                                           "Dolby Vision layer on top. When they're re-encoded, the HDR picture "
+                                           "is kept and the extra layer is left out.")
+        f.addRow(self.video_dolby_vision)
         self._languages = ""
         self.languages_btn = button("", "", None, "Choose your languages")
         self.languages_btn.setAccessibleName("My languages")
@@ -572,6 +581,7 @@ class SettingsPanel(QWidget):
                   self.audio_fake_hires,
                   self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
                   self.video_dup_audio, self.video_stereo, self.document_fonts,
+                  self.video_drop_silent, self.video_dolby_vision,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -695,6 +705,8 @@ class SettingsPanel(QWidget):
         self.video_fonts.setChecked(s.video_fonts)
         self.video_dup_audio.setChecked(s.video_dup_audio)
         self.video_stereo.setChecked(s.video_stereo)
+        self.video_drop_silent.setChecked(s.video_drop_silent)
+        self.video_dolby_vision.setChecked(s.video_dolby_vision)
         self.video_chunked.setChecked(s.video_chunked)
         _set_combo(self.video_metric, s.video_metric)
         _set_combo(self.video_jobs, s.video_jobs)
@@ -743,7 +755,8 @@ class SettingsPanel(QWidget):
             video_crop_bars=self.video_crop.isChecked(),
             video_grain=self.video_grain.currentData(),
             video_fonts=self.video_fonts.isChecked(), video_dup_audio=self.video_dup_audio.isChecked(),
-            video_stereo=self.video_stereo.isChecked(), video_chunked=self.video_chunked.isChecked(),
+            video_stereo=self.video_stereo.isChecked(), video_drop_silent=self.video_drop_silent.isChecked(),
+            video_dolby_vision=self.video_dolby_vision.isChecked(), video_chunked=self.video_chunked.isChecked(),
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
             document_fonts=self.document_fonts.isChecked(),

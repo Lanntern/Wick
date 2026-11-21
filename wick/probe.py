@@ -32,6 +32,10 @@ class StreamInfo:
     bits: int = 0              # audio: bits per sample of PCM and lossless tracks (0: unknown or lossy)
     profile: str = ""          # audio: the codec profile ("DTS-HD MA")
     commentary: bool = False   # audio: a commentary track (by its flag or title)
+    # Found by listening (video.analyse_audio), only when it matters for what's done to the track:
+    silent: bool = False       # nothing above -60 dB from start to end
+    identical: bool = False    # stereo whose two channels carry the same signal
+    speech: bool = False       # talk (a lecture, a meeting) rather than music or a film's sound
     filename: str = ""         # attachment: its file name inside the video
     mimetype: str = ""         # attachment: its type ("application/x-truetype-font")
     size: int = 0              # attachment: bytes
@@ -58,6 +62,10 @@ class VideoInfo:
     mastering: dict = field(default_factory=dict)   # HDR10 mastering display + content light levels
     crop: tuple[int, int, int, int] | None = None   # (w, h, x, y) of the picture without black bars, when removed
     video_bit_rate: int = 0    # main picture only; never use the whole-file rate as a picture budget
+    dv_profile: int = 0        # Dolby Vision profile (8: with a base layer other players show) and the base's
+    dv_compat: int = -1        # kind (1: HDR10, 2: SDR, 4: HLG, as iPhones record); -1 when not Dolby Vision
+    container: str = ""        # what ffprobe calls the file's format ("mpegts" for TV recordings)
+    screen: bool = False       # a screen recording (found before encoding: video.screen_recording)
 
     @property
     def content_fps(self) -> float:
@@ -193,7 +201,10 @@ def probe_video(path: Path) -> VideoInfo | None:
     r_fps, avg_fps = _fps(main.get("r_frame_rate")), _fps(main.get("avg_frame_rate"))
     color = {k: str(main.get(f"color_{k}")) for k in ("primaries", "transfer", "space", "range")
              if main.get(f"color_{k}") not in (None, "unknown", "reserved")}
-    side = [str(sd.get("side_data_type", "")) for sd in main.get("side_data_list", []) or []]
+    side_data = main.get("side_data_list", []) or []
+    side = [str(sd.get("side_data_type", "")) for sd in side_data]
+    dovi = next((sd for sd in side_data if "DOVI" in str(sd.get("side_data_type", ""))
+                 or "Dolby Vision" in str(sd.get("side_data_type", ""))), None)
     hdr = ""
     if any("DOVI" in t or "Dolby Vision" in t for t in side):
         hdr = "Dolby Vision"
@@ -206,7 +217,11 @@ def probe_video(path: Path) -> VideoInfo | None:
         interlaced=main.get("field_order") in ("tt", "bb", "tb", "bt"),
         hdr=hdr,
         color=color,
-        mastering=_mastering(path, int(main.get("index", 0))) if hdr == "HDR10" else {},
+        mastering=(_mastering(path, int(main.get("index", 0)))
+                   if hdr == "HDR10" or (hdr and color.get("transfer") == "smpte2084") else {}),
+        dv_profile=_int(dovi.get("dv_profile")) if dovi else 0,
+        dv_compat=_int(dovi.get("dv_bl_signal_compatibility_id")) if dovi else -1,
+        container=str(fmt.get("format_name", "")),
         codec=main.get("codec_name", "?"),
         width=int(main.get("width") or 0),
         height=int(main.get("height") or 0),

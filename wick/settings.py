@@ -56,6 +56,8 @@ class Settings:
     video_fonts: bool = True         # MKV: subtitle fonts cut to the characters used; unused fonts left out
     video_dup_audio: bool = False    # leave out lossy soundtracks that copy a lossless one in the same language
     video_stereo: bool = False       # surround soundtracks mixed down to stereo
+    video_drop_silent: bool = False  # soundtracks that stay silent from start to end are left out
+    video_dolby_vision: bool = True  # Dolby Vision 8 (iPhone HDR): re-encode the base layer (HLG/HDR10); else skip
     video_chunked: bool = True       # processor encodes: scene by scene, several parts at once (faster; Smart quality
     #                                  per scene; an interrupted video carries on where it stopped)
     video_metric: str = "auto"       # how Smart quality measures videos: auto (VMAF) | vmaf | ssimulacra2 | xpsnr |

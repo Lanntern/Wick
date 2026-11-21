@@ -152,6 +152,7 @@ class FontPlan:
     cut: int = 0
     dropped: int = 0
     pictures: int = 0                   # cover pictures stored smaller (same pixels)
+    covers: dict = field(default_factory=dict)   # MP4: {cover stream index: the picture stored smaller}
     saved: int = 0
 
     def note(self) -> str:
@@ -204,6 +205,30 @@ def plan(src: Path, info: VideoInfo, subs: list[StreamInfo], folder: Path, fonts
     result = _fonts(src, info, subs, folder) if fonts_too else None
     result = _pictures(src, info, folder, result or FontPlan())
     return result if result.cut or result.dropped or result.pictures else None
+
+
+def mp4_covers(src: Path, info: VideoInfo, folder: Path) -> FontPlan | None:
+    """MP4/MOV cover pictures (attached picture streams) stored smaller with the same pixels."""
+    from .documents import shrink_jpeg, shrink_png
+
+    result = FontPlan()
+    ffmpeg = tools.require("ffmpeg")
+    for st in info.streams:
+        if not (st.attached_pic and st.codec in ("mjpeg", "png")):
+            continue
+        p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-i", str(src), "-map", f"0:{st.index}",
+                       "-c", "copy", "-f", "image2pipe", "-"], timeout=120, check=False, text=False)
+        data = p.stdout or b""
+        if p.returncode != 0 or not data:
+            continue
+        new = shrink_png(data) if st.codec == "png" else shrink_jpeg(data)
+        if len(new) < len(data):
+            path = folder / f"cover{st.index}{'.png' if st.codec == 'png' else '.jpg'}"
+            path.write_bytes(new)
+            result.covers[st.index] = path
+            result.pictures += 1
+            result.saved += len(data) - len(new)
+    return result if result.covers else None
 
 
 def _pictures(src: Path, info: VideoInfo, folder: Path, result: FontPlan) -> FontPlan:

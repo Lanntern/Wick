@@ -50,6 +50,9 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--drop-audio-copies", action="store_true",
                    help="leave out lossy soundtracks that copy a lossless one in the same language")
     g.add_argument("--stereo", action="store_true", help="mix surround soundtracks down to stereo")
+    g.add_argument("--drop-silent", action="store_true", help="leave out soundtracks that are silent throughout")
+    g.add_argument("--skip-dolby-vision", action="store_true",
+                   help="leave Dolby Vision videos alone (by default their HDR base layer is re-encoded)")
     g.add_argument("--keep-fonts", action="store_true",
                    help="MKV: keep subtitle fonts whole (by default they're cut to the characters used)")
     g.add_argument("--keep-document-fonts", action="store_true",
@@ -121,6 +124,7 @@ def _settings(a: argparse.Namespace) -> Settings:
         min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "banding" if a.hide_banding else "auto",
         video_fonts=not a.keep_fonts,
         document_fonts=not a.keep_document_fonts, video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
+        video_drop_silent=a.drop_silent, video_dolby_vision=not a.skip_dolby_vision,
         video_chunked=not a.whole, video_metric=a.video_metric,
     )
     if a.resize_long_edge:

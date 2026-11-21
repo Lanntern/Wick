@@ -254,14 +254,16 @@ def build_args(src: Path, dst: Path, info: AudioInfo, s: Settings, fmt: str, mon
         if out_channels > 2:
             args += ["-mapping_family", "1"]
     elif fmt == "aac":
+        # (custom tags in MP4 need use_metadata_tags, which drops the album art: the art wins)
         args += ["-c:a", "aac", "-b:a", f"{kbps or target_kbps('aac', s.audio_quality, out_channels)}k",
-                 "-movflags", "+faststart+use_metadata_tags"]
+                 "-movflags", "+faststart" if pictures else "+faststart+use_metadata_tags"]
     else:  # mp3
         args += ["-c:a", "libmp3lame", *(["-b:a", f"{kbps}k"] if kbps else ["-q:a", MP3_VBR[s.audio_quality]]),
                  "-id3v2_version", "3"]
     if filters:
         args += ["-af", ",".join(filters)]
-    args += ["-metadata", f"{TAG}={settings_tag(fmt, kbps, speech)}"]
+    if not (fmt == "aac" and pictures):
+        args += ["-metadata", f"{TAG}={settings_tag(fmt, kbps, speech)}"]
     args.append(str(dst))
     return args
 
@@ -547,11 +549,13 @@ def _shrink_art(src: Path, info: AudioInfo, plan: Plan, on_progress, cancel) -> 
     pic_in, pic_out = _picture_args(pictures, 1)
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
             "-i", str(src), *pic_in, "-map", f"0:{info.audio_index}", *pic_out, "-c:a", "copy",
-            "-map_metadata", "0", "-metadata", f"{TAG}={settings_tag('art', 0, False)}"]
+            "-map_metadata", "0"]
     if src.suffix.lower() == ".mp3":
-        args += ["-id3v2_version", "3"]
+        args += ["-id3v2_version", "3", "-metadata", f"{TAG}={settings_tag('art', 0, False)}"]
     elif src.suffix.lower() in (".m4a", ".m4b"):
-        args += ["-movflags", "+faststart+use_metadata_tags"]
+        args += ["-movflags", "+faststart"]        # (no custom tag: in MP4 it would cost the album art)
+    else:
+        args += ["-metadata", f"{TAG}={settings_tag('art', 0, False)}"]
     try:
         tools.run_ffmpeg_progress(args + [str(out)], info.duration, on_progress, cancel)
         steps.report("Checking the result")
