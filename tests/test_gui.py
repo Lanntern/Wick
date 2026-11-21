@@ -3,6 +3,7 @@ watch-folder options, the preview dialog and the Settings page."""
 
 import os
 import time
+from pathlib import Path
 
 import pytest
 
@@ -2548,8 +2549,6 @@ def test_everything_else_is_explained_with_safe_actions(win, monkeypatch):
     monkeypatch.setattr(systemspace, "measure", lambda drive: items)
     monkeypatch.setattr(hidden_space, "inform", lambda *a, **k: None)
     opened = []
-    from pathlib import Path
-
     d = hidden_space.HiddenSpaceDialog(Path("/"), opened.append, win)
     assert _wait(lambda: not d.worker.isRunning() and d.list.count() == 3, 10)
     QApplication.processEvents()
@@ -2561,3 +2560,43 @@ def test_everything_else_is_explained_with_safe_actions(win, monkeypatch):
     assert opened == ["devclean"]
     win.open_cleanup_tool("apps")
     assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "apps"
+
+
+def test_an_almost_full_drive_is_mentioned_once_a_day(win, monkeypatch):
+    import shutil as _shutil
+    from collections import namedtuple
+
+    from wick.cleanup import actions, caches
+    from wick.cleanup.common import Candidate, ScanResult
+    from wick.gui.main_window import MainWindow
+
+    gb = 1024 ** 3
+    assert MainWindow.almost_full(100 * gb, 9 * gb) and not MainWindow.almost_full(100 * gb, 11 * gb)
+    assert MainWindow.almost_full(2000 * gb, 19 * gb) and not MainWindow.almost_full(2000 * gb, 25 * gb)
+
+    Usage = namedtuple("Usage", "total used free")
+    monkeypatch.setattr(_shutil, "disk_usage", lambda p: Usage(100 * gb, 95 * gb, 5 * gb))
+    messages = []
+    monkeypatch.setattr(win, "tray_message", lambda m, force=False, **k: messages.append(m))
+    for key in win.qsettings.allKeys():
+        if key.startswith("low_space"):
+            win.qsettings.remove(key)
+    win.qsettings.setValue("low_space", "notify")
+    assert win.check_low_space() and "almost full" in messages[-1]
+    assert not win.check_low_space()                                   # not again today
+
+    for key in win.qsettings.allKeys():
+        if key.startswith("low_space/last"):
+            win.qsettings.remove(key)
+    win.qsettings.setValue("low_space", "clean")
+    safe = Candidate(Path("/tmp/cache"), 3 * gb, selected=True)
+    unsure = Candidate(Path("/tmp/other"), gb, selected=False)
+    monkeypatch.setattr(caches, "find_caches", lambda *a, **k: ScanResult("caches", [safe, unsure]))
+    applied = []
+    monkeypatch.setattr(actions, "apply", lambda items, *a, **k: (applied.append(items) or ["x"], None))
+    monkeypatch.setattr(actions, "empty_from_trash", lambda outcomes, *a, **k: (1, 3 * gb, []))
+    messages.clear()
+    assert win.check_low_space()
+    assert _wait(lambda: bool(messages), 10)
+    assert applied == [[safe]] and "cleared 3.0 GB" in messages[-1]
+    win.qsettings.setValue("low_space", "notify")

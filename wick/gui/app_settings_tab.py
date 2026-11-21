@@ -115,6 +115,19 @@ class AppSettingsTab(Page):
         self.monthly.toggled.connect(lambda on: self.qs.setValue("monthly_check", on))
         card.lay.addWidget(setting_row("Check for savings once a month",
                                        "Lets you know when 1 GB or more could be freed.", self.monthly))
+        card.lay.addWidget(separator())
+        from .main_window import MainWindow
+
+        self.low_space = QComboBox()
+        self.low_space.setAccessibleName("When a drive is almost full")
+        for value, label in MainWindow.LOW_SPACE_CHOICES.items():
+            self.low_space.addItem(label, value)
+        self.low_space.setCurrentIndex(max(0, self.low_space.findData(self.qs.value("low_space", "notify", str))))
+        self.low_space.activated.connect(lambda _i: self.qs.setValue("low_space", self.low_space.currentData()))
+        card.lay.addWidget(setting_row(
+            "When a drive is almost full",
+            "Almost full means under 10% free, or under 20 GB on large drives. Cleared app caches are deleted for "
+            f"good, since the {BIN_NAME} is on the same drive. Apps rebuild them as needed.", self.low_space))
         col.addWidget(card)
 
         # integration

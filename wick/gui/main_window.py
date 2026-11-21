@@ -175,6 +175,7 @@ class ShortcutsDialog(QDialog):
 
 class MainWindow(QMainWindow):
     power_changed = Signal(bool)          # plugged in / on battery (see battery_pause)
+    _low_space_done = Signal(str, object, object)   # drive name, free bytes, bytes cleared (from a thread)
 
     def __init__(self):
         style.scale_to_text()   # text-bound sizes follow the text size before anything is built (once)
@@ -255,6 +256,7 @@ class MainWindow(QMainWindow):
         self._setup_updates()
         self._setup_power()
         self._setup_monthly()
+        self._setup_low_space()
         from .activity import ActivityMonitor
 
         self._activity_monitor = ActivityMonitor(self)
@@ -647,9 +649,95 @@ class MainWindow(QMainWindow):
                           "yet.", force=True)
 
     def _message_clicked(self) -> None:
-        if getattr(self, "_last_notice", "") == "monthly":
+        if getattr(self, "_last_notice", "") in ("monthly", "low_space"):
             self.show_window()
             self.go_to(self.home)
+
+    # When a drive is almost full (Settings › When a drive is almost full): "off", "notify", or "clean", which
+    # also clears the app caches Clean Up marks as safe. Those are deleted for good: on a full drive, moving them
+    # to the Recycle Bin (on the same drive) wouldn't free anything. Apps rebuild them.
+    LOW_SPACE_CHOICES = {"off": "Do nothing", "notify": "Let me know",
+                         "clean": "Let me know and clear app caches"}
+    LOW_SPACE_FRACTION = 0.10        # almost full: less than 10% free…
+    LOW_SPACE_CAP = 20 * 1024 ** 3   # …or less than 20 GB on big drives
+
+    @classmethod
+    def almost_full(cls, total: int, free: int) -> bool:
+        return free < min(total * cls.LOW_SPACE_FRACTION, cls.LOW_SPACE_CAP)
+
+    def _setup_low_space(self) -> None:
+        self._low_space_busy = False
+        self._low_space_done.connect(self._low_space_cleared)
+        self._low_space_timer = QTimer(self, interval=30 * 60 * 1000)
+        self._low_space_timer.timeout.connect(self.check_low_space)
+        self._low_space_timer.start()
+        QTimer.singleShot(2 * 60 * 1000, self.check_low_space)           # once start-up has settled
+
+    def _watched_drives(self) -> list[Path]:
+        system = Path((os.environ.get("SystemDrive") or "C:") + "\\") if os.name == "nt" else Path("/")
+        drives = [system]
+        for root in getattr(self.home, "roots", [])[:1]:
+            anchor = Path(Path(root).anchor or "/")
+            if anchor not in drives:
+                drives.append(anchor)
+        return drives
+
+    def check_low_space(self) -> list[Path]:
+        """Drives that are almost full and haven't been mentioned today; mentions them (and clears caches in
+        "clean" mode). Returns them."""
+        import shutil
+
+        mode = str(self.qsettings.value("low_space", "notify", str))
+        if mode == "off" or self._low_space_busy:
+            return []
+        low = []
+        for drive in self._watched_drives():
+            try:
+                usage = shutil.disk_usage(drive)
+            except OSError:
+                continue
+            key = "low_space/last/" + (drive.drive or str(drive)).replace("\\", "").replace("/", "root")
+            if not self.almost_full(usage.total, usage.free) \
+                    or time.time() - self.qsettings.value(key, 0.0, float) < 86400:
+                continue
+            self.qsettings.setValue(key, time.time())
+            low.append((drive, usage.free))
+        if not low:
+            return []
+        drive, free = low[0]
+        name = drive.drive or "Your main drive"
+        self._last_notice = "low_space"
+        if mode != "clean":
+            self.tray_message(f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
+                              force=True)
+            return [d for d, _ in low]
+        self._low_space_busy = True
+
+        def clear() -> None:
+            freed = 0
+            try:
+                from ..cleanup import actions, caches
+
+                safe = [c for c in caches.find_caches().items if c.selected]
+                outcomes, _run = actions.apply(safe, actions.TRASH, "caches", Path.home())
+                freed = actions.empty_from_trash(outcomes)[1]
+            except Exception:  # noqa: BLE001 - the notice still goes out
+                from ..log import ignored
+                ignored("gui.main_window.check_low_space")
+            self._low_space_done.emit(name, int(free), int(freed))
+
+        import threading
+
+        threading.Thread(target=clear, name="low-space-clean", daemon=True).start()
+        return [d for d, _ in low]
+
+    def _low_space_cleared(self, name: str, free, freed) -> None:
+        self._low_space_busy = False
+        self._last_notice = "low_space"
+        self.tray_message(f"{name} is almost full. Wick cleared {human(freed)} of app caches; open it to see what "
+                          f"else can be freed." if freed else
+                          f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
+                          force=True)
 
     def _setup_power(self) -> None:
         from .. import power
