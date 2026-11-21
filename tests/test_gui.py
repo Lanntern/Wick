@@ -2600,3 +2600,26 @@ def test_an_almost_full_drive_is_mentioned_once_a_day(win, monkeypatch):
     assert _wait(lambda: bool(messages), 10)
     assert applied == [[safe]] and "cleared 3.0 GB" in messages[-1]
     win.qsettings.setValue("low_space", "notify")
+
+
+def test_the_command_bar_finds_pages_tools_and_actions(win, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from wick.gui.command_bar import CommandBar, matches
+
+    commands = win.commands()
+    titles = [c.title for c in matches(commands, "dup")]
+    assert titles and titles[0] == "Duplicates"
+    assert [c.title for c in matches(commands, "hibernation")] == ["What Else Takes Space"]
+    assert not matches(commands, "zzzz nothing")
+    bar = CommandBar(commands, win)
+    bar.field.setText("apps")
+    QApplication.processEvents()
+    assert bar.list.currentItem().data(Qt.UserRole).title == "Apps"
+    bar._run_current()
+    assert win.pages.currentWidget() is win.cleanup
+    assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "apps"
+    bar.field.setText("history")
+    bar._run_current()
+    assert win.pages.currentWidget() is win.history

@@ -52,6 +52,7 @@ SHORTCUTS = [
     ("F5", "Refresh", "History"),
     ("Ctrl+1 … 7", "Home, Compress, Convert, Metadata, Clean Up, Watch, History", "Navigation"),
     ("Ctrl+,", "Settings", "Navigation"),
+    ("Ctrl+K", "Go to a page or tool, or run an action, by typing", "Navigation"),
     ("F1", "Keyboard shortcuts", "Navigation"),
     ("Ctrl+Q", "Quit", "Navigation"),
     ("← →", "Move the comparison line", "Preview"),
@@ -396,6 +397,7 @@ class MainWindow(QMainWindow):
         add("Ctrl+,", lambda: (self.go_to(self.app_settings), self.focus_page()))
         add("F1", self.show_shortcuts)
         add("Ctrl+/", self.show_shortcuts)
+        add("Ctrl+K", self.show_command_bar)
         add("Ctrl+Q", self.quit)
 
     def _shortcut(self, seq, slot, parent=None, ctx=Qt.WindowShortcut):
@@ -440,6 +442,81 @@ class MainWindow(QMainWindow):
 
     def show_shortcuts(self) -> None:
         ShortcutsDialog(self).exec()
+
+    def commands(self) -> list:
+        """Everything the command bar (Ctrl+K) offers."""
+        from .command_bar import Command
+        from .cleanup_tools import tools
+
+        def page(attr: str):
+            def go() -> None:
+                self.go_to(getattr(self, attr))
+                self.focus_page()
+            return go
+
+        def scan_home() -> None:
+            self.go_to(self.home)
+            self.home.analyze()
+
+        def copy_diagnostics() -> None:
+            from PySide6.QtGui import QGuiApplication
+
+            from ..log import diagnostics
+            from .dialogs import inform
+
+            QGuiApplication.clipboard().setText(diagnostics())
+            inform(self, "Diagnostics copied", "Paste them into an email or bug report.")
+
+        def open_log_folder() -> None:
+            from ..log import log_dir
+            from .file_model import open_in_file_manager
+
+            open_in_file_manager(str(log_dir()))
+
+        def explain_space() -> None:
+            from . import hidden_space
+
+            b = self.home.space_card.breakdown
+            drive = b.drive if b is not None else str(Path.home().anchor)
+            hidden_space.show(drive, self.open_cleanup_tool, self)
+
+        def report() -> None:
+            from .dialogs import report_problem
+
+            report_problem(self)
+
+        out = [Command("Home", "Page", page("home"), "start overview savings storage"),
+               Command("Compress", "Page", page("compress"), "shrink photos videos music"),
+               Command("Convert", "Page", page("converter"), "format change heic jpeg mp4 pdf"),
+               Command("Metadata", "Page", page("metadata"), "location gps exif privacy"),
+               Command("Clean Up", "Page", page("cleanup"), "free space"),
+               Command("Watch Folders", "Page", page("watch"), "automatic new files"),
+               Command("History", "Page", page("history"), "undo restore"),
+               Command("Settings", "Page", page("app_settings"), "preferences options")]
+        def tool(key: str):
+            def go() -> None:
+                self.open_cleanup_tool(key)
+            return go
+
+        out += [Command(t.tab, "Clean Up", tool(t.key), t.key) for t in tools()]
+        out += [Command("Add Files…", "Action", lambda: self._add_files(False), "open"),
+                Command("Add Folder…", "Action", lambda: self._add_files(True), "open"),
+                Command("Scan My Folders", "Action", scan_home, "home analyze"),
+                Command("What Else Takes Space", "Action", explain_space,
+                        "hidden system hibernation restore points wsl everything else"),
+                Command("Check for Updates", "Action", lambda: self.check_for_updates(manual=True), "new version"),
+                Command("Report a Problem…", "Action", report, "bug issue crash"),
+                Command("Copy Diagnostics", "Action", copy_diagnostics, "bug log versions"),
+                Command("Open Log Folder", "Action", open_log_folder, "logs crash"),
+                Command("Keyboard Shortcuts", "Action", self.show_shortcuts, "keys help"),
+                Command("About Wick", "Action", self.show_about, "version licenses privacy"),
+                Command("Quit Wick", "Action", self.quit, "exit close")]
+        return out
+
+    def show_command_bar(self) -> None:
+        from .command_bar import CommandBar
+
+        CommandBar(self.commands(), self).exec()
 
     def show_support(self, asked: bool = False) -> None:
         """The "star on GitHub / donate" window (the sidebar's Support link, or the one-time prompt)."""
