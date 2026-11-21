@@ -20,6 +20,7 @@ def test_linux_space_comes_with_what_to_run(monkeypatch):
     monkeypatch.setattr(systemspace, "_size", lambda p: sizes.get(str(p), 0))
     monkeypatch.setattr(systemspace, "_snap_old_versions", lambda: 10)          # (too small to list)
     monkeypatch.setattr(systemspace.shutil, "which", lambda name: None)
+    monkeypatch.setattr(systemspace, "SWAP_FILES", ())                          # (the test machine's own)
     items = systemspace.measure(Path("/"))
     assert [h.key for h in items][:2] == ["journal", "packages_apt"]
     assert items[0].command.startswith("sudo journalctl") and items[1].command == "sudo apt clean"

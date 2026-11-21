@@ -23,6 +23,7 @@ _NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # What each action does (the app's buttons): "hibernation" turns it off, "restore_points" opens Windows'
 # System Protection, "virtual_disks" opens Clean Up's Developer tool, "command" copies a command to run.
 HIBERNATION, RESTORE_POINTS, VIRTUAL_DISKS, COMMAND = "hibernation", "restore_points", "virtual_disks", "command"
+SWAP_FILES = (Path("/swapfile"), Path("/swap.img"))
 
 
 @dataclass
@@ -160,7 +161,7 @@ def _linux() -> list[Hidden]:
             "keeps the current versions.", COMMAND, "Copy Command",
             "snap list --all | awk '/disabled/{print $1, $3}' | "
             "while read name rev; do sudo snap remove \"$name\" --revision=\"$rev\"; done"))
-    for swap in (Path("/swapfile"), Path("/swap.img")):
+    for swap in SWAP_FILES:
         try:
             size = swap.stat().st_size
         except OSError:
