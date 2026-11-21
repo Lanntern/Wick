@@ -2505,3 +2505,29 @@ def test_update_notice_for_a_package_manager_install(win, monkeypatch):
     asked.clear()
     win._show_update()
     assert asked[0][1] == "Open Download Page" and opened
+
+
+def test_qt_warnings_reach_the_log_without_flooding_it(win, caplog):
+    import logging
+
+    from PySide6.QtCore import qWarning
+
+    from wick.gui import resilience
+
+    resilience._log_qt_messages()
+    with caplog.at_level(logging.INFO, logger="wick"):
+        for _ in range(6):
+            qWarning("a plugin didn't load")
+    got = [r for r in caplog.records if "a plugin didn't load" in r.getMessage()]
+    assert len(got) == resilience.QT_REPEATS_LOGGED and got[0].levelno == logging.WARNING
+    assert "further repeats" in got[-1].getMessage()
+
+
+def test_the_crash_notice_offers_a_bug_report(win, monkeypatch):
+    from wick.gui import app, dialogs
+
+    asked, reported = [], []
+    monkeypatch.setattr(dialogs, "choose", lambda parent, title, info, default, other: asked.append(other) or True)
+    monkeypatch.setattr(dialogs, "report_problem", lambda parent: reported.append(parent))
+    app._mention_crash(win)
+    assert asked == ["Report a Problem"] and reported == [win]

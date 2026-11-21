@@ -16,6 +16,16 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 log = logging.getLogger("wick")
+LOG_BYTES = 4_000_000       # per file; the current one plus LOG_FILES older ones are kept
+LOG_FILES = 4
+
+
+def _thread_id(record: logging.LogRecord) -> bool:
+    """Each line names its thread the way crash.txt does ("0x00007f…"), so a crashed thread's stack can be
+    matched with what it was doing."""
+    record.tid = f"[{record.thread or 0:#018x}]"
+    return True
+
 _installed = False
 _handler: logging.Handler | None = None
 
@@ -25,10 +35,11 @@ def set_enabled(on: bool) -> None:
     global _handler
     if on and _handler is None:
         try:
-            _handler = RotatingFileHandler(log_file(), maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+            _handler = RotatingFileHandler(log_file(), maxBytes=LOG_BYTES, backupCount=LOG_FILES, encoding="utf-8")
         except OSError:
             return
-        _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(threadName)s: %(message)s"))
+        _handler.addFilter(_thread_id)
+        _handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(threadName)s %(tid)s: %(message)s"))
         log.addHandler(_handler)
         log.setLevel(logging.INFO)
     elif not on and _handler is not None:
@@ -170,6 +181,13 @@ def diagnostics(include_log: bool = True) -> str:
         n, size = index.stats()
         out.append(f"File index: {n} files, {size // 1024} KB")
     except Exception:  # noqa: BLE001
+        pass
+    crash = log_dir() / "crash-previous.txt"
+    try:
+        if crash.is_file() and crash.stat().st_size:
+            out += ["", f"Last crash record ({crash.name}):"]
+            out += [f"  {line}" for line in crash.read_text("utf-8", errors="replace").splitlines()[:120]]
+    except OSError:
         pass
     if include_log:
         out += ["", "Recent log:"] + [f"  {line}" for line in tail()]

@@ -67,6 +67,9 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtCore import QTimer
 
     QTimer.singleShot(1500, jumplist.update)   # the taskbar / Start / Search tasks (cheap; once start-up settles)
+    from .. import sandbox
+
+    QTimer.singleShot(4000, sandbox.prewarm)   # a decoder worker ready before the first thumbnail or preview
     probe = os.environ.get("WICK_STARTUP_PROBE")
     if probe:  # build checks: write a file once the window is up, then quit (used to time the start-up)
         from PySide6.QtCore import QTimer
@@ -88,18 +91,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _mention_crash(win) -> None:
-    """Once, after a session that ended in a crash: say so, and where the details are."""
-    from .dialogs import choose
-    from .resilience import crash_path
+    """Once, after a session that ended in a crash: say so, and offer to report it (the diagnostics then include
+    the crash record)."""
+    from .dialogs import choose, report_problem
 
-    saved = crash_path().with_name("crash-previous.txt")
     if choose(win, "Wick closed unexpectedly last time",
-              "Nothing you had finished was lost; a job that was running can be resumed from its page. If it "
-              f"keeps happening, the details ({saved}) help find the cause: please attach them to a bug report.",
-              "OK", "Show Details"):
-        from .file_model import open_in_file_manager
-
-        open_in_file_manager(str(saved))
+              "Anything you'd finished is safe, and a job that was running can be resumed from its page. If this "
+              "keeps happening, a bug report with the details helps find the cause.",
+              "OK", "Report a Problem"):
+        report_problem(win)
 
 
 def _report_unexpected_errors() -> None:

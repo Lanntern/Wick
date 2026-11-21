@@ -69,3 +69,18 @@ def inform(parent: QWidget | None, text: str, info: str = "") -> None:
 
 def warn(parent: QWidget | None, text: str, info: str = "") -> None:
     inform(parent, text, info)
+
+
+def report_problem(parent: QWidget | None) -> None:
+    """Copy the diagnostics (versions, the last crash record, recent log lines) and open the bug report form."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices, QGuiApplication
+
+    from ..log import diagnostics
+    from ..updates import REPO
+
+    QGuiApplication.clipboard().setText(diagnostics())
+    QDesktopServices.openUrl(QUrl(f"https://github.com/{REPO}/issues/new?template=bug_report.yml"))
+    inform(parent, "The bug report form is opening in your browser",
+           "The diagnostics are copied. Paste them into the form's Diagnostics box, but look through them first: "
+           "log lines can include file names.")

@@ -468,17 +468,9 @@ class AppSettingsTab(Page):
         open_in_file_manager(str(log_file() if log_file().exists() else log_dir()))
 
     def _report_problem(self) -> None:
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
+        from .dialogs import report_problem
 
-        from ..log import diagnostics
-        from ..updates import REPO
-
-        QGuiApplication.clipboard().setText(diagnostics())
-        QDesktopServices.openUrl(QUrl(f"https://github.com/{REPO}/issues/new?template=bug_report.yml"))
-        inform(self, "The bug report form is opening in your browser",
-               "The diagnostics are copied: paste them into the form's Diagnostics box. Have a look first; log "
-               "lines can include file names.")
+        report_problem(self)
 
     def _copy_diagnostics(self) -> None:
         from ..log import diagnostics

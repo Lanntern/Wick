@@ -261,6 +261,25 @@ def cancelling(cancel: threading.Event):
         _cancel_context.event = previous
 
 
+SLOW_RUN = 2.0       # seconds: a tool run taking longer is logged even when it succeeds
+
+
+def _log_run(cmd: list[str], seconds: float, code: int | None, stderr: str | bytes | None) -> None:
+    """One log line per tool run that's worth reading later: failed (with its arguments and the end of what it
+    said) or slow. Quick successful runs (most of them, hundreds per scan) aren't logged: they used to fill the
+    log and push out what came before a problem."""
+    from .log import log
+
+    name = Path(cmd[0]).name
+    if code not in (0, None):
+        said = stderr.decode("utf-8", "replace") if isinstance(stderr, bytes) else (stderr or "")
+        tail = "\n".join(line for line in said.strip().splitlines()[-12:])
+        log.info("%s exited with %s after %.1fs\n  command: %s%s", name, code, seconds,
+                 subprocess.list2cmdline(cmd[1:])[:2000], f"\n  said:\n{tail}" if tail else "")
+    elif seconds >= SLOW_RUN:
+        log.info("%s took %.1fs", name, seconds)
+
+
 def run(
     args: Sequence[str | os.PathLike],
     *,
@@ -276,7 +295,6 @@ def run(
         raise Cancelled()
     cmd = [str(a) for a in args]
     started = time.monotonic()
-    log.info("Running %s", Path(cmd[0]).name)
     log.debug("Starting tool: %s", cmd)
     with subprocess.Popen(
         cmd,
@@ -310,7 +328,7 @@ def run(
             p.communicate()
             raise
     proc = subprocess.CompletedProcess(cmd, p.returncode, out, err)
-    log.info("%s finished in %.2fs (exit %s)", Path(cmd[0]).name, time.monotonic() - started, p.returncode)
+    _log_run(cmd, time.monotonic() - started, p.returncode, err)
     if check and proc.returncode != 0:
         stderr = proc.stderr if text else proc.stderr.decode("utf-8", "replace")
         raise ToolError([str(a) for a in args], proc.returncode, stderr)
@@ -330,6 +348,7 @@ def run_ffmpeg_progress(
     cancel = cancel if cancel is not None else getattr(_cancel_context, "event", None)
     if cancel is not None and cancel.is_set():
         raise Cancelled()
+    started = time.monotonic()
     with tempfile.TemporaryFile() as errf:
         proc = subprocess.Popen(
             [str(a) for a in args],
@@ -380,6 +399,7 @@ def run_ffmpeg_progress(
             raise Cancelled()
         if proc.returncode != 0:
             errf.seek(0)
-            raise ToolError(
-                [str(a) for a in args], proc.returncode, errf.read().decode("utf-8", "replace")
-            )
+            said = errf.read().decode("utf-8", "replace")
+            _log_run([str(a) for a in args], time.monotonic() - started, proc.returncode, said)
+            raise ToolError([str(a) for a in args], proc.returncode, said)
+        _log_run([str(a) for a in args], time.monotonic() - started, 0, None)

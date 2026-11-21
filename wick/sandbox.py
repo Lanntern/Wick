@@ -175,16 +175,47 @@ def call(fn: str, *args, timeout: float = 120.0, max_bytes: int = 0) -> tuple[di
     try:
         header, payload = w.ask(fn, list(args), timeout, max_bytes)
     except (DecoderFailed, EOFError, OSError, ValueError) as e:
-        _discard(w)                          # (crashed, hung or misbehaved: never reused)
         if isinstance(e, DecoderFailed):
-            raise
-        if isinstance(e, (EOFError, OSError)):
-            raise DecoderCrashed(f"the decoder stopped ({type(e).__name__})") from None
-        raise DecoderFailed(f"malformed reply ({type(e).__name__})") from None
+            failure = e
+        elif isinstance(e, (EOFError, OSError)):
+            failure = DecoderCrashed(f"the decoder stopped ({type(e).__name__})")
+        else:
+            failure = DecoderFailed(f"malformed reply ({type(e).__name__})")
+        _discard(w)                          # (crashed, hung or misbehaved: never reused)
+        _log_failure(fn, args, failure, w.proc.exitcode)
+        raise failure from None
     _give_back(w)
     if not header.get("ok"):
         raise DecoderFailed(str(header.get("error", "failed"))[:300])
     return header, payload
+
+
+def _log_failure(fn: str, args: tuple, failure: DecoderFailed, exitcode: int | None) -> None:
+    """A worker that crashed, hung or misbehaved: which file, doing what, and how it ended (an exit code like
+    0xC0000005, an access violation, points at a decoder bug; repeated ones at a crafted file)."""
+    from .log import log
+
+    path = next((a for a in args if isinstance(a, str) and ("/" in a or "\\" in a)), "")
+    # (Windows reports a crash as a large status like 0xC0000005; elsewhere -N means signal N.)
+    code = f"{exitcode & 0xFFFFFFFF:#010x}" if isinstance(exitcode, int) and abs(exitcode) > 255 else str(exitcode)
+    log.warning("Decoder worker %s while running %s on %s (exit code %s)",
+                "hung or stopped" if isinstance(failure, DecoderCrashed) else "misbehaved", fn, path or "?", code)
+
+
+def prewarm() -> None:
+    """Start one worker in the background, so the first thumbnail or preview doesn't wait for it (starting
+    one takes about a second on Windows, more while antivirus scans it)."""
+    if not available():
+        return
+
+    def start() -> None:
+        try:
+            _give_back(_borrow())
+        except Exception:  # noqa: BLE001 - (logged once in _borrow; the first real call tries again)
+            from .log import ignored
+            ignored("sandbox.prewarm")
+
+    threading.Thread(target=start, name="decoder-prewarm", daemon=True).start()
 
 
 def _size(header: dict, channels: int, payload: bytes) -> tuple[int, int] | None:
@@ -262,5 +293,5 @@ def shutdown() -> None:
         w.kill()
 
 
-__all__ = ["DecoderFailed", "DecoderCrashed", "available", "call", "broken_check", "similar_fingerprint",
+__all__ = ["DecoderFailed", "DecoderCrashed", "available", "call", "prewarm", "broken_check", "similar_fingerprint",
            "similar_inspect", "rgba", "shutdown", "tmp_dir"]
