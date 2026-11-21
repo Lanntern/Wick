@@ -1477,7 +1477,7 @@ def test_convert_lists_documents_and_offers_pandoc(win, tmp_path, monkeypatch):
     rows = {conv.tree.topLevelItem(i).text(0): conv.tree.topLevelItem(i) for i in range(2)}
     row = rows["notes.md"]
     assert row.text(conv.STATUS_COL) == "Needs Pandoc, see above"
-    assert rows["sheet.xlsx"].text(conv.STATUS_COL) == "Only Office or LibreOffice reads this: choose PDF"
+    assert rows["sheet.xlsx"].text(conv.STATUS_COL) == "Only Office or LibreOffice can read this. Choose PDF instead."
     assert not conv.pandoc_row.isHidden() and "Pandoc" in conv.pandoc_note.text()
     monkeypatch.setattr(tools, "find_tool", real)
     conv.document_target.setCurrentIndex(conv.document_target.findData("none"))
