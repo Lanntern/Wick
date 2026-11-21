@@ -83,9 +83,10 @@ def readers(paths: list[Path], parallel: int) -> int:
     seen: set[str] = set()
     for p in paths:
         try:
-            key = _anchor(p) if os.name == "nt" else str(os.stat(p).st_dev)
+            dev = os.stat(p).st_dev                 # (a file that's gone says nothing about its drive)
         except OSError:
             continue
+        key = _anchor(p) if os.name == "nt" else str(dev)
         if key in seen:
             continue
         seen.add(key)
