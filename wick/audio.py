@@ -164,7 +164,7 @@ def build_args(src: Path, dst: Path, info: AudioInfo, s: Settings, fmt: str, mon
     if fmt == "flac":
         if bits == 16:
             filters.append("aresample=osf=s16:dither_method=triangular")
-        args += ["-c:a", "flac", "-compression_level", "8"]
+        args += ["-c:a", "flac", "-compression_level", "12"]    # (FFmpeg's strongest: about 1% smaller than 8)
     elif fmt == "opus":
         args += ["-c:a", "libopus", "-b:a", f"{kbps or target_kbps('opus', s.audio_quality, out_channels)}k",
                  "-vbr", "on", "-compression_level", "10"]

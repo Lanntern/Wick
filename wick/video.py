@@ -77,6 +77,91 @@ def _nvenc_args(encoder: str, pixels: int = 0) -> list[str]:
     return [*nvenc_tuning(encoder), *split]
 
 
+# Extra settings tried one by one on top of the tuning; each is kept if this GPU and driver accept it.
+# NVENC: a full-resolution first pass, temporal AQ (more bits where motion hides less), B-frames as references.
+NVENC_EXTRAS: tuple[tuple[str, ...], ...] = (("-multipass", "fullres"), ("-temporal-aq", "1"),
+                                             ("-b_ref_mode", "middle"))
+# Quick Sync: look-ahead with the extended rate control (LA-ICQ: bits go where they're seen).
+QSV_EXTRAS: tuple[tuple[str, ...], ...] = (("-extbrc", "1", "-look_ahead_depth", "40"),)
+
+
+@lru_cache(maxsize=None)
+def gpu_extras(encoder: str) -> tuple[str, ...]:
+    """The extra settings (NVENC_EXTRAS, QSV_EXTRAS) this GPU takes, each tried once with a tiny encode."""
+    ffmpeg = tools.find_tool("ffmpeg")
+    if not ffmpeg:
+        return ()
+    kept: list[str] = []
+    if encoder.endswith("_nvenc"):
+        base = nvenc_tuning(encoder)
+        for extra in NVENC_EXTRAS:
+            if _test_encode(ffmpeg, encoder, (*base, *kept, *extra)):
+                kept += extra
+    elif encoder.endswith("_qsv"):
+        for extra in QSV_EXTRAS:
+            if _test_encode(ffmpeg, encoder, (*kept, *extra)):
+                kept += extra
+    return tuple(kept)
+
+
+# AMF: quality-defined VBR with pre-analysis and variance-based AQ spends bits where they're seen, unlike a
+# constant QP for every frame. Its quality level (1-51, higher is better) has no fixed relation to a QP, so each
+# QP Wick would use is matched once to the level that gives the same size on a short test clip.
+AMF_EXTRAS: tuple[tuple[str, ...], ...] = (("-preanalysis", "1", "-vbaq", "1"), ("-preanalysis", "1"), ())
+_TEST_CLIP = "testsrc2=s=640x360:r=30:d=1,noise=alls=12:allf=t"
+
+
+def _clip_size(ffmpeg: str, encoder: str, args: list[str]) -> int | None:
+    """Bytes ``encoder`` makes of a short test clip with ``args`` (None if it refused)."""
+    try:
+        proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-f", "lavfi", "-i", _TEST_CLIP,
+                          "-c:v", encoder, *args, "-pix_fmt", "nv12", "-f", "nut", "-"],
+                         timeout=120, check=False, text=False)
+    except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("video._clip_size")
+        return None
+    return len(proc.stdout) if proc.returncode == 0 and proc.stdout else None
+
+
+def _qvbr(level: int, extras: tuple[str, ...]) -> list[str]:
+    return ["-quality", "quality", "-rc", "qvbr", "-qvbr_quality_level", str(level), *extras]
+
+
+@lru_cache(maxsize=None)
+def amf_extras(encoder: str) -> tuple[str, ...] | None:
+    """The pre-analysis settings this AMD GPU takes with QVBR, or None if it doesn't do QVBR."""
+    ffmpeg = tools.find_tool("ffmpeg")
+    for extras in AMF_EXTRAS:
+        if ffmpeg and _clip_size(ffmpeg, encoder, _qvbr(30, extras)):
+            return extras
+    return None
+
+
+@lru_cache(maxsize=None)
+def amf_qvbr_level(encoder: str, qp: int) -> int | None:
+    """The QVBR level that makes about the same size as constant QP ``qp`` on the test clip (None: use the QP)."""
+    ffmpeg = tools.find_tool("ffmpeg")
+    extras = amf_extras(encoder)
+    if not ffmpeg or extras is None:
+        return None
+    target = _clip_size(ffmpeg, encoder, ["-quality", "quality", "-rc", "cqp", "-qp_i", str(qp), "-qp_p", str(qp)])
+    low, high = _clip_size(ffmpeg, encoder, _qvbr(1, extras)), _clip_size(ffmpeg, encoder, _qvbr(51, extras))
+    if not target or not low or not high or high <= low:
+        return None                       # (not the expected direction: don't guess)
+    lo, hi = 1, 51
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        size = _clip_size(ffmpeg, encoder, _qvbr(mid, extras))
+        if size is None:
+            return None
+        if size < target:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
 @lru_cache(maxsize=None)
 def svt_tuning() -> str:
     """SVT-AV1's visual-quality tuning (instead of its default, which aims at the PSNR number) and variance boost
@@ -91,10 +176,13 @@ def svt_tuning() -> str:
 def _gpu_quality_args(encoder: str, q: int, tuned: bool = True, pixels: int = 0) -> list[str]:
     """Constant-quality settings for a GPU encoder (``tuned=False``: the basic ones its availability test uses)."""
     if encoder.endswith("_nvenc"):
-        tuning = _nvenc_args(encoder, pixels) if tuned else list(NVENC_BASIC)
+        tuning = [*_nvenc_args(encoder, pixels), *gpu_extras(encoder)] if tuned else list(NVENC_BASIC)
         return [*tuning, "-rc", "vbr", "-cq", str(q), "-b:v", "0", "-spatial-aq", "1"]
     if encoder.endswith("_qsv"):
-        return ["-preset", "slower", "-global_quality", str(q)]
+        return ["-preset", "slower", "-global_quality", str(q), *(gpu_extras(encoder) if tuned else ())]
+    level = amf_qvbr_level(encoder, q) if tuned else None
+    if level is not None:
+        return _qvbr(level, amf_extras(encoder) or ())
     return ["-quality", "quality", "-rc", "cqp", "-qp_i", str(q), "-qp_p", str(q)]       # AMF
 
 
@@ -220,7 +308,7 @@ def _test_encode(ffmpeg: str, encoder: str, options: tuple[str, ...] | None = No
         if options is not None and encoder.endswith("_nvenc"):
             extra = [*options, "-rc", "vbr", "-cq", "30", "-b:v", "0"]
         elif encoder in _QUALITY:
-            extra = _gpu_quality_args(encoder, _QUALITY[encoder]["balanced"], tuned=False)
+            extra = [*_gpu_quality_args(encoder, _QUALITY[encoder]["balanced"], tuned=False), *(options or ())]
         extra += ["-pix_fmt", "yuv420p" if encoder.endswith("_nvenc") else "nv12"]
     elif options is not None:
         extra = [*options, "-crf", "40", "-preset", "12"]

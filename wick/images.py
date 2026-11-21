@@ -583,7 +583,7 @@ def _route_webp(ctx: Ctx):
 def _route_avif(ctx: Ctx):
     q = ctx.s.image_quality
     return _pil_save_frames(ctx, "AVIF", quality=q, speed=4,
-                            subsampling="4:4:4" if q >= 90 else "4:2:0")
+                            subsampling="4:4:4" if q >= 90 else "4:2:0")   # (libavif 1.4 tunes stills itself)
 
 
 def _route_heic(ctx: Ctx):
