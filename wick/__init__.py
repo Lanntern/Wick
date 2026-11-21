@@ -8,7 +8,7 @@ replaces the original (which goes to the Recycle Bin / Trash so it can be
 undone).
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 APP_NAME = "Wick"
 FORMER_NAMES = ("Compressor",)   # earlier names: settings and History are carried over from them once
 DESCRIPTION = "Shrink photos, videos and music safely: every result verified, every change undoable."

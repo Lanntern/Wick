@@ -347,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
 
         from .gui import jumplist
 
-        def old_temp_files() -> None:          # (versions before 0.1.1 kept their UI images in %TEMP%)
+        def old_temp_files() -> None:          # (versions before 0.2.0 kept their UI images in %TEMP%)
             import shutil
             import tempfile
 

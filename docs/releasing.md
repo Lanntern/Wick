@@ -1,8 +1,9 @@
 # Releasing
 
-1. Bump `__version__` in `wick/__init__.py` (the only place it's set), merge, and push a tag: `git tag v0.1.1 && git push origin v0.1.1`.
+1. Write the notes in `docs/releases/v0.2.0.md` (the tag's name), bump `__version__` in `wick/__init__.py` (the
+   only place it's set), merge, and push a tag: `git tag v0.2.0 && git push origin v0.2.0`.
 2. The build attaches `Wick-setup.exe`, `Wick-windows.zip`, `Wick.mcpb` and `SHA256SUMS.txt` to a **draft**
-   release. Check it, write the notes and publish it.
+   release, with the notes from step 1. Check it and publish it.
 3. Publishing runs `.github/workflows/package-managers.yml`:
    - **Scoop:** `bucket/wick.json` is pointed at the new zip (checksum from `SHA256SUMS.txt`) and committed to
      `main`. People who added the bucket get it with `scoop update wick`.
@@ -26,7 +27,7 @@ scoop install wick
 Settings and History live in the user profile, not the app folder, so updates keep them.
 
 If `main` requires pull requests for every change, allow `github-actions[bot]` to push, or the Scoop step fails
-(the manifest can then be updated by hand: `python scripts/update_scoop.py 0.1.1 SHA256SUMS.txt`).
+(the manifest can then be updated by hand: `python scripts/update_scoop.py 0.2.0 SHA256SUMS.txt`).
 
 ## winget: one-time setup
 
@@ -48,8 +49,8 @@ winget only updates packages it already has, so the first version is submitted b
 
 The manifests pass `/SOURCE=winget` to the installer, which leaves `installed-by.txt` next to `Wick.exe`; the
 app then tells people to update with `winget upgrade Lanntern.Wick` instead of offering the download page
-(Scoop installs are recognised from their folder layout). Installers before 0.1.1 ignore the switch, so it's
-better to make 0.1.1 the first version submitted.
+(Scoop installs are recognised from their folder layout). Installers before 0.2.0 ignore the switch, so it's
+better to make 0.2.0 the first version submitted.
 
 Unsigned installers are accepted, but Microsoft's automated checks run SmartScreen and Defender on them; a new,
 unsigned app can be held for manual review.
