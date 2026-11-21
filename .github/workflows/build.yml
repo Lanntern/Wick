@@ -418,7 +418,7 @@ jobs:
           Remove-Item Env:WICK_EXE
           python packaging\make_mcpb.py build\mcp\wick-mcp.exe dist\Wick.mcpb
           # (The manifest's own test runs with the other tests; here: the bundle holds what it should.)
-          python -c "import json, zipfile; z = zipfile.ZipFile('dist/Wick.mcpb'); m = json.loads(z.read('manifest.json')); assert set(z.namelist()) >= {'manifest.json', 'server/wick-mcp.exe', 'icon.png'}, z.namelist(); assert len(m['tools']) == 5 and m['server']['entry_point'] == 'server/wick-mcp.exe', m; print('Wick.mcpb', m['version'], len(m['tools']), 'tools')"
+          python -c "import json, zipfile; z = zipfile.ZipFile('dist/Wick.mcpb'); m = json.loads(z.read('manifest.json')); assert set(z.namelist()) >= {'manifest.json', 'server/wick-mcp.exe', 'icon.png'}, z.namelist(); assert len(m['tools']) == 6 and m['server']['entry_point'] == 'server/wick-mcp.exe', m; print('Wick.mcpb', m['version'], len(m['tools']), 'tools')"
           if ($LASTEXITCODE -ne 0) { throw "Wick.mcpb is incomplete" }
       - name: Install, check, and uninstall (silently, for this user)
         shell: pwsh

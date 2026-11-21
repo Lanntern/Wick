@@ -52,7 +52,7 @@ None apply: no payments, no generated media, no ads, no adult content.
 | B: frugal with tokens | Compact JSON; totals by kind; the file list is optional (`list_files`, 0 to 100) |
 | C: names ≤ 64 characters | Longest is 22; checked by a test |
 | D, F: OAuth, Streamable HTTP | Remote servers only; this one is local (stdio) |
-| E: `readOnlyHint`, `destructiveHint`, `title` on every tool | All five tools have them, plus `idempotentHint` and `openWorldHint`; checked by a test |
+| E: `readOnlyHint`, `destructiveHint`, `title` on every tool | All six tools have them, plus `idempotentHint` and `openWorldHint`; checked by a test |
 | G: current dependencies | No dependencies beyond the app itself (Python standard library); the launcher is plain C, built in CI |
 
 ## MCP specification (server MUSTs)

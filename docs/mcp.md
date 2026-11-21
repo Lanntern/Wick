@@ -30,6 +30,7 @@ the originals to the Recycle Bin) and `--max-files=N` (the largest run allowed; 
 | `plan_compression` | Finds what can be compressed in a folder and estimates the savings | No |
 | `compress_planned_files` | Compresses exactly the files in a plan, **after you approve it** | Yes |
 | `list_history` | Past runs in the allowed folders | No |
+| `find_cleanup` | Lists what Clean Up would: duplicates, similar photos, large, broken or empty files and old installers in the allowed folders, or app caches, installed apps and app leftovers on the whole computer | No |
 | `undo_run` | Puts a run's originals back, **after you approve it** | Yes |
 
 ## Why it's safe
@@ -37,7 +38,7 @@ the originals to the Recycle Bin) and `--max-files=N` (the largest run allowed; 
 The worst case for a tool like this is an assistant that misunderstands, or is misled by something it read,
 and loses your files. Wick is built to prevent that.
 
-**Folders.** The assistant can only use the folders you chose. Every path is fully resolved, following
+**Folders.** The assistant can only work in the folders you chose. Every path is fully resolved, following
 symbolic links and junctions, and must be inside one of them. Windows, Program Files, ProgramData, AppData and
 Wick's own History are always refused, even inside a chosen folder.
 
@@ -56,6 +57,10 @@ edited since.
 
 **Limits.** Runs are capped at 1000 files by default, calls are rate-limited, and only one run happens at a
 time. File names are passed on without hidden or control characters.
+
+**Looking, not removing.** `find_cleanup` only lists things, with sizes and reasons. Nothing here removes them:
+you do that yourself on Wick's Clean Up page. Its overviews of app caches, installed apps and app leftovers
+cover the whole computer, so the assistant sees their names and sizes.
 
 **Privacy.** Wick doesn't keep anything from the conversation. Its log notes which tool ran, not what was
 asked. See [Privacy](#privacy).

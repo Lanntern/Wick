@@ -27,7 +27,7 @@ can put them back.
 | **Compress** | Shrink photos, videos, music and Office/PDF documents |
 | **Convert** | Change file formats, e.g. HEIC to JPEG or a video to MP4 |
 | **Metadata** | See what a photo or video gives away (location, camera, author) and remove it |
-| **Clean Up** | Find duplicates, similar photos, old installers, caches, build folders and Windows leftovers |
+| **Clean Up** | Find duplicates, similar photos, old installers, caches, build folders and Windows leftovers, and uninstall apps you no longer use |
 | **Watch Folders** | Compress new files as they arrive, from the tray |
 | **History** | Undo any run, or a single file |
 

@@ -86,7 +86,7 @@ def test_protocol_over_stdio(tmp_path):
     assert init["serverInfo"]["name"] == "wick"
     tools = by_id[2]["result"]["tools"]
     assert {t["name"] for t in tools} == {"list_allowed_folders", "plan_compression", "compress_planned_files",
-                                          "list_history", "undo_run"}
+                                          "list_history", "undo_run", "find_cleanup"}
     for t in tools:
         a = t["annotations"]
         assert len(t["name"]) <= 64 and t["title"] and a["title"]
@@ -291,3 +291,21 @@ def test_arguments_are_checked_against_the_schema(tmp_path):
     assert err and "missing plan_id" in text
     text, err = _call(s, "plan_compression", paths="D:\\")
     assert err
+
+
+def test_find_cleanup_lists_but_never_changes(tmp_path):
+    s, allowed, asked = _server(tmp_path)
+    (allowed / "a.bin").write_bytes(b"same" * 50_000)
+    (allowed / "b.bin").write_bytes(b"same" * 50_000)
+    found, err = _call(s, "find_cleanup", kind="duplicates", paths=[str(allowed)])
+    assert not err and found["count"] == 1 and found["items"][0]["safe_to_remove"] in (True, False)
+    assert "Clean Up › Duplicates" in found["to_act"]
+    assert (allowed / "a.bin").exists() and (allowed / "b.bin").exists() and not asked
+    text, err = _call(s, "find_cleanup", kind="duplicates", paths=[str(tmp_path)])
+    assert err and "outside the folders" in text
+    text, err = _call(s, "find_cleanup", kind="delete_everything")
+    assert err and "kind must be one of" in text
+    apps_found, err = _call(s, "find_cleanup", kind="installed_apps")       # (whole computer: no paths)
+    assert not err and "items" in apps_found
+    tool = next(t for t in s.tools() if t["name"] == "find_cleanup")
+    assert tool["annotations"]["readOnlyHint"] and not tool["annotations"]["destructiveHint"]

@@ -41,8 +41,16 @@ DEFAULT_MAX_FILES = 1000
 DEFAULT_PRESET = "Photo archive"        # lossless and reversible for photos: the safest choice
 RATE_LIMITS = {                         # tool -> (calls, per seconds)
     "list_allowed_folders": (60, 60), "list_history": (60, 60), "plan_compression": (30, 60),
-    "compress_planned_files": (10, 3600), "undo_run": (10, 3600),
+    "compress_planned_files": (10, 3600), "undo_run": (10, 3600), "find_cleanup": (20, 60),
 }
+
+# find_cleanup: what it can look for. In the allowed folders, or (the last three) on the computer as a whole.
+CLEANUP_KINDS = {
+    "duplicates": "Duplicates", "similar_photos": "Similar Photos", "large_files": "Large Files",
+    "broken_files": "Broken Files", "empty_items": "Empty Items", "old_installers": "Installers",
+    "app_caches": "Caches", "installed_apps": "Apps", "app_leftovers": "App Leftovers",
+}
+_WHOLE_COMPUTER = {"app_caches", "installed_apps", "app_leftovers"}
 
 # Unicode that can hide or reorder text (bidi overrides, zero-width characters) and control characters: never
 # passed on from file names, which anyone can choose (they could be written to look like instructions).
@@ -238,6 +246,23 @@ class Server:
                            "description": "How many runs to list."}}},
              "annotations": {"title": "List past runs", "readOnlyHint": True, "destructiveHint": False,
                              "idempotentHint": True, "openWorldHint": False}},
+            {"name": "find_cleanup", "title": "Find things to clean up",
+             "description": "Looks for things the user might remove, the way Wick's Clean Up page does, and lists "
+                            "them with sizes and why each is listed. Read-only: it never removes anything, and no "
+                            "tool here does. Duplicates, similar photos, large files, broken files, empty items and "
+                            "old installers are looked for in the given paths (inside the allowed folders). App "
+                            "caches, installed apps (with when each was last opened) and app leftovers cover the "
+                            "whole computer and take no paths. Use it to help the user decide; to act, they use "
+                            "the named Clean Up tool in Wick.",
+             "inputSchema": {"type": "object", "additionalProperties": False, "required": ["kind"], "properties": {
+                 "kind": {"type": "string", "enum": list(CLEANUP_KINDS)},
+                 "paths": {"type": "array", "maxItems": 20, "items": {"type": "string"},
+                           "description": "Folders to look in (not used for app_caches, installed_apps or "
+                                          "app_leftovers)."},
+                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25,
+                           "description": "How many items to list, largest first."}}},
+             "annotations": {"title": "Find things to clean up", "readOnlyHint": True, "destructiveHint": False,
+                             "idempotentHint": True, "openWorldHint": False}},
             {"name": "undo_run", "title": "Undo a run",
              "description": "Restores the original files of a past run (from list_history) and removes its "
                             "compressed versions, after the user approves it in a confirmation that Wick "
@@ -253,7 +278,7 @@ class Server:
 
         handlers = {"list_allowed_folders": self.t_list_allowed_folders, "plan_compression": self.t_plan,
                     "compress_planned_files": self.t_compress, "list_history": self.t_history,
-                    "undo_run": self.t_undo}
+                    "undo_run": self.t_undo, "find_cleanup": self.t_find_cleanup}
         if name not in handlers:
             raise KeyError(name)
         if not isinstance(args, dict):
@@ -466,6 +491,50 @@ class Server:
             return out
         finally:
             self._job_lock.release()
+
+    def t_find_cleanup(self, args, **_) -> dict:
+        from pathlib import Path as _Path
+
+        from .cleanup import apps, broken, caches, duplicates, empties, installers, largefiles, similar
+        from .formats import human
+
+        kind = args.get("kind")
+        if kind not in CLEANUP_KINDS:
+            raise ToolError(f"kind must be one of: {', '.join(CLEANUP_KINDS)}.")
+        limit = args.get("limit", 25)
+        if not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ToolError("limit must be a whole number from 1 to 100.")
+        roots: list[_Path] = []
+        if kind not in _WHOLE_COMPUTER:
+            self._need_folders()
+            raw = args.get("paths") or [str(a) for a in self.allowed]
+            if not isinstance(raw, list) or not all(isinstance(p, str) for p in raw):
+                raise ToolError("paths must be a list of folder paths.")
+            roots = [self._check_path(p) for p in raw[:20]]
+        finders = {
+            "duplicates": lambda: duplicates.find_duplicates(roots),
+            "similar_photos": lambda: similar.find_similar(roots),
+            "large_files": lambda: largefiles.find_large_files(roots, 500),
+            "broken_files": lambda: broken.find_broken(roots),
+            "empty_items": lambda: empties.find_empty(roots),
+            "old_installers": lambda: installers.find_installers(roots, 30),
+            "app_caches": lambda: caches.find_caches(),
+            "installed_apps": lambda: apps.find_apps(),
+            "app_leftovers": lambda: apps.find_leftovers(),
+        }
+        result = finders[kind]()
+        items = sorted(result.items, key=lambda c: -c.size)
+        return {
+            "kind": kind, "count": len(items), "total_size": human(sum(c.size for c in items)),
+            "items": [{"name": clean(c.title or c.path.name, 200), "path": clean(c.path, 400),
+                       "size": human(c.size), "why": clean(c.detail, 300),
+                       **({"keep_instead": clean(c.keeper, 400)} if c.keeper else {}),
+                       **({"caution": clean(c.warning, 300)} if c.warning else {}),
+                       "safe_to_remove": bool(c.selected)} for c in items[:limit]],
+            "notes": [clean(n, 300) for n in result.notes],
+            "to_act": f"Wick doesn't remove anything for an assistant. The user can review and remove these in "
+                      f"Wick: Clean Up › {CLEANUP_KINDS[kind]}.",
+        }
 
     def t_history(self, args, **_) -> dict:
         from . import journal
