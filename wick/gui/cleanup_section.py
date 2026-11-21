@@ -901,6 +901,12 @@ class ToolSection(QWidget):
                  "Programs and games keep working; Windows decompresses files on the fly. This can take a while "
                  "for large games. " + ("Windows will ask for administrator permission. " if admin else "")
                  + "You can undo this later.", "Compress")
+        elif action_id == actions.UNINSTALL:
+            names = ", ".join(c.title for c in items[:3]) + (f" and {n - 3} more" if n > 3 else "")
+            q = (f"Uninstall {names}?",
+                 f"Each app's own uninstaller opens, one at a time, and Windows may ask for permission. Once an app "
+                 f"is gone, the folders it left behind go to the {BIN_NAME}, so you can restore them. The app "
+                 "itself can only be installed again from its download.", "Uninstall")
         elif action_id == actions.DECOMPACT:
             q = (f"Decompress {n} folder{'s' if n != 1 else ''}?",
                  "Files keep the same contents but may take more disk space. Close running games first. "

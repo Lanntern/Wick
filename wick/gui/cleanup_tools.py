@@ -15,6 +15,7 @@ from ..cleanup import (
 )
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
+from ..cleanup import apps as apps_mod
 from .cleanup_section import Tool, ToolSection, _existing
 from .widgets import SizeInput, button, dialog_buttons, dialog_layout
 
@@ -513,6 +514,20 @@ def tools() -> list[Tool]:
              lambda s, p, c: installers.find_installers(s.folders, s.extra_days.value(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_days_option("installers", 30, "Older than", "Only list files older than this")),
+        Tool("apps", "Apps",
+             "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
+             f"uninstaller, then moves the folders it left behind to the {BIN_NAME}.",
+             None, lambda s, p, c: apps_mod.find_apps(p, c),
+             [(actions.UNINSTALL, "Uninstall…", "primary")],
+             note="When an app was last opened comes from Windows' own records for your account. Apps started "
+                  "another way, like by a game launcher, may show no record.",
+             available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
+        Tool("leftovers", "App Leftovers",
+             "Folders in AppData and ProgramData that no installed app seems to use and that haven't changed in "
+             "months, often left by apps you removed. Nothing is selected for you.",
+             None, lambda s, p, c: apps_mod.find_leftovers(p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
         Tool("empty", "Empty Items",
              "Empty folders and empty files. Files that matter even when empty, like .gitkeep, are left alone.",
              lambda: _existing("Documents", "Downloads", "Desktop", "Pictures"),
