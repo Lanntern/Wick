@@ -533,6 +533,9 @@ jobs:
         with:
           # A draft: checked, given its notes and published by hand (nobody sees it until then).
           draft: true
+          name: Wick ${{ github.ref_name }}
+          # Notes from docs/releases/<tag>.md when there is one (else written on the draft by hand).
+          body_path: ${{ hashFiles(format('docs/releases/{0}.md', github.ref_name)) != '' && format('docs/releases/{0}.md', github.ref_name) || '' }}
           files: |
             Wick-windows.zip
             Wick-setup.exe

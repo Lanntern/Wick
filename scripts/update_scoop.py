@@ -1,6 +1,6 @@
 """Point the Scoop manifest (bucket/wick.json) at a published release: its version, zip URL and checksum.
 
-    python scripts/update_scoop.py 0.1.1 SHA256SUMS.txt
+    python scripts/update_scoop.py 0.2.0 SHA256SUMS.txt
 
 The checksum comes from the release's SHA256SUMS.txt (written by the build that made the zip).
 """
