@@ -54,7 +54,7 @@ def main(argv: list[str]) -> int:
     assert replies[1]["result"]["serverInfo"]["name"] == "wick", replies
     names = {t["name"] for t in replies[2]["result"]["tools"]}
     assert names == {"list_allowed_folders", "plan_compression", "compress_planned_files", "list_history",
-                     "undo_run"}, names
+                     "undo_run", "find_cleanup"}, names
     allowed, err = text(3)
     assert not err and json.loads(allowed)["allowed_folders"], allowed
     plan, err = text(4)
