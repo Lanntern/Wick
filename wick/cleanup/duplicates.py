@@ -6,12 +6,25 @@ import hashlib
 import os
 import threading
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 PARTIAL = 64 * 1024
 KEEP_RULES = ("oldest", "newest", "shortest_path", "folder")
+HASH_READERS = 4               # files read and hashed at once on SSDs (one on hard drives: see drives.readers)
+
+
+def _hasher():
+    """BLAKE3 where it's installed (several times faster, still cryptographic: a file made to collide can't pose
+    as a duplicate), else BLAKE2b. Both release Python's lock while hashing, so readers run in parallel."""
+    try:
+        from blake3 import blake3
+
+        return blake3()
+    except ImportError:
+        return hashlib.blake2b(digest_size=32)
 
 
 def _partial(path: Path, size: int) -> bytes | None:
@@ -29,7 +42,7 @@ def _partial(path: Path, size: int) -> bytes | None:
 
 def _full(path: Path, cancel: threading.Event | None, on_bytes) -> bytes | None:
     try:
-        h = hashlib.blake2b(digest_size=32)
+        h = _hasher()
         with open(path, "rb") as f:
             while chunk := f.read(1 << 20):
                 if cancelled(cancel):
@@ -98,14 +111,22 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
             unique.append((p, real))
         by_size[size] = unique
 
-    # Stage 2: quick fingerprint of the start and end.
+    from .. import drives
+
+    candidates = [(p, st) for group in by_size.values() if len(group) > 1 for p, st in group]
+    workers = drives.readers([p for p, _ in candidates], HASH_READERS)
+
+    # Stage 2: quick fingerprint of the start and end (files read in parallel on SSDs).
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        partials = dict(zip([p for p, _ in candidates],
+                            pool.map(lambda c: _partial(c[0], c[1].st_size), candidates), strict=True))
     stage2: list[list[tuple[Path, os.stat_result]]] = []
-    for size, group in by_size.items():
+    for group in by_size.values():
         if len(group) < 2:
             continue
         sub: dict[bytes, list] = defaultdict(list)
         for p, st in group:
-            d = _partial(p, size)
+            d = partials.get(p)
             if d is not None:
                 sub[d].append((p, st))
         stage2.extend(g for g in sub.values() if len(g) > 1)
@@ -113,21 +134,28 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
     # Stage 3: full checksum.
     total_bytes = sum(st.st_size for g in stage2 for _, st in g)
     done = 0
+    lock = threading.Lock()
 
     def on_bytes(k: int) -> None:
         nonlocal done
-        done += k
+        with lock:
+            done += k
+            now = done
         if progress:
-            progress("Comparing contents…", done, max(1, total_bytes))
+            progress("Comparing contents…", now, max(1, total_bytes))
 
+    files = [(p, st) for g in stage2 for p, st in g]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        digests = dict(zip([p for p, _ in files], pool.map(lambda c: _full(c[0], cancel, on_bytes), files),
+                           strict=True))
+    if cancelled(cancel):
+        result.cancelled = True
+        return result
     groups = []
     for g in stage2:
         by_hash: dict[bytes, list] = defaultdict(list)
         for p, st in g:
-            d = _full(p, cancel, on_bytes)
-            if cancelled(cancel):
-                result.cancelled = True
-                return result
+            d = digests.get(p)
             if d is not None:
                 by_hash[d].append((p, st))
         groups.extend(v for v in by_hash.values() if len(v) > 1)

@@ -270,7 +270,10 @@ def find_broken(roots: list[Path], thorough: bool = False, progress: Callable | 
             if progress and done % 20 == 0:
                 progress(f"Checking {path.name}", done, len(files))
 
-    workers = max(1, min(8, (os.cpu_count() or 2) - 1))
+    from .. import drives
+
+    # (One at a time on a hard drive: checking reads whole files, and parallel reads make its head jump.)
+    workers = drives.readers([p for p, _ in files], max(1, min(8, (os.cpu_count() or 2) - 1)))
     with ThreadPoolExecutor(workers) as pool:
         list(pool.map(one, files))
     items.sort(key=lambda c: (c.extra["how"] != UNREADABLE, str(c.path).lower()))

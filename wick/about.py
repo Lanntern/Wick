@@ -46,6 +46,8 @@ CREDITS: tuple[Credit, ...] = (
     Credit("Pandoc", "Converting documents", "GPL-2.0-or-later", "https://pandoc.org/", "download"),
     Credit("fontTools", "Converting fonts (WOFF2, Latin-only)", "MIT", "https://github.com/fonttools/fonttools"),
     Credit("Brotli", "WOFF2 compression", "MIT", "https://github.com/google/brotli"),
+    Credit("blake3", "Fast checksums for finding duplicates", "CC0-1.0 or Apache-2.0",
+           "https://github.com/oconnor663/blake3-py"),
 )
 
 PRIVACY = ("Wick works entirely on this computer. It has no accounts, ads or tracking, and never sends your files "

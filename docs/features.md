@@ -115,6 +115,20 @@ Save your own from the options panel. Presets work on the Compress page, per wat
 visually identical, high or good. Pictures are measured with SSIMULACRA2 and videos with VMAF. It's slower,
 because each file is encoded several times. The chosen setting and score are shown for each file.
 
+### Speed or size
+
+The first time Wick starts, it asks whether a few percent smaller is worth taking about twice as long, and
+suggests an answer for the computer: Smallest files with 12 or more processor threads and 16 GB of memory,
+Faster with 4 threads or fewer. The answer sets two options, both changeable later:
+
+- **JPEG XL effort** (5, 7 or 9). Effort 9 is used up to 24 megapixels; larger images get 8.
+- **Processor speed** for videos: Faster (x265 *medium*, SVT-AV1 preset 6) or Slower, smaller files (*slow* and
+  preset 5, about 5% smaller). Graphics card encodes aren't affected.
+
+Graphics cards get the best settings they accept, each tried once with a tiny encode: NVIDIA adds a
+full-resolution first pass, temporal AQ and B-frame references; Intel adds look-ahead; AMD uses quality-defined
+VBR with pre-analysis and adaptive quantization, matched to the size its constant QP would give.
+
 ## Home, Convert and Metadata
 
 - **Home** reads the headers of the files in your Pictures, Videos, Downloads, Desktop and Documents folders in

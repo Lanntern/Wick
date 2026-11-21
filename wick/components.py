@@ -46,6 +46,7 @@ def versions() -> dict[str, str]:
         "rawpy (LibRaw)": _dist("rawpy"),
         "fontTools": _dist("fonttools"),
         "Brotli": _dist("brotli"),
+        "blake3": _dist("blake3"),
         "NumPy": _dist("numpy"),
         "lxml": _dist("lxml"),
         "Send2Trash": _dist("Send2Trash"),
