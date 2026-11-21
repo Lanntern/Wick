@@ -49,9 +49,9 @@ WINDOWS = [
              "8d31e162f1616e37aab3fa2db991b97e1b8dbeb1c8465fd81a81be16ff91b328",
              {"ffmpeg.exe": "ffmpeg.exe", "ffprobe.exe": "ffprobe.exe", "LICENSE": "LICENSE-ffmpeg.txt",
               "*.dll": None}),
-    Download("libjxl", "0.12.0",
-             "https://github.com/libjxl/libjxl/releases/download/v0.12.0/jxl-x64-windows-static.zip",
-             "3025d7e308390796d20492322e606bc92decaee7b6bc99d3f7547870ae5db7de",
+    Download("libjxl", "0.13.0",
+             "https://github.com/libjxl/libjxl/releases/download/v0.13.0/jxl-x64-windows-static.zip",
+             "e394519c05ea9e5b83947f89b40afbf1ea7c631a608406c5de945a4c5bdcdcb7",
              {"cjxl.exe": "cjxl.exe", "djxl.exe": "djxl.exe", "ssimulacra2.exe": "?ssimulacra2.exe",
               "butteraugli_main.exe": "?butteraugli_main.exe", "LICENSE.libjxl": "LICENSE-libjxl.txt"}),
     # jpegli moved out of libjxl after 0.11; 0.11.2 is the newest release with a Windows cjpegli.
@@ -60,8 +60,8 @@ WINDOWS = [
              "97dc815bdd99ba243d8502050357342cf649251a5df069f8c3daee6828cbe0ce",
              {"cjpegli.exe": "cjpegli.exe"}, required=False,
              held="newest libjxl release that still ships cjpegli for Windows"),
-    Download("gifsicle", "1.95", "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.95-win64.zip",
-             "7e47dd0bfd5ee47f911464c57faeed89a8709a7625dd1c449b16579889539ee8",   # as first downloaded by CI
+    Download("gifsicle", "1.97", "https://eternallybored.org/misc/gifsicle/releases/gifsicle-1.97-win64.zip",
+             "bb3ad4e1521a3953152f406eaafabda153fb5986938405860a7e7f12a3d13227",
              {"gifsicle.exe": "gifsicle.exe", "COPYING": "LICENSE-gifsicle.txt"}, required=False),
 ]
 
@@ -87,9 +87,9 @@ LINUX_FFMPEG = Download(
 # Pandoc (documents): on Windows the app downloads it when first needed (wick/addons.py pins the same
 # version); this is for Linux CI and builds. Distribution packages may be too old to run --sandbox.
 LINUX_PANDOC = Download(
-    "pandoc", "3.12.1",
-    "https://github.com/jgm/pandoc/releases/download/3.12.1/pandoc-3.12.1-linux-amd64.tar.gz",
-    "d0c90410e90204c9ca83b8539fac5c7aed01fd537207e4585849f8abc5df20b8",
+    "pandoc", "3.14",
+    "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-linux-amd64.tar.gz",
+    "c5f4720cdefb3f7bdc5d07202ef579feef0d1370773c873804dd8fdaa8c4f1b8",
     {"pandoc": "pandoc"})
 
 

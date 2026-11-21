@@ -31,10 +31,10 @@ class Addon:
 
 
 PANDOC = Addon(
-    "pandoc", "3.12.1",
-    "https://github.com/jgm/pandoc/releases/download/3.12.1/pandoc-3.12.1-windows-x86_64.zip",
-    "6ef431cb20b2c24a0371fc19200dc49d452be54b1b5c9239f3462841ef53e587", 42_154_914,
-    "pandoc-3.12.1/pandoc.exe", "pandoc-3.12.1/COPYRIGHT.txt",
+    "pandoc", "3.14",
+    "https://github.com/jgm/pandoc/releases/download/3.14/pandoc-3.14-windows-x86_64.zip",
+    "0144b96e8c7b023fd382ec5ef5bdc475e873f1019d6fa72502492df2c9a94a3b", 43_614_099,
+    "pandoc-3.14/pandoc.exe", "pandoc-3.14/COPYRIGHT.txt",
     "Pandoc converts documents (Word, OpenDocument, Markdown, web pages, EPUB, RTF). It's free software "
     "(GPL) by John MacFarlane.")
 

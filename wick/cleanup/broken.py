@@ -255,7 +255,9 @@ def find_broken(roots: list[Path], thorough: bool = False, progress: Callable | 
         if cancelled(cancel):
             return
         try:
-            found = check_file(path, size, thorough)
+            from ..sandbox import broken_check
+
+            found = broken_check(path, size, thorough)      # (in a decoder worker with fewer rights)
         except Exception:  # noqa: BLE001 - an unexpected error is not proof the file is broken
             found = None
         with lock:

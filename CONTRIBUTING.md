@@ -58,7 +58,7 @@ pip install -e ".[dev]"
 python -m pytest          # unit tests + real round trips (needs the encoders)
 ```
 
-CI (`.github/workflows/build.yml`) lints, then runs the tests on Linux and on Windows (including the real Recycle Bin restore and offscreen GUI tests that drive the main window). Pull requests stop there. Pushes to `main`, `v*` tags and manual runs also build the `.exe` with PyInstaller and the installer, smoke-test both, and keep them as run artifacts; a `v*` tag attaches them to the GitHub release.
+CI (`.github/workflows/build.yml`) lints, then runs the tests on Linux and on Windows (including the real Recycle Bin restore and offscreen GUI tests that drive the main window). Pull requests stop there. Pushes to `main`, `v*` tags and manual runs also build the `.exe` with PyInstaller and the installer, smoke-test both, and keep them as run artifacts; a `v*` tag attaches them to the GitHub release. Publishing a release, and the Scoop and winget packages: [docs/releasing.md](docs/releasing.md).
 
 Data lives in `%LOCALAPPDATA%\Wick` (`~/.local/share/wick` on Linux): run history (`runs/`), presets (`presets.json`), the file index that makes repeat scans fast (`index.sqlite`, safe to delete) and a small rotating log (`logs/`). Settings → Diagnostics opens the log folder or copies a summary for bug reports. `WICK_DATA_DIR` and `WICK_SETTINGS_FILE` override the locations (used by the tests).
 

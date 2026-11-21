@@ -205,6 +205,8 @@ def _star_groups(members: list[int], prints, sharp: dict[int, float], files, lim
 
 def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,
                  progress: ProgressFn | None = None, cancel: threading.Event | None = None) -> ScanResult:
+    from ..sandbox import similar_fingerprint, similar_inspect
+
     result = ScanResult("similar")
     limit = STRICTNESS.get(strictness, 3)
     files = []
@@ -240,7 +242,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
     def fp_work(i: int) -> None:
         if cancelled(cancel):
             return
-        fp = fingerprint(files[i][0])
+        fp = similar_fingerprint(files[i][0])          # (in a decoder worker with fewer rights)
         if fp is not None:
             prints[i] = fp
         finished.append(i)
@@ -299,7 +301,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
             px = 256 if len(members) <= 4096 else 128
 
             def look(i: int, px: int = px):
-                out = inspect(files[i][0], px) if not cancelled(cancel) else (0.0, None)
+                out = similar_inspect(files[i][0], px) if not cancelled(cancel) else (0.0, None)
                 ticker.step("Choosing the best copies", total)
                 return out
 

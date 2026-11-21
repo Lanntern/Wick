@@ -113,6 +113,20 @@ def main() -> int:
         failed |= not ok
         print(f"{fmt}: exit {proc.returncode}, outputs {sorted(got)} {'OK' if ok else 'MISSING ' + str(expected - got)}")
     failed |= not gui_ok
+    # Files Wick didn't make are decoded in a restricted worker (wick/sandbox.py): it must start in the built app
+    # and really give up its rights (low integrity, in its job object).
+    report = work / "decoder-check.json"
+    proc = run([str(exe), "--decoder-check", str(report)], 180)
+    try:
+        import json
+
+        check = json.loads(report.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        check = {}
+    applied = check.get("applied") or {}
+    decoder_ok = bool(check.get("ok")) and applied.get("integrity") == "low" and applied.get("job") is True
+    print(f"decoder worker: exit {proc.returncode}, {check} {'OK' if decoder_ok else 'FAILED'}")
+    failed |= not decoder_ok
     applog = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Wick" / "logs" / "wick.log"
     if applog.exists() and "Helper processes unavailable" in applog.read_text(encoding="utf-8", errors="replace"):
         print("FAILED: helper processes didn't start in the built app (see multiprocessing.freeze_support)")

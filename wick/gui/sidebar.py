@@ -98,6 +98,7 @@ class Sidebar(QFrame):
         foot.addWidget(self.support_btn, 0, Qt.AlignLeft)
         lay.addLayout(foot)
         self._saved: str | None = None
+        self._tasks: list = []
         self._update_foot()
         self.refresh()
 
@@ -118,6 +119,7 @@ class Sidebar(QFrame):
         self.support_btn.setText("" if compact else "Support Wick")
         self.brand.setContentsMargins(*self._brand_margins(compact))
         self._update_foot()
+        self.set_activity(self._tasks)          # ("3 tasks running" or just "3")
         for i, (label, _icon, _s) in enumerate(self.items):
             self.list.item(i).setText("" if compact else label)
 
@@ -146,6 +148,7 @@ class Sidebar(QFrame):
     def set_activity(self, tasks) -> None:
         from ..activity import overall
 
+        self._tasks = list(tasks)
         self.activity_box.setVisible(bool(tasks))
         if not tasks:
             return

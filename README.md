@@ -75,6 +75,13 @@ From the **[Releases page](https://github.com/Lanntern/Wick/releases/latest)** (
 | `Wick-setup.exe` | Installer (recommended). Adds Start menu shortcuts and the File Explorer right-click menu. |
 | `Wick-windows.zip` | Portable version. Unzip anywhere and run `Wick.exe`. |
 
+Or with [Scoop](https://scoop.sh):
+
+```
+scoop bucket add wick https://github.com/Lanntern/Wick
+scoop install wick
+```
+
 Wick isn't code-signed yet, so Windows may show "Windows protected your PC" the first time. Choose
 **More info → Run anyway**. To check a download, see [Verifying a release](docs/features.md#verifying-a-release).
 

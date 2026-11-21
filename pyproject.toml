@@ -44,6 +44,11 @@ include = ["wick*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 faulthandler_timeout = 300   # a hung test dumps every thread's stack instead of waiting silently
+# (pytest-xdist's marker, declared here too so runs without xdist don't warn about it)
+markers = [
+    "xdist_group(name): tests that share outside state, run by one worker when the suite runs in parallel",
+    "runs_long: a test that takes far longer than the rest; collected first so parallel workers finish together",
+]
 
 [tool.ruff]
 line-length = 130

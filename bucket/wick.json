@@ -1,0 +1,41 @@
+{
+    "version": "0.1.0",
+    "description": "Get space back from the photos, videos and music already on your PC: smaller formats, every result checked, every change undoable.",
+    "homepage": "https://github.com/Lanntern/Wick",
+    "license": "GPL-3.0-only",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/Lanntern/Wick/releases/download/v0.1.0/Wick-windows.zip",
+            "hash": "ae21cc30a3e457f16ce30f8c5db3f1f4534ae5d6f08e9de13021b3bb37c83851"
+        }
+    },
+    "extract_dir": "Wick",
+    "bin": [
+        [
+            "Wick.exe",
+            "wick"
+        ]
+    ],
+    "shortcuts": [
+        [
+            "Wick.exe",
+            "Wick"
+        ]
+    ],
+    "notes": [
+        "Settings and History are kept in your user profile, so updating or reinstalling keeps them.",
+        "The File Explorer right-click menu can be turned on in Wick's Settings.",
+        "Before uninstalling, turn off the right-click menu and 'Start at sign-in' in Settings if you turned them on."
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/Lanntern/Wick/releases/download/v$version/Wick-windows.zip",
+                "hash": {
+                    "url": "$baseurl/SHA256SUMS.txt"
+                }
+            }
+        }
+    }
+}

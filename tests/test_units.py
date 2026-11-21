@@ -15,6 +15,10 @@ from wick.probe import StreamInfo, VideoInfo
 from wick.scanner import FileEntry, scan
 from wick.settings import Settings
 
+# Tests that write the same keys in the signed-in user's registry (Explorer menus, Default apps, notifications,
+# the taskbar's jump list): one worker runs them all, one after another, when the suite runs in parallel.
+WINDOWS_SHELL = pytest.mark.xdist_group("windows-shell")
+
 
 def _png(path: Path, depth: int = 8, animated: bool = False, w: int = 4, h: int = 4) -> Path:
     def chunk(t: bytes, data: bytes) -> bytes:
@@ -313,6 +317,7 @@ def test_desktop_integration_files(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Explorer's menus are in the Windows registry")
+@WINDOWS_SHELL
 def test_explorer_menus_compress_and_convert():
     import winreg
 
@@ -456,6 +461,7 @@ def test_output_names_from_a_pattern(tmp_path):
     assert output_name(src, "%unknown%", t) == "%unknown%"
 
 
+@WINDOWS_SHELL
 def test_jump_list_tasks():
     """The taskbar / Start / Search tasks: each opens a page the app knows; on Windows the list is really built."""
     import sys
@@ -556,6 +562,7 @@ def test_quiet_when_full_screen_and_restart_after_updates():
     assert power.set_restart_after_update(False) is (os.name == "nt")
 
 
+@WINDOWS_SHELL
 def test_windows_notifications():
     """Toast XML is escaped and carries the buttons; their wick: links reach the right page; on Windows the
     app registers its name and icon for notifications (and the uninstaller's clean-up removes it)."""
@@ -591,6 +598,7 @@ def test_windows_notifications():
     toasts._registered = False
 
 
+@WINDOWS_SHELL
 def test_windows11_menu_package_matches_the_dll():
     """The sparse package's manifest is valid XML, names the DLL's two command IDs and the package name the app
     registers, and has an unsigned-package publisher. (CI builds and packs both on Windows.)"""
@@ -617,6 +625,7 @@ def test_windows11_menu_package_matches_the_dll():
     assert integration._modern_menu_files() is None or os.name == "nt"     # (only a Windows build has it)
 
 
+@WINDOWS_SHELL
 def test_default_apps_and_open_with():
     """Windows: Wick is listed in Default apps and Open with for its file types (never made the default),
     and unregistering removes it. Skipped where a real Wick is registered, so a real install isn't touched."""

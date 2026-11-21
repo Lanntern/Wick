@@ -120,3 +120,58 @@ def test_weekly_report(monkeypatch):
                         [d for d in check_updates.fetch_tools.WINDOWS if d.sha256])
     body, attention = check_updates.report()
     assert not attention                                     # nothing newer, nothing vulnerable: no issue
+
+
+def test_a_tool_built_by_someone_else_is_compared_with_their_builds(monkeypatch):
+    sys.path.insert(0, str(SCRIPTS))
+    import urllib.request
+
+    import check_updates
+
+    page = (b'<a href="releases/gifsicle-1.95-win64.zip">1.95</a> <a href="releases/gifsicle-1.97-win64.zip">'
+            b'1.97</a> <a href="releases/gifsicle-1.97-win32.zip">32-bit</a> <a href="gifsicle-1.98.tar.gz">src</a>')
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: io.BytesIO(page))
+    url, pattern = check_updates.UPSTREAM["gifsicle"]
+    assert not url.startswith("https://github.com/")
+    assert check_updates.latest(url, pattern) == "1.97"     # the newest Windows build, not the newest source
+
+
+def test_the_scoop_manifest_follows_a_release(tmp_path):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import update_scoop
+
+    real = update_scoop.MANIFEST
+    m = json.loads(real.read_text(encoding="utf-8"))
+    assert m["version"] in m["architecture"]["64bit"]["url"] and m["extract_dir"] == "Wick"
+    assert m["autoupdate"]["architecture"]["64bit"]["hash"]["url"] == "$baseurl/SHA256SUMS.txt"
+
+    copy = tmp_path / "wick.json"
+    copy.write_text(real.read_text(encoding="utf-8"), encoding="utf-8")
+    sums = "11" * 32 + "  Wick-setup.exe\n" + "ab" * 32 + "  Wick-windows.zip\n"
+    update_scoop.update("0.2.0", sums, copy)
+    got = json.loads(copy.read_text(encoding="utf-8"))
+    assert got["version"] == "0.2.0"
+    assert got["architecture"]["64bit"] == {
+        "url": "https://github.com/Lanntern/Wick/releases/download/v0.2.0/Wick-windows.zip", "hash": "ab" * 32}
+    assert got["bin"] == m["bin"] and got["autoupdate"] == m["autoupdate"]       # everything else kept
+    with pytest.raises(SystemExit):
+        update_scoop.update("0.2.0", "11" * 32 + "  Wick-setup.exe\n", copy)  # no zip listed
+    with pytest.raises(SystemExit):
+        update_scoop.update("0.2; rm", sums, copy)
+
+
+def test_package_manager_installs_are_recognised(tmp_path):
+    scoop = tmp_path / "scoop"
+    (scoop / "shims").mkdir(parents=True)
+    exe = scoop / "apps" / "wick" / "current" / "Wick.exe"
+    exe.parent.mkdir(parents=True)
+    assert updates.install_source(str(exe)) == "scoop"
+    assert updates.install_source(str(scoop / "apps" / "other" / "1.0" / "Wick.exe")) == ""
+
+    installed = tmp_path / "Program Files" / "Wick"
+    installed.mkdir(parents=True)
+    assert updates.install_source(str(installed / "Wick.exe")) == ""          # the download page's installer
+    (installed / "installed-by.txt").write_text("winget\r\n", encoding="utf-8")
+    assert updates.install_source(str(installed / "Wick.exe")) == "winget"
+    assert updates.PACKAGE_MANAGERS["winget"][1] == "winget upgrade Lanntern.Wick"
+    assert updates.install_source() == ""                                       # running from source

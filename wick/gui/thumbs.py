@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 from collections import OrderedDict
 from pathlib import Path
 
@@ -10,8 +9,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QRunnable, QSize, Qt
 from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
-from .. import tools
-from ..formats import AUDIO, VIDEO, human
+from ..formats import human
 from .style import Radius, Space, Type, safe_filter, tokens, ui_font
 
 THUMB_PX = 320          # longest edge of a hover thumbnail (logical pixels)
@@ -41,52 +39,15 @@ def make_thumbnail(path: Path, kind: str, max_px: int) -> bytes | None:
 
 
 def _own_thumbnail(path: Path, kind: str, max_px: int) -> bytes | None:
-    try:
-        if kind == AUDIO:  # album art, if the file has any
-            ffmpeg = tools.find_tool("ffmpeg")
-            if not ffmpeg:
-                return None
-            proc = tools.run([ffmpeg, "-v", "error", "-nostdin", "-i", str(path), "-an", "-frames:v", "1",
-                              "-vf", f"scale={max_px}:{max_px}:force_original_aspect_ratio=decrease",
-                              "-f", "image2pipe", "-c:v", "png", "-"], timeout=20, check=False, text=False)
-            return proc.stdout or None
-        if kind == VIDEO or path.suffix.lower() in (".mp4", ".mkv", ".webm"):
-            ffmpeg = tools.find_tool("ffmpeg")
-            if not ffmpeg:
-                return None
-            proc = tools.run([ffmpeg, "-v", "error", "-nostdin", "-ss", "1", "-i", str(path), "-frames:v", "1",
-                              "-vf", f"scale={max_px}:{max_px}:force_original_aspect_ratio=decrease",
-                              "-f", "image2pipe", "-c:v", "png", "-"], timeout=20, check=False, text=False)
-            if proc.returncode != 0 or not proc.stdout:  # very short clip: take the first frame
-                proc = tools.run([ffmpeg, "-v", "error", "-nostdin", "-i", str(path), "-frames:v", "1",
-                                  "-vf", f"scale={max_px}:{max_px}:force_original_aspect_ratio=decrease",
-                                  "-f", "image2pipe", "-c:v", "png", "-"], timeout=20, check=False, text=False)
-            return proc.stdout or None
-        if path.suffix.lower() == ".jxl":
-            from ..images import decode_for_display
+    """Our decoders' preview, made in a decoder worker with fewer rights (sandbox.py): it sends back raw pixels,
+    so nothing the file contains is decoded in Wick itself."""
+    from .. import sandbox
 
-            data = decode_for_display(path)
-            img = QImage.fromData(data)
-            return _png(img.scaled(max_px, max_px, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        from PIL import Image, ImageOps
-
-        from ..formats import HEIC, register_heif
-
-        if kind == HEIC:   # only then: it loads a large library (and is preloaded by the scan)
-            register_heif()
-        with Image.open(path) as im:
-            if im.format == "JPEG":
-                im.draft("RGB", (max_px * 2, max_px * 2))  # fast DCT-domain downscale
-            im.seek(0)
-            pic = (ImageOps.exif_transpose(im) or im).convert("RGBA")
-            pic.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
-            buf = io.BytesIO()
-            pic.save(buf, "PNG", compress_level=1)
-            return buf.getvalue()
-    except Exception:  # noqa: BLE001 - a preview is a nicety, never an error
-        from wick.log import ignored
-        ignored("gui.thumbs._own_thumbnail")
+    got = sandbox.rgba("thumbnail", str(path), str(kind), int(max_px), max_pixels=max_px * max_px, timeout=30)
+    if got is None:
         return None
+    w, h, pixels = got
+    return _png(QImage(pixels, w, h, w * 4, QImage.Format.Format_RGBA8888).copy())
 
 
 def _png(img: QImage) -> bytes:

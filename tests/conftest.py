@@ -10,10 +10,21 @@ import pytest
 _SANDBOX = Path(tempfile.mkdtemp(prefix="wick-tests-"))
 os.environ["WICK_DATA_DIR"] = str(_SANDBOX / "appdata")
 os.environ["WICK_NO_NETWORK"] = "1"      # no automatic update checks while testing
+os.environ["WICK_DECODER_TESTS"] = "1"   # the decoder worker's test-only functions (tests/test_sandbox.py)
 if os.name != "nt":
     os.environ["XDG_DATA_HOME"] = str(_SANDBOX / "xdg")
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        # No screen: Qt would abort the first test that starts it. (In one process an earlier test's offscreen
+        # app often hid this; with parallel workers any test can be the first.)
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from wick import tools  # noqa: E402
+
+
+def pytest_collection_modifyitems(items):
+    """Tests marked ``runs_long`` first: with parallel workers, a long test that starts last leaves the others
+    idle while it finishes. (Every worker sorts the same way, so they still agree on the order.)"""
+    items.sort(key=lambda item: item.get_closest_marker("runs_long") is None)
 
 
 def have(*names: str) -> bool:

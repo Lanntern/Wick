@@ -749,8 +749,18 @@ class MainWindow(QMainWindow):
         notes = (self._release.notes.strip() if self._release else "")[:600]
         info = ("It includes security fixes for components that open your files, so it's worth installing soon. "
                 if security else "") + (f"\n\n{notes}" if notes else "")
-        if choose(self, f"{APP_NAME} {version} is available (you have {__version__}).", info.strip(), "Later",
-                  "Open Download Page"):
+        title = f"{APP_NAME} {version} is available (you have {__version__})."
+        source = updates.install_source()
+        if source in updates.PACKAGE_MANAGERS:
+            # Installed with Scoop or winget: updating through it keeps it tracking this copy.
+            manager, command = updates.PACKAGE_MANAGERS[source]
+            how = f"You installed {APP_NAME} with {manager}, so update it there:\n\n{command}"
+            if choose(self, title, (how + ("\n\n" + info.strip() if info.strip() else "")), "Later", "Copy Command"):
+                from PySide6.QtGui import QGuiApplication
+
+                QGuiApplication.clipboard().setText(command)
+            return
+        if choose(self, title, info.strip(), "Later", "Open Download Page"):
             QDesktopServices.openUrl(QUrl(url))
 
     def recompress_updated_games(self) -> None:

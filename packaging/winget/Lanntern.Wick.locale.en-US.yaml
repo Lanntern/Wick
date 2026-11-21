@@ -1,0 +1,32 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+PackageIdentifier: Lanntern.Wick
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Lanntern
+PublisherUrl: https://github.com/Lanntern
+PublisherSupportUrl: https://github.com/Lanntern/Wick/issues
+PrivacyUrl: https://github.com/Lanntern/Wick/blob/main/PRIVACY.md
+PackageName: Wick
+PackageUrl: https://github.com/Lanntern/Wick
+License: GPL-3.0-only
+LicenseUrl: https://github.com/Lanntern/Wick/blob/main/LICENSE
+Copyright: Copyright (C) 2026 Lanntern
+ShortDescription: Get gigabytes back from the photos, videos and music already on your PC.
+Description: |-
+  Wick shows how much space you'd get back before it touches anything, then stores each file in a smaller format:
+  JPEG XL for photos (losslessly, for JPEGs), AV1 or HEVC for videos, FLAC for uncompressed music, and smaller
+  pictures inside Office and PDF documents. Every result is checked before the original is replaced, originals go
+  to the Recycle Bin, and History can undo any run. It also finds duplicates, similar photos and leftovers.
+Moniker: wick
+Tags:
+- compression
+- disk-space
+- jpeg-xl
+- av1
+- hevc
+- flac
+- duplicates
+- open-source
+ReleaseNotesUrl: https://github.com/Lanntern/Wick/releases/tag/v0.1.0
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0
