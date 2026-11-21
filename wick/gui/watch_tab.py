@@ -104,7 +104,7 @@ class WatchTab(Page):
         self.job: WatchJobThread | None = None
         self.saved_total = 0
 
-        self.add_btn = button("Add Folder…", "", "folder", "Watch another folder")
+        self.add_btn = button("Add Folder…", "", "folder", "")
         self.add_btn.clicked.connect(self.add_folder)
         self.switch = ToggleSwitch("Watch folders")
         self.switch_label = text("Off", Type.BODY, bold=True)

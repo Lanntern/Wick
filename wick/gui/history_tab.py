@@ -141,7 +141,7 @@ class HistoryTab(Page):
                          "get their own copy back; compressed apps are decompressed.",
                          Type.FOOTNOTE, secondary=True, wrap=True)
         if os.name == "nt":       # beside the note about it, not among the page's actions
-            self.bin_btn = button("Open Recycle Bin", "link", None, "Open the Windows Recycle Bin")
+            self.bin_btn = button("Open Recycle Bin", "link", None, "")
             self.bin_btn.clicked.connect(lambda: subprocess.Popen(["explorer", "shell:RecycleBinFolder"]))
             self.body.addLayout(hbox(self.hint, self.bin_btn, spacing=Space.L))
             hint_row = self.body.itemAt(self.body.count() - 1).layout()

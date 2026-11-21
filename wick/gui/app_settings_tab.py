@@ -87,7 +87,7 @@ class AppSettingsTab(Page):
             self.theme.addItem(label, value)
         self.theme.setCurrentIndex(max(0, self.theme.findData(self.qs.value("theme", "system", str))))
         self.theme.currentIndexChanged.connect(self._theme_changed)
-        card.lay.addWidget(setting_row("Theme", "Follow the system, or always use light or dark.", self.theme))
+        card.lay.addWidget(setting_row("Theme", "", self.theme))
         from . import style as _style
 
         if _style.windows_accent() is not None:
@@ -95,31 +95,26 @@ class AppSettingsTab(Page):
             self.system_accent = ToggleSwitch("Use the Windows accent color")
             self.system_accent.setChecked(self.qs.value("accent/system", False, bool))
             self.system_accent.toggled.connect(self._accent_toggled)
-            card.lay.addWidget(setting_row("Use the Windows accent color",
-                                           "Buttons, links and selections take the color chosen in Windows' "
-                                           "Personalization settings (adjusted where needed so text stays easy "
-                                           "to read).", self.system_accent))
+            card.lay.addWidget(setting_row("Use the Windows accent color", "", self.system_accent))
         card.lay.addWidget(separator())
         self.hover = ToggleSwitch("Preview on hover")
         self.hover.setChecked(self.qs.value("hover_preview", True, bool))
         self.hover.toggled.connect(self._hover_toggled)
-        card.lay.addWidget(setting_row("Preview on hover", "Show a thumbnail when the pointer rests on a file. "
-                                                           "Space previews the selected file from the keyboard.",
+        card.lay.addWidget(setting_row("Preview on hover", "Press Space to preview the selected file.",
                                        self.hover))
         card.lay.addWidget(separator())
         self.auto = ToggleSwitch("Scan when Wick starts")
         self.auto.setChecked(self.qs.value("home/auto_analyze", True, bool))
         self.auto.toggled.connect(lambda on: self.qs.setValue("home/auto_analyze", on))
-        card.lay.addWidget(setting_row("Scan when Wick starts", "Home looks through your folders in the "
-                                                                         "background (reads file headers only).",
+        card.lay.addWidget(setting_row("Scan when Wick starts", "Home checks your folders for savings in the "
+                                                                "background.",
                                        self.auto))
         card.lay.addWidget(separator())
         self.monthly = ToggleSwitch("Check for savings once a month")
         self.monthly.setChecked(self.qs.value("monthly_check", False, bool))
         self.monthly.toggled.connect(lambda on: self.qs.setValue("monthly_check", on))
         card.lay.addWidget(setting_row("Check for savings once a month",
-                                       "Scans Home's folders in the background and lets you know if 1 GB or "
-                                       "more could be freed.", self.monthly))
+                                       "Lets you know when 1 GB or more could be freed.", self.monthly))
         col.addWidget(card)
 
         # integration
@@ -128,48 +123,40 @@ class AppSettingsTab(Page):
         self.menu = ToggleSwitch("Context menu")
         self.menu.setChecked(integration.context_menu_installed())
         self.menu.toggled.connect(self._menu_toggled)
-        menu_desc = ("Adds “Compress with Wick” for files and folders in Explorer, with your current "
-                     "options or any preset, and “Convert with Wick” for pictures, videos and music, with the "
-                     "usual formats (the converted copy is saved next to the original). On Windows 11 they're in "
-                     "the main menu as well as under Show more options." if integration.IS_WINDOWS
-                     else "Adds Wick to your file manager's context menu (Open With).")
+        menu_desc = ("Adds Compress with Wick and Convert with Wick when you right-click files and folders."
+                     if integration.IS_WINDOWS else "Adds Wick to your file manager's Open With menu.")
         card.lay.addWidget(setting_row("Context menu", menu_desc, self.menu))
         card.lay.addWidget(separator())
         self.autostart = ToggleSwitch("Start at sign-in")
         self.autostart.setChecked(integration.autostart_enabled())
         self.autostart.toggled.connect(self._autostart_toggled)
-        card.lay.addWidget(setting_row("Start at sign-in", "Starts quietly in the tray so watched folders keep "
-                                                           "working.", self.autostart))
+        card.lay.addWidget(setting_row("Start at sign-in", "Wick opens in the tray, so watched folders keep working.",
+                                       self.autostart))
         card.lay.addWidget(separator())
         self.close_to_tray = ToggleSwitch("Keep running in the tray")
         self.close_to_tray.setChecked(self.qs.value("close_to_tray", True, bool))
         self.close_to_tray.toggled.connect(lambda on: self.qs.setValue("close_to_tray", on))
-        card.lay.addWidget(setting_row("Keep running in the tray", "When folders are being watched, closing the "
-                                                                   "window keeps Wick in the tray.",
+        card.lay.addWidget(setting_row("Keep running in the tray", "Closing the window doesn't stop watched folders.",
                                        self.close_to_tray))
         if integration.IS_WINDOWS:
             card.lay.addWidget(separator())
             self.taskbar_progress = ToggleSwitch("Progress on the taskbar")
             self.taskbar_progress.setChecked(self.qs.value("taskbar/progress", True, bool))
             self.taskbar_progress.toggled.connect(lambda on: self._taskbar_setting("taskbar/progress", on))
-            card.lay.addWidget(setting_row("Progress on the taskbar", "Wick's taskbar icon fills up while a "
-                                                                      "job runs: yellow when paused, red if "
+            card.lay.addWidget(setting_row("Progress on the taskbar", "Turns yellow when paused and red if "
                                                                       "something failed.", self.taskbar_progress))
             card.lay.addWidget(separator())
             self.taskbar_buttons = ToggleSwitch("Pause and Stop in the taskbar preview")
             self.taskbar_buttons.setChecked(self.qs.value("taskbar/buttons", True, bool))
             self.taskbar_buttons.toggled.connect(lambda on: self._taskbar_setting("taskbar/buttons", on))
             card.lay.addWidget(setting_row("Pause and Stop in the taskbar preview",
-                                           "While a job runs, hovering Wick's taskbar icon shows Pause and "
-                                           "Stop buttons under the window's preview.", self.taskbar_buttons))
+                                           "", self.taskbar_buttons))
             card.lay.addWidget(separator())
             self.native_notes = ToggleSwitch("Windows notifications")
             self.native_notes.setChecked(self.qs.value("notifications/native", True, bool))
             self.native_notes.toggled.connect(lambda on: self.qs.setValue("notifications/native", on))
             card.lay.addWidget(setting_row("Windows notifications",
-                                           "Finished jobs and updates appear as Windows notifications, with "
-                                           "buttons like Show in History, and wait in the notification center. "
-                                           "Off: a small message from the tray icon instead.", self.native_notes))
+                                           "When it's off, the tray icon shows a short message instead.", self.native_notes))
         col.addWidget(card)
 
         # power
@@ -179,15 +166,13 @@ class AppSettingsTab(Page):
         self.keep_awake.setChecked(self.qs.value("keep_awake", True, bool))
         self.keep_awake.toggled.connect(self._keep_awake_toggled)
         card.lay.addWidget(setting_row("Keep the computer awake while working",
-                                       "Long jobs aren't cut short by sleep. The screen can still turn off; the "
-                                       "computer sleeps as usual once the work is done.", self.keep_awake))
+                                       "Sleep won't interrupt long jobs. The screen can still turn off.", self.keep_awake))
         card.lay.addWidget(separator())
         self.battery_pause = ToggleSwitch("Pause on battery power")
         self.battery_pause.setChecked(self.qs.value("pause_on_battery", False, bool))
         self.battery_pause.toggled.connect(self._battery_toggled)
         card.lay.addWidget(setting_row("Pause on battery power",
-                                       "On a laptop, a job pauses when you unplug (the file being worked on "
-                                       "finishes first) and continues when you plug in again.", self.battery_pause))
+                                       "Jobs pause when you unplug and carry on when you plug back in.", self.battery_pause))
         col.addWidget(card)
 
         # data
@@ -196,8 +181,7 @@ class AppSettingsTab(Page):
         self.index_on = ToggleSwitch("Remember file details")
         self.index_on.setChecked(self.qs.value("index_enabled", True, bool))
         self.index_on.toggled.connect(self._index_toggled)
-        card.lay.addWidget(setting_row("Remember file details", "Scans skip reading files that haven't changed "
-                                                                "since last time. Kept only on this computer.",
+        card.lay.addWidget(setting_row("Remember file details", "Later scans skip files that haven't changed.",
                                        self.index_on))
         if os.name == "nt":
             card.lay.addWidget(separator())
@@ -205,16 +189,15 @@ class AppSettingsTab(Page):
             self.fast_drives.setChecked(self.qs.value("fast_drive_scan", True, bool))
             self.fast_drives.toggled.connect(self._fast_drives_toggled)
             card.lay.addWidget(setting_row(
-                "Fast whole-drive scanning", "When you scan a whole drive (like C:), Wick reads its file "
-                "table directly: seconds instead of minutes. Windows asks for administrator permission each time; "
-                "if you say no, it scans the usual way.", self.fast_drives))
+                "Fast whole-drive scanning", "Reads a drive's file table directly, which takes seconds instead of "
+                                             "minutes. Windows asks for permission each time.", self.fast_drives))
             card.lay.addWidget(separator())
             self.use_everything = ToggleSwitch("Use Everything when it's running")
             self.use_everything.setChecked(self.qs.value("use_everything", True, bool))
             self.use_everything.toggled.connect(self._everything_toggled)
             card.lay.addWidget(setting_row(
-                "Use Everything when it's running", "If the Everything search app is running, scans ask it for "
-                "the list of files: instant, with no permission prompt.", self.use_everything))
+                "Use Everything when it's running", "When the Everything search app is open, scans get the file "
+                                                    "list from it instantly.", self.use_everything))
         card.lay.addWidget(separator())
         self.index_clear = button("Clear", "", None, "Forget all remembered file details")
         self.index_clear.clicked.connect(self._index_clear)
@@ -228,8 +211,8 @@ class AppSettingsTab(Page):
         self.history_on.toggled.connect(self._history_toggled)
         card.lay.addWidget(setting_row(
             "Keep a history and log",
-            "Records what was changed, so it can be undone and an interrupted job can be resumed, "
-            "and keeps a log for troubleshooting. Off: nothing about your files is written down.",
+            "Needed to undo changes and to resume interrupted jobs. When it's off, Wick doesn't record anything "
+            "about your files.",
             self.history_on))
         card.lay.addWidget(separator())
         self.history_keep = QComboBox()
@@ -239,8 +222,8 @@ class AppSettingsTab(Page):
         self.history_keep.activated.connect(self._history_days_chosen)
         self.history_keep.setAccessibleName("Delete history older than")
         self.history_keep_row = setting_row(
-            "Delete older history", "Runs older than this are deleted automatically and can no longer be undone "
-                                    f"from the history. Originals stay in the {BIN_NAME} until it's emptied.",
+            "Delete older history", "Older runs can't be undone from History. Their originals stay in the "
+                                    f"{BIN_NAME} until you empty it.",
             self.history_keep)
         self.history_keep_row.setEnabled(self.history_on.isChecked())
         card.lay.addWidget(self.history_keep_row)
@@ -273,19 +256,17 @@ class AppSettingsTab(Page):
         card = Card()
         open_logs = button("Open Folder", "", "folder", "Show the log files")
         open_logs.clicked.connect(self._open_logs)
-        card.lay.addWidget(setting_row("Log", "Wick notes runs, failures and crashes in a small log file on "
-                                              "this computer.", open_logs))
+        card.lay.addWidget(setting_row("Log", "Runs, failures and crashes, kept on this computer.", open_logs))
         card.lay.addWidget(separator())
         copy = button("Copy", "", None, "Copy diagnostics to the clipboard")
         copy.clicked.connect(self._copy_diagnostics)
-        card.lay.addWidget(setting_row("Copy diagnostics", "Versions, encoders and the latest log lines, for a bug "
-                                                           "report. Log lines can include file names, so have a look "
-                                                           "before sharing.", copy))
+        card.lay.addWidget(setting_row("Copy diagnostics", "For bug reports. Check it before sharing, as it can "
+                                                           "include file names.", copy))
         card.lay.addWidget(separator())
         report = button("Report a Problem…", "", None, "Copy the diagnostics, then open the bug report form on GitHub")
         report.clicked.connect(self._report_problem)
-        card.lay.addWidget(setting_row("Report a problem", "Opens the bug report form on GitHub, with the diagnostics "
-                                                           "already copied for you to paste in.", report))
+        card.lay.addWidget(setting_row("Report a problem", "Opens the bug report form on GitHub and copies the "
+                                                           "diagnostics for it.", report))
         col.addWidget(card)
 
         # about
@@ -293,8 +274,8 @@ class AppSettingsTab(Page):
         card = Card()
         about = button("About Wick", "", None, "Version, privacy, credits and licenses")
         about.clicked.connect(self.win.show_about)
-        card.lay.addWidget(setting_row(f"{APP_NAME} {__version__}", "Private by design: no accounts, no telemetry; "
-                                                                    "your files never leave your computer.", about))
+        card.lay.addWidget(setting_row(f"{APP_NAME} {__version__}", "Wick has no accounts or tracking, and your "
+                                                                    "files never leave your computer.", about))
         card.lay.addWidget(separator())
         from .. import updates
 
@@ -306,8 +287,8 @@ class AppSettingsTab(Page):
             lambda _i: self.qs.setValue("updates/frequency", self.update_frequency.currentData()))
         self.update_frequency.setAccessibleName("Check for updates")
         card.lay.addWidget(setting_row("Check for updates",
-                                       "Asks GitHub whether a newer version exists. Nothing is downloaded or "
-                                       "installed by itself.", self.update_frequency, updates.HELP))
+                                       "Wick checks GitHub for a newer version but never downloads or installs one "
+                                       "by itself.", self.update_frequency, updates.HELP))
         card.lay.addWidget(separator())
         self.check_btn = button("Check Now", "", "refresh", "Ask GitHub whether a newer version exists")
         self.check_btn.clicked.connect(lambda: self.win.check_for_updates(manual=True))
@@ -318,7 +299,7 @@ class AppSettingsTab(Page):
         card.lay.addWidget(separator())
         keys = button("Keyboard Shortcuts", "", "keyboard", "Every shortcut in one place", "F1")
         keys.clicked.connect(self.win.show_shortcuts)
-        card.lay.addWidget(setting_row("Keyboard shortcuts", "Every page can be used without a mouse.", keys))
+        card.lay.addWidget(setting_row("Keyboard shortcuts", "", keys))
         col.addWidget(card)
 
         # developer (hidden unless switched on: see devmode)
@@ -331,9 +312,8 @@ class AppSettingsTab(Page):
         self.fluent_icons = ToggleSwitch("Use Windows' icons")
         self.fluent_icons.setChecked(self.qs.value("dev/fluent_icons", devmode.fluent_default(), bool))
         self.fluent_icons.toggled.connect(self._fluent_toggled)
-        card.lay.addWidget(setting_row("Use Windows' icons", "Draw icons with Segoe Fluent Icons (Windows 11) or "
-                                       "Segoe MDL2 Assets (Windows 10) where they have one; Wick's own "
-                                       "icons otherwise.", self.fluent_icons))
+        card.lay.addWidget(setting_row("Use Windows' icons", "Uses the icon fonts built into Windows where they "
+                                                             "have a matching icon.", self.fluent_icons))
         dl.addWidget(card)
         col.addWidget(self.dev_section)
         self.update_dev_section()

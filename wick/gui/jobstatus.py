@@ -64,7 +64,7 @@ class JobStatus(Card):
         self.undo_btn = button("Undo", "", "undo", "Put the originals back and remove the results (asks first)")
         self.undo_btn.clicked.connect(self._undo)
         self._on_undo = None
-        self.close_btn = button("Dismiss", "", None, "Hide this message")
+        self.close_btn = button("Dismiss", "", None, "")
         self.close_btn.clicked.connect(self.hide)
         # The title has the whole width (file names can be long); details and buttons share the line below.
         self.lay.addWidget(self.title)

@@ -211,7 +211,7 @@ class ToolSection(QWidget):
         else:
             self.folders = []
         opts = tool.options(self)
-        self.scan_btn = button("Scan", "primary", "refresh", "Look for things to clean up")
+        self.scan_btn = button("Scan", "primary", "refresh", "")
         self.scan_btn.clicked.connect(self.scan)
         options = FlowLayout()        # wraps instead of squeezing (large text, narrow windows)
         for label, w in opts:
@@ -237,7 +237,7 @@ class ToolSection(QWidget):
         # ------------------------------------------------ progress
         self.progress_card = Card(padding=Space.M, spacing=Space.S)
         self.status = text("", Type.BODY)
-        self.stop_btn = button("Stop", "", "stop", "Stop", "Esc")
+        self.stop_btn = button("Stop", "", "stop", "", "Esc")
         self.stop_btn.clicked.connect(self.stop)
         self.bar = ProgressBar()
         self.bar.setTextVisible(False)

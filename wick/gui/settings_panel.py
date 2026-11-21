@@ -451,7 +451,6 @@ class SettingsPanel(QWidget):
         self.skip_programs.setToolTip("Program and game folders (any folder with .dll/.so files) are "
                                       "skipped: converting their images would break the program.")
         self.include_hidden = QCheckBox("Include hidden items")
-        self.include_hidden.setToolTip("Also look in hidden files and folders")
         f.addRow("Skip images under", self.min_image_kb)
         f.addRow("Skip videos under", self.min_video_mb)
         self.min_audio_kb = _spin(0, 100000, " KB")

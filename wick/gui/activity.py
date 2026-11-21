@@ -90,7 +90,7 @@ class ActivityMonitor:
             self.table.setSelectionBehavior(QTableWidget.SelectRows)
             self.table.cellDoubleClicked.connect(self.go)
             layout.addWidget(self.table)
-            go = button("Go to Task", "", None, "Open the selected task")
+            go = button("Go to Task", "", None, "")
             go.clicked.connect(self.go)
             self.stop_btn = button("Stop", "", "stop", "Stop the selected task (the file being processed keeps "
                                                        "its original)")

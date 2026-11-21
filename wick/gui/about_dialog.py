@@ -10,7 +10,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QFrame, QHBoxLayout, QLabel, QTreeWidget, QVBoxLayout
 
 from .. import APP_NAME, __version__
-from ..about import CREDITS, DONATE_URL, LICENSE_NOTE, PRIVACY, PRIVACY_URL
+from ..about import CREDITS, LICENSE_NOTE, PRIVACY, PRIVACY_URL
 from .devmode import CLICKS
 from .filelist import SortItem, make_sortable
 from .style import Size, Space, Type
@@ -147,9 +147,6 @@ class AboutDialog(QDialog):
         copy = button("Copy Versions", "", None, "Copy every component's version (useful when reporting a problem)")
         copy.clicked.connect(self._copy_versions)
         buttons.addWidget(copy)
-        donate = button("Support on Ko-fi", "", None, "Wick is free: a donation helps keep it going (opens Ko-fi)")
-        donate.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(DONATE_URL)))
-        buttons.addWidget(donate)
         buttons.addStretch(1)
         close = button("Close", "primary", None, "", "Esc")
         close.clicked.connect(self.accept)
