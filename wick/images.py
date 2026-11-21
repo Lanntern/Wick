@@ -60,6 +60,16 @@ class Ctx:
     def animated(self) -> bool:
         return getattr(self.info, "frames", 1) > 1
 
+    EFFORT_9_MAX_PIXELS = 24_000_000
+
+    @property
+    def effort(self) -> int:
+        """cjxl effort: the setting, except 9 becomes 8 above 24 megapixels (where 9 can take minutes per image
+        for little more)."""
+        pixels = getattr(self.info, "width", 0) * getattr(self.info, "height", 0)
+        e = self.s.image_effort
+        return 8 if e >= 9 and pixels > self.EFFORT_9_MAX_PIXELS else e
+
 
 # ======================================================================= entry
 
@@ -490,7 +500,7 @@ def _check_decodes(ctx: Ctx):
 # ======================================================================= routes
 
 def _route_jxl_transcode(ctx: Ctx):
-    tools.run([tools.require("cjxl"), ctx.staged.name, ctx.out.name, "-e", str(ctx.s.image_effort),
+    tools.run([tools.require("cjxl"), ctx.staged.name, ctx.out.name, "-e", str(ctx.effort),
                f"--num_threads={ctx.s.threads_per_job()}",
                "--quiet", "--lossless_jpeg=1"], cwd=ctx.dir, timeout=1800)
 
@@ -508,7 +518,7 @@ def _route_jxl(ctx: Ctx):
     src = ctx.staged if direct else _intermediate_png(ctx)
     quality = ["-d", "0"] if p.lossless else ["-q", str(ctx.s.image_quality)]
     try:
-        tools.run([tools.require("cjxl"), src.name, ctx.out.name, "-e", str(ctx.s.image_effort),
+        tools.run([tools.require("cjxl"), src.name, ctx.out.name, "-e", str(ctx.effort),
                f"--num_threads={ctx.s.threads_per_job()}", "--quiet",
                    *quality], cwd=ctx.dir, timeout=3600)
     except tools.ToolError:
@@ -521,7 +531,7 @@ def _route_jxl(ctx: Ctx):
         src = ctx.tmp(".png", "-apng")
         frames[0].save(src, "PNG", save_all=True, append_images=frames[1:], duration=durations,
                        loop=loop, disposal=1, blend=0, compress_level=0)
-        tools.run([tools.require("cjxl"), src.name, ctx.out.name, "-e", str(ctx.s.image_effort),
+        tools.run([tools.require("cjxl"), src.name, ctx.out.name, "-e", str(ctx.effort),
                f"--num_threads={ctx.s.threads_per_job()}", "--quiet",
                    *quality], cwd=ctx.dir, timeout=3600)
     # cjxl doesn't reliably carry EXIF/XMP over from PNG input: write the boxes ourselves.
