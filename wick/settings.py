@@ -79,6 +79,7 @@ class Settings:
     documents: str = "lossless"      # lossless (pictures inside shrunk, identical pixels) | reduce (+ large ones
     #                                  scaled down) | none
     document_fonts: bool = True      # embedded fonts cut to the characters the document uses
+    document_drop_editing: bool = False  # PDF: leave out Illustrator's/Photoshop's own copy (no longer editable there)
     # Smart quality: search for the smallest result that still meets a measured quality target
     fit_under_kb: int = 0            # 0 = off; else make each image/video at most this size (KB)
     smart_quality: bool = False

@@ -122,3 +122,125 @@ def test_different_pages_are_noticed(tmp_path):
         pdf.pages[0].obj.Contents = pdf.make_stream(b"BT /F1 36 Tf 40 700 Td (Hello PD) Tj ET")
         pdf.save(tmp_path / "b.pdf")
     assert docfonts.same_pages(a, a) and not docfonts.same_pages(a, tmp_path / "b.pdf")
+
+
+def _blank_pdf(tmp_path, name="a.pdf", pages=2):
+    import pikepdf
+
+    pdf = pikepdf.new()
+    for _ in range(pages):
+        pdf.add_blank_page(page_size=(300, 300))
+    return pdf
+
+
+def _scan(w=2480, h=3508):
+    """An A4 page of text scanned at 300 dpi: black on white, one bit per pixel."""
+    import random
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    rnd = random.Random(5)
+    img = Image.new("L", (w, h), 255)
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=40)
+    for y in range(150, h - 150, 60):
+        line = "".join(rnd.choice("abcdefghijklmnopqrstuvwxyz     ") for _ in range(100))
+        draw.text((150, y), line, fill=0, font=font)
+    return img.point(lambda v: 255 if v > 128 else 0).convert("1")
+
+
+def _image_page(pdf, page, img):
+    import zlib
+
+    import pikepdf
+
+    raw = img.tobytes()                     # (1 bit per pixel, rows padded to bytes: as PDF expects)
+    stream = pikepdf.Stream(pdf, zlib.compress(raw, 1))
+    stream.Type, stream.Subtype = pikepdf.Name.XObject, pikepdf.Name.Image
+    stream.Width, stream.Height, stream.BitsPerComponent = img.width, img.height, 1
+    stream.ColorSpace, stream.Filter = pikepdf.Name.DeviceGray, pikepdf.Name.FlateDecode
+    page.obj.Resources = pikepdf.Dictionary(XObject=pikepdf.Dictionary(Im0=pdf.make_indirect(stream)))
+    page.obj.Contents = pdf.make_stream(b"q 200 0 0 150 50 50 cm /Im0 Do Q")
+
+
+def test_scans_duplicates_thumbnails_and_editing_data(tmp_path):
+    import pikepdf
+
+    pdf = _blank_pdf(tmp_path)
+    for page in pdf.pages:                  # (the same scan stored twice, as merged PDFs do)
+        _image_page(pdf, page, _scan())
+        page.obj.Thumb = pdf.make_stream(b"\0" * 20000)
+    private = pdf.make_stream(b"Illustrator private data " * 20000)
+    pdf.Root.PieceInfo = pikepdf.Dictionary(Illustrator=pikepdf.Dictionary(Private=pikepdf.Dictionary(
+        AIPrivateData1=private)))
+    src = tmp_path / "scan.pdf"
+    pdf.save(src, compress_streams=False)
+    out = documents.optimize_pdf(src, editing=True)
+    try:
+        assert docfonts.same_pages(src, out)
+        with pikepdf.open(out) as o:
+            images = [x for x in o.objects if isinstance(x, pikepdf.Stream) and x.get("/Subtype") == "/Image"]
+            assert len(images) == 1 and images[0].Filter == "/CCITTFaxDecode"
+            assert "/PieceInfo" not in o.Root and all("/Thumb" not in p.obj for p in o.pages)
+        assert out.stat().st_size < src.stat().st_size / 5
+    finally:
+        out.unlink(missing_ok=True)
+    kept = documents.optimize_pdf(src)                                  # (editing data is kept by default)
+    try:
+        with pikepdf.open(kept) as o:
+            assert "/PieceInfo" in o.Root
+    finally:
+        kept.unlink(missing_ok=True)
+
+
+def _cff_font(path):
+    from fontTools.fontBuilder import FontBuilder
+    from fontTools.pens.t2CharStringPen import T2CharStringPen
+
+    codes = [*range(0x20, 0x7F), *range(0x4E00, 0x5200)]
+    names = [".notdef"] + [f"u{c:04X}" for c in codes]
+
+    def box():
+        pen = T2CharStringPen(500, None)
+        pen.moveTo((50, 0)), pen.lineTo((50, 700)), pen.lineTo((450, 700)), pen.lineTo((450, 0)), pen.closePath()
+        return pen.getCharString()
+
+    fb = FontBuilder(1000, isTTF=False)
+    fb.setupGlyphOrder(names)
+    fb.setupCharacterMap({c: f"u{c:04X}" for c in codes})
+    fb.setupCFF("TestCFF", {"FullName": "Test CFF"}, {n: box() for n in names}, {})
+    fb.setupHorizontalMetrics({n: (500, 50) for n in names})
+    fb.setupHorizontalHeader(ascent=800, descent=-200)
+    fb.setupNameTable({"familyName": "Test CFF", "styleName": "Regular"})
+    fb.setupOS2()
+    fb.setupPost()
+    fb.save(path)
+    return path
+
+
+def test_a_whole_opentype_cff_font_is_cut_too(tmp_path):
+    import pikepdf
+
+    data = _cff_font(tmp_path / "cff.otf").read_bytes()
+    pdf = pikepdf.new()
+    program = pikepdf.Stream(pdf, data)
+    program.Subtype = pikepdf.Name.OpenType
+    desc = pikepdf.Dictionary(Type=pikepdf.Name.FontDescriptor, FontName=pikepdf.Name("/TestCFF"), Flags=32,
+                              FontBBox=[0, -200, 1000, 800], ItalicAngle=0, Ascent=800, Descent=-200, CapHeight=700,
+                              StemV=80, FontFile3=pdf.make_indirect(program))
+    font = pikepdf.Dictionary(Type=pikepdf.Name.Font, Subtype=pikepdf.Name.Type1, BaseFont=pikepdf.Name("/TestCFF"),
+                              FirstChar=32, LastChar=126, Widths=[500] * 95, Encoding=pikepdf.Name.WinAnsiEncoding,
+                              FontDescriptor=pdf.make_indirect(desc))
+    page = pdf.add_blank_page(page_size=(612, 792))
+    page.obj.Resources = pikepdf.Dictionary(Font=pikepdf.Dictionary(F1=pdf.make_indirect(font)))
+    page.obj.Contents = pdf.make_stream(b"BT /F1 36 Tf 40 700 Td (Hello CFF) Tj ET")
+    src = tmp_path / "cff.pdf"
+    pdf.save(src)
+    out = documents.optimize_pdf(src)
+    try:
+        assert docfonts.same_pages(src, out)
+        with pikepdf.open(out) as o:
+            stored = [x for x in o.objects if isinstance(x, pikepdf.Dictionary) and "/FontFile3" in x][0]
+            assert len(stored.FontFile3.read_bytes()) < len(data) / 3 and str(stored.FontName)[7] == "+"
+    finally:
+        out.unlink(missing_ok=True)

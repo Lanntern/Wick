@@ -132,18 +132,25 @@ def _font_program(font):
         if not isinstance(kids, pikepdf.Array) or len(kids) != 1:
             return None
         cid = kids[0]
-        if cid.get("/Subtype") != "/CIDFontType2" or str(cid.get("/CIDToGIDMap", "/Identity")) != "/Identity":
+        if cid.get("/Subtype") not in ("/CIDFontType2", "/CIDFontType0"):
+            return None
+        if cid.get("/Subtype") == "/CIDFontType2" and str(cid.get("/CIDToGIDMap", "/Identity")) != "/Identity":
             return None
         holder, kind = cid, "cid"
-    elif sub == "/TrueType":
+    elif sub in ("/TrueType", "/Type1", "/MMType1"):
         holder, kind = font, "simple"
     else:
         return None
     name = str(holder.get("/BaseFont", ""))[1:]
     desc = holder.get("/FontDescriptor")
-    if _SUBSET_TAG.match(name) or desc is None or "/FontFile2" not in desc:
+    if _SUBSET_TAG.match(name) or desc is None:
         return None
-    return holder, desc.FontFile2, kind
+    if "/FontFile2" in desc:
+        return holder, desc.FontFile2, kind
+    ff3 = desc.get("/FontFile3")
+    if ff3 is not None and ff3.get("/Subtype") == "/OpenType":       # (a whole OpenType font, CFF or TrueType)
+        return holder, ff3, kind
+    return None
 
 
 def _walk(pdf):
@@ -192,9 +199,31 @@ def _walk(pdf):
                     yield from stream(s, s.get("/Resources", pikepdf.Dictionary()))
 
 
-def _simple_glyphs(tt, codes: set[int]) -> set[str]:
-    """Glyph names a simple TrueType font may show for these one-byte codes (every reading a viewer might use)."""
+def _differences(font) -> dict[int, str]:
+    """A simple font's own code → glyph name changes (its encoding's /Differences)."""
+    import pikepdf
+
+    enc = font.get("/Encoding")
+    diffs = enc.get("/Differences") if isinstance(enc, pikepdf.Dictionary) else None
+    out: dict[int, str] = {}
+    code = 0
+    for item in diffs or []:
+        if isinstance(item, pikepdf.Name):
+            out[code] = str(item)[1:]
+            code += 1
+        else:
+            code = int(item)
+    return out
+
+
+def _simple_glyphs(tt, codes: set[int], font=None) -> set[str]:
+    """Glyph names a simple font may show for these one-byte codes (every reading a viewer might use: the font's
+    character maps, its encoding's differences, and the standard glyph names)."""
+    from fontTools.agl import UV2AGL
+
     order = tt.getGlyphOrder()
+    known = set(order)
+    diffs = _differences(font) if font is not None else {}
     names = {".notdef"}
     tables = {(t.platformID, t.platEncID): t.cmap for t in tt["cmap"].tables} if "cmap" in tt else {}
     for code in codes:
@@ -211,6 +240,9 @@ def _simple_glyphs(tt, codes: set[int]) -> set[str]:
             names.add(g)
         if code < len(order):
             names.add(order[code])
+        for name in (diffs.get(code), UV2AGL.get(u)):
+            if name is not None and name in known:
+                names.add(name)
     return names
 
 
@@ -239,11 +271,16 @@ def cut_pdf_fonts(pdf) -> int:
             if "OS/2" in tt and tt["OS/2"].fsType & 0x0302:
                 continue
             if kind == "cid":
-                gids = {int.from_bytes(text[i:i + 2], "big") for text in raw for i in range(0, len(text) - 1, 2)} | {0}
+                cids = {int.from_bytes(text[i:i + 2], "big") for text in raw for i in range(0, len(text) - 1, 2)} | {0}
                 order = tt.getGlyphOrder()
-                glyphs = {order[g] for g in gids if g < len(order)}
+                cff = tt["CFF "].cff.topDictIndex[0] if "CFF " in tt else None
+                if cff is not None and hasattr(cff, "ROS"):           # CID-keyed CFF: glyphs are named by CID
+                    known = set(order)
+                    glyphs = {f"cid{c:05d}" for c in cids if f"cid{c:05d}" in known} | {order[0]}
+                else:
+                    glyphs = {order[g] for g in cids if g < len(order)}
             else:
-                glyphs = _simple_glyphs(tt, {b for text in raw for b in text})
+                glyphs = _simple_glyphs(tt, {b for text in raw for b in text}, font)
             opts = ft_subset.Options()
             opts.retain_gids = True
             opts.notdef_outline = True
@@ -265,7 +302,8 @@ def cut_pdf_fonts(pdf) -> int:
         if len(new) >= len(data) * 0.9:
             continue
         program.write(new)
-        program.Length1 = len(new)
+        if "/Length1" in program:
+            program.Length1 = len(new)
         _tag(font, holder, data)
         saved += len(data) - len(new)
     return saved

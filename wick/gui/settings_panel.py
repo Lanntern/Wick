@@ -431,6 +431,12 @@ class SettingsPanel(QWidget):
                                        "characters. The document looks exactly the same; typing new characters "
                                        "on a computer without the font may show another font.")
         f.addRow(self.document_fonts)
+        self.document_drop_editing = QCheckBox("Leave out Illustrator and Photoshop editing data")
+        self.document_drop_editing.setToolTip("PDFs saved with \"Preserve Illustrator Editing Capabilities\" carry "
+                                              "a whole copy of the Illustrator file, often doubling their size. The "
+                                              "PDF looks the same without it, but Illustrator then opens it as a "
+                                              "plain PDF.")
+        f.addRow(self.document_drop_editing)
         f.addRow(_muted("Signed and password-protected documents are left alone."))
         self.sections.append(Section("Documents", g, False))
         lay.addWidget(self.sections[-1])
@@ -587,6 +593,7 @@ class SettingsPanel(QWidget):
                   self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
                   self.video_dup_audio, self.video_stereo, self.document_fonts,
                   self.video_drop_silent, self.video_dolby_vision, self.image_extras,
+                  self.document_drop_editing,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -701,6 +708,7 @@ class SettingsPanel(QWidget):
         _set_combo(self.documents, s.documents)
         self.document_fonts.setChecked(s.document_fonts)
         self.image_extras.setChecked(s.image_extras)
+        self.document_drop_editing.setChecked(s.document_drop_editing)
         self.audio_mono.setChecked(s.audio_mono)
         self.audio_speech.setChecked(s.audio_speech)
         self.audio_fake_hires.setChecked(s.audio_fake_hires)
@@ -766,6 +774,7 @@ class SettingsPanel(QWidget):
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
             document_fonts=self.document_fonts.isChecked(), image_extras=self.image_extras.isChecked(),
+            document_drop_editing=self.document_drop_editing.isChecked(),
         )
         s.validate()
         return s

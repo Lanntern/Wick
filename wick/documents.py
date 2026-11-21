@@ -250,7 +250,9 @@ def _pdfa_part(pdf) -> int:
         return 0
 
 
-def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE, fonts: bool = True) -> Path:
+def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE, fonts: bool = True,
+                 editing: bool = False) -> Path:
+    """``fonts``: cut whole embedded fonts; ``editing``: leave out Illustrator's and Photoshop's editing data."""
     import pikepdf
 
     problem = pdf_problem(src)
@@ -281,6 +283,11 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
                         w, h = im.size
                     obj.Width, obj.Height = w, h
                 obj.write(new, filter=pikepdf.Name.DCTDecode)
+            from . import pdfslim
+
+            pdfslim.drop_thumbnails(pdf)                 # (page previews from early PDF versions: never shown)
+            if editing:
+                pdfslim.drop_editing_data(pdf)
             pikepdf.settings.set_flate_compression_level(9)
             mode = pikepdf.ObjectStreamMode.preserve if _pdfa_part(pdf) == 1 else pikepdf.ObjectStreamMode.generate
             pdf.save(out, object_stream_mode=mode, compress_streams=True, recompress_flate=True)
@@ -293,25 +300,32 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
             problems = [p for p in checker() if "error" in str(p).lower()]
             if problems:
                 raise VerificationFailed(f"The rebuilt PDF has problems: {problems[0]}")
-        return _pdf_fonts(out, pages) if fonts else out
+        return _pdf_structure(out, pages, fonts)
     except BaseException:
         remove_quietly(out)
         raise
 
 
-def _pdf_fonts(path: Path, pages: int) -> Path:
-    """``path`` with its whole embedded fonts cut to the glyphs drawn, when every page still draws exactly the
-    same (else ``path`` as it was). Not for PDF/A files or long documents (each page is drawn twice to check)."""
+def _pdf_structure(path: Path, pages: int, fonts: bool) -> Path:
+    """``path`` with identical streams stored once, black-and-white scans as Group 4 and (``fonts``) whole embedded
+    fonts cut to the glyphs drawn, when every page still draws exactly the same (else ``path`` as it was). Not
+    for PDF/A files or long documents (each page is drawn twice to check)."""
     import pikepdf
 
-    from . import docfonts
+    from . import docfonts, pdfslim
 
     if pages > docfonts.MAX_PAGES_TO_CHECK:
         return path
     smaller = temp_name(path.parent, ".pdf")
     try:
         with pikepdf.open(path) as pdf:
-            if _pdfa_part(pdf) or not docfonts.cut_pdf_fonts(pdf):
+            if _pdfa_part(pdf):
+                return path
+            changed = pdfslim.dedupe_streams(pdf)
+            changed += pdfslim.scans_to_group4(pdf)
+            if fonts:
+                changed += docfonts.cut_pdf_fonts(pdf)
+            if not changed:
                 return path
             pdf.save(smaller, object_stream_mode=pikepdf.ObjectStreamMode.generate, compress_streams=True)
         if smaller.stat().st_size < path.stat().st_size and docfonts.same_pages(path, smaller):
@@ -320,14 +334,14 @@ def _pdf_fonts(path: Path, pages: int) -> Path:
     except Exception:  # noqa: BLE001 - the fonts stay whole
         from .log import log
 
-        log.warning("Couldn't cut the fonts of %s; they stay whole", path.name, exc_info=True)
+        log.warning("Couldn't restructure %s; it stays as it was", path.name, exc_info=True)
     remove_quietly(smaller)
     return path
 
 
-def optimize(src: Path, reduce: bool = False, fonts: bool = True) -> Path:
+def optimize(src: Path, reduce: bool = False, fonts: bool = True, editing: bool = False) -> Path:
     if src.suffix.lower() in PDF_EXTS:
-        return optimize_pdf(src, reduce, fonts=fonts)
+        return optimize_pdf(src, reduce, fonts=fonts, editing=editing)
     return optimize_office(src, reduce, fonts=fonts)
 
 
