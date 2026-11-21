@@ -10,6 +10,7 @@ import pytest
 _SANDBOX = Path(tempfile.mkdtemp(prefix="wick-tests-"))
 os.environ["WICK_DATA_DIR"] = str(_SANDBOX / "appdata")
 os.environ["WICK_NO_NETWORK"] = "1"      # no automatic update checks while testing
+os.environ["WICK_DECODER_TESTS"] = "1"   # the decoder worker's test-only functions (tests/test_sandbox.py)
 if os.name != "nt":
     os.environ["XDG_DATA_HOME"] = str(_SANDBOX / "xdg")
     if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):

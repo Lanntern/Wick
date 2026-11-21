@@ -377,7 +377,10 @@ def _djxl_fast(path: Path, make_out, png_only: bool = False) -> Path | None:
     for ext in (() if png_only else _FAST_FORMATS) + (".png",):
         out = make_out(ext)
         try:
-            tools.run([tools.require("djxl"), path.name, out.name], cwd=path.parent, timeout=1800)
+            if out.parent == path.parent:
+                tools.run([tools.require("djxl"), path.name, out.name], cwd=path.parent, timeout=1800)
+            else:   # (output elsewhere, e.g. the temp folder: run there, with the output's ASCII name)
+                tools.run([tools.require("djxl"), str(path), out.name], cwd=out.parent, timeout=1800)
             if out.exists():
                 return out
         except tools.ToolError:
@@ -729,17 +732,22 @@ ROUTES = {
 
 # ======================================================================= preview
 
-def decode_for_display(path: Path) -> bytes:
-    """PNG bytes of the first frame of any supported image (for the preview window)."""
-    from PIL import Image
+def open_for_display(path: Path):
+    """The first frame of any supported image as shown (orientation applied), as an RGBA Pillow image.
+    (JPEG XL goes through djxl, with its temporary file in the temp folder: the decoder worker may only write
+    there.)"""
+    import tempfile
+
+    from PIL import Image, ImageOps
 
     if path.suffix.lower() in (".heic", ".heif", ".hif"):
         register_heif()
     if path.suffix.lower() == ".jxl":
         made: list[Path] = []
+        folder = Path(tempfile.gettempdir())
 
         def tmp(ext):
-            made.append(temp_name(path.parent, ext, "-view"))
+            made.append(temp_name(folder, ext, "-view"))
             return made[-1]
         try:
             out = _djxl_fast(path, tmp)   # uncompressed: far faster than djxl's PNG writer
@@ -748,20 +756,20 @@ def decode_for_display(path: Path) -> bytes:
                 tools.run([tools.require("djxl"), str(path), str(out)], timeout=600)
             img = _open(out)
             img.load()
-            buf = io.BytesIO()
-            img.save(buf, "PNG", compress_level=0)
-            return buf.getvalue()
+            return img.convert("RGBA")
         finally:
             remove_quietly(*made)
-    from PIL import ImageOps
-
     with Image.open(path) as im:
         im.seek(0)
-        img = (ImageOps.exif_transpose(im) or im).convert("RGBA")  # show it the way viewers do
+        return (ImageOps.exif_transpose(im) or im).convert("RGBA")  # show it the way viewers do
+
+
+def decode_for_display(path: Path) -> bytes:
+    """PNG bytes of the first frame of any supported image."""
     buf = io.BytesIO()
-    img.save(buf, "PNG", compress_level=0)   # in memory, read once: compression only costs time
+    open_for_display(path).save(buf, "PNG", compress_level=0)   # in memory, read once: compression only costs time
     return buf.getvalue()
 
 
-__all__ = ["convert_image", "VerificationFailed", "NotWorthIt", "decode_for_display", "pixel_hash",
+__all__ = ["convert_image", "VerificationFailed", "NotWorthIt", "decode_for_display", "open_for_display", "pixel_hash",
            "BMP", "GIF", "TIFF"]

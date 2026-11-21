@@ -3,9 +3,9 @@
 Ideas deferred for later releases, roughly in order of value. Not promises.
 
 ## Safety
-- **Decode untrusted files in an isolated worker.** Broken Files, thumbnails and previews decode images (Pillow)
-  and media (FFmpeg) in-process or with full user rights. Run decoding in a low-privilege child process (like a
-  browser's image decoding) so a crafted file that exploits a decoder can't reach the rest of the system.
+- **Isolate the rest of decoding.** Previews, thumbnails, Broken Files and Similar Photos already decode in a
+  restricted worker (`wick/sandbox.py`). Still in Wick itself: compressing and converting (they write results
+  next to the originals, which a low-integrity process can't), metadata scans, and the video preview's frames.
 - **Code signing** (removes the "Windows protected your PC" warning). Keep the certificate in a GitHub
   environment that needs approval before a workflow can use it.
 

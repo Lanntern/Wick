@@ -254,6 +254,26 @@ def cmd_tools(a: argparse.Namespace) -> int:
     return 0
 
 
+def _decoder_check(report: Path) -> int:
+    """Decode a picture in a decoder worker; write {"ok", "applied", "unavailable"} as JSON to ``report``."""
+    import json
+    import tempfile
+
+    from PIL import Image
+
+    from . import sandbox
+
+    folder = Path(tempfile.mkdtemp(prefix="wick-decoder-check-"))
+    Image.new("RGB", (64, 48), (90, 60, 30)).save(folder / "check.png")
+    got = sandbox.rgba("thumbnail", str(folder / "check.png"), "png", 32, max_pixels=32 * 32, timeout=120)
+    workers = list(sandbox._all)
+    applied = workers[0].applied if workers else None
+    ok = got is not None and got[:2] == (32, 24) and bool(workers)
+    report.write_text(json.dumps({"ok": ok, "applied": applied, "unavailable": sandbox._unavailable}), "utf-8")
+    sandbox.shutdown()
+    return 0 if ok else 1
+
+
 def _installer_setup(args: list[str]) -> int:
     """``context=1 autostart=0 updates=weekly upgrade=0``: what was chosen in the installer. Ticked integrations
     are added; unticked ones are left as they are (on an upgrade they may have been turned on in Settings since).
@@ -344,6 +364,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if argv and argv[0] == "--installer-setup":   # the installer: apply the choices made on its options page
         return _installer_setup(argv[1:])
+    if argv and argv[0] == "--decoder-check" and len(argv) == 2:   # packaging/smoke_test.py: the built app's
+        return _decoder_check(Path(argv[1]))                         # decoder worker starts and is restricted
     if argv and argv[0] == "--ntfs-dump":       # the administrator helper for fast drive scans (ntfs.py)
         from .ntfs import _main as ntfs_main
 

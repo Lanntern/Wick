@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from ..engine import preview_file
 from ..fileops import remove_quietly
 from ..formats import KIND_LABEL, VIDEO, human
-from ..images import NotWorthIt, decode_for_display, measure_quality
+from ..images import NotWorthIt, measure_quality
 from ..plan import plan_entry
 from ..scanner import FileEntry
 from ..settings import Settings
@@ -57,7 +57,7 @@ def quit_after_previews(app) -> None:
 
 
 class PreviewThread(QThread):
-    ready = Signal(bytes, bytes, int, str)   # original png, converted png, (estimated) new size, description
+    ready = Signal(object, object, int, str)  # original, converted (QImage), (estimated) new size, description
     video_ready = Signal(object, str)        # VideoPreview, description
     failed = Signal(str)
     step = Signal(str)
@@ -106,7 +106,10 @@ class PreviewThread(QThread):
                     log.warning("Preview quality measurement failed for %s", self.entry.path, exc_info=True)
             if self.cancel.is_set():
                 return
-            self.ready.emit(decode_for_display(self.entry.path), decode_for_display(out), size, desc + " · verified")
+            before, after = _shown(self.entry.path), _shown(out)
+            if self.cancel.is_set():
+                return
+            self.ready.emit(before, after, size, desc + " · verified")
         finally:
             remove_quietly(out)
 
@@ -126,6 +129,18 @@ class PreviewThread(QThread):
         if self._video_result is not None and self._video_result.folder is not None:
             shutil.rmtree(self._video_result.folder, ignore_errors=True)
         self._video_result = None
+
+
+def _shown(path: Path) -> QImage:
+    """The picture as it's shown, decoded in a decoder worker with fewer rights (sandbox.py): it sends back raw
+    pixels, so nothing from the file is decoded in Wick itself."""
+    from .. import sandbox
+
+    got = sandbox.rgba("display_image", str(path), sandbox.MAX_PIXELS, max_pixels=sandbox.MAX_PIXELS, timeout=600)
+    if got is None:
+        raise RuntimeError(f"{path.name} couldn't be shown")
+    w, h, pixels = got
+    return QImage(pixels, w, h, w * 4, QImage.Format.Format_RGBA8888).copy()
 
 
 def _clock(seconds: float) -> str:
@@ -752,12 +767,11 @@ class PreviewDialog(QDialog):
         if not getattr(self, "_closing", False):
             self.info.setText(html.escape(message) + "…")
 
-    def _ready(self, before: bytes, after: bytes, size: int, desc: str) -> None:
+    def _ready(self, before: QImage, after: QImage, size: int, desc: str) -> None:
         if getattr(self, "_closing", False):
             return
-        self.view.set_images(QPixmap.fromImage(QImage.fromData(before)), QPixmap.fromImage(QImage.fromData(after)))
-        a = QImage.fromData(after)
-        self._describe(size, (a.width(), a.height()), desc)
+        self.view.set_images(QPixmap.fromImage(before), QPixmap.fromImage(after))
+        self._describe(size, (after.width(), after.height()), desc)
 
     def _result_ready(self, ok: bool) -> None:
         self.save_as.setEnabled(ok)
