@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox
 
 from ..cleanup import (
     actions, appcompress, archives, broken, caches, devclean, duplicates, empties, extensions, folders, installers,
-    largefiles, music, similar, takeout, videos, winclean,
+    largefiles, music, proxies, similar, takeout, videos, winclean,
 )
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
@@ -514,6 +514,12 @@ def tools() -> list[Tool]:
              lambda s, p, c: installers.find_installers(s.folders, s.extra_days.value(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_days_option("installers", 30, "Older than", "Only list files older than this")),
+        Tool("proxies", "Camera Proxies",
+             "Low-resolution copies and thumbnails that GoPro, DJI and Insta360 cameras save next to every video "
+             "for their phone apps. A file is only listed when its full video is right beside it.",
+             lambda: _existing("Videos", "Pictures", "Desktop", "Downloads"),
+             lambda s, p, c: proxies.find_proxies(s.folders, p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("apps", "Apps",
              "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
              f"uninstaller, then moves the folders it left behind to the {BIN_NAME}.",

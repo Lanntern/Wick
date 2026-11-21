@@ -160,6 +160,69 @@ def _old_temp_files(days: int, cancel, limit: int = 20000) -> tuple[list[Path], 
     return out, total
 
 
+INSTALLER_MIN = 50 * 1024 ** 2
+INSTALLER_KEEP_DAYS = 30
+
+
+def registered_packages() -> set[str]:
+    """Every installer package and patch Windows Installer still lists for an installed product (lower-case
+    paths), from its registry records for all accounts. Empty when they can't be read."""
+    import winreg
+
+    found: set[str] = set()
+    base = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData"
+    access = winreg.KEY_READ | getattr(winreg, "KEY_WOW64_64KEY", 0)
+
+    def subkeys(key):
+        for i in range(winreg.QueryInfoKey(key)[0]):
+            yield winreg.EnumKey(key, i)
+
+    def local_package(path: str) -> None:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, path, 0, access) as k:
+                found.add(os.path.normcase(str(winreg.QueryValueEx(k, "LocalPackage")[0])))
+        except OSError:
+            pass
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base, 0, access) as users:
+            for sid in list(subkeys(users)):
+                for kind, leaf in (("Products", "\\InstallProperties"), ("Patches", "")):
+                    try:
+                        with winreg.OpenKey(users, f"{sid}\\{kind}", 0, access) as items:
+                            for item in list(subkeys(items)):
+                                local_package(f"{base}\\{sid}\\{kind}\\{item}{leaf}")
+                    except OSError:
+                        continue
+    except OSError:
+        return set()
+    return found
+
+
+def orphans_of(files: list[tuple[Path, int, float]], registered: set[str], now: float) -> list[tuple[Path, int]]:
+    """The packages (.msi) and patches (.msp) no installed product lists, left alone when Windows' list couldn't
+    be read (nothing would match) or the file is recent (an installation may still be under way)."""
+    if not registered:
+        return []
+    cutoff = now - INSTALLER_KEEP_DAYS * 86400
+    return [(p, size) for p, size, mtime in files
+            if p.suffix.lower() in (".msi", ".msp") and os.path.normcase(str(p)) not in registered and mtime < cutoff]
+
+
+def installer_orphans() -> list[tuple[Path, int]]:
+    folder = Path(_env("SystemRoot", r"C:\Windows")) / "Installer"
+    files = []
+    try:
+        with os.scandir(folder) as entries:
+            for e in entries:
+                if e.is_file(follow_symlinks=False):
+                    st = e.stat(follow_symlinks=False)
+                    files.append((Path(e.path), st.st_size, st.st_mtime))
+    except OSError:
+        return []
+    return orphans_of(files, registered_packages(), time.time())
+
+
 def find(progress: ProgressFn | None = None, cancel: threading.Event | None = None,
          temp_days: int = 7) -> ScanResult:
     result = ScanResult("winclean")
@@ -200,6 +263,16 @@ def find(progress: ProgressFn | None = None, cancel: threading.Event | None = No
             where, size, title=title, detail=detail + removed_by,
             is_dir=True, group=SYSTEM, warning=warning, selected=key != "compact_os",   # a setting: your call
             extra={"system": key, "location": str(where)}))
+    orphans = installer_orphans()
+    size = sum(n for _p, n in orphans)
+    if size >= INSTALLER_MIN:
+        folder = Path(_env("SystemRoot", r"C:\Windows")) / "Installer"
+        result.items.append(Candidate(
+            folder, size, title="Leftover installer packages",
+            detail=f"{len(orphans):,} installer packages and updates in Windows' installer folder that no installed "
+                   "program lists any more, usually left by programs removed long ago. Removed by Windows (not to the "
+                   "Recycle Bin).", is_dir=True, group=SYSTEM, selected=False,
+            extra={"system": "installer_orphans", "paths": [str(p) for p, _n in orphans], "location": str(folder)}))
     # Your own account: to the Recycle Bin.
     files, size = _old_temp_files(temp_days, cancel)
     if size >= 1024 * 1024:
@@ -220,9 +293,16 @@ def find(progress: ProgressFn | None = None, cancel: threading.Event | None = No
     return result
 
 
-def script(keys: list[str]) -> str:
-    """The PowerShell that removes the chosen system items, run once with administrator rights."""
+def script(keys: list[str], files: list[str] | tuple = ()) -> str:
+    """The PowerShell that removes the chosen system items, run once with administrator rights. ``files``: the
+    leftover installer packages, each checked again to be an .msi or .msp right in Windows' installer folder."""
     lines = ["$ErrorActionPreference = 'Continue'"]
+    if "installer_orphans" in keys and files:
+        quoted = ",".join("'" + str(f).replace("'", "''") + "'" for f in files)
+        lines += ["$installer = Join-Path $env:SystemRoot 'Installer'",
+                  f"foreach ($f in @({quoted})) {{",
+                  "  if ((Split-Path -Parent $f) -eq $installer -and $f -match '\\.ms[ip]$') {",
+                  "    Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } }"]
     handlers = [h for k in keys for h in SYSTEM_ITEMS.get(k, ("", "", []))[2]]
     if handlers:
         base = r"HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\VolumeCaches"
@@ -255,14 +335,15 @@ def undo_compact_os() -> str:
     return "Compact OS turned off"
 
 
-def run_system(keys: list[str], cancel: threading.Event | None = None) -> tuple[bool, str]:
+def run_system(keys: list[str], cancel: threading.Event | None = None,
+               files: list[str] | tuple = ()) -> tuple[bool, str]:
     """Run the batch elevated (one UAC prompt) and wait. (ok, message)."""
     if not keys:
         return True, ""
     from ..fileops import remove_quietly, temp_name
 
     ps1 = temp_name(Path(_env("TEMP") or "."), ".ps1", "-winclean")
-    ps1.write_text(script(keys), encoding="utf-8-sig")
+    ps1.write_text(script(keys, files), encoding="utf-8-sig")
     try:
         cmd = ["powershell", "-NoProfile", "-Command",
                "$p = Start-Process -FilePath powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass',"
@@ -278,4 +359,4 @@ def run_system(keys: list[str], cancel: threading.Event | None = None) -> tuple[
         remove_quietly(ps1)
 
 
-__all__ = ["find", "run_system", "script", "supported", "SYSTEM_ITEMS"]
+__all__ = ["find", "run_system", "script", "supported", "SYSTEM_ITEMS", "orphans_of", "registered_packages"]

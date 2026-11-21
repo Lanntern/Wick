@@ -30,7 +30,7 @@ the originals to the Recycle Bin) and `--max-files=N` (the largest run allowed; 
 | `plan_compression` | Finds what can be compressed in a folder and estimates the savings | No |
 | `compress_planned_files` | Compresses exactly the files in a plan, **after you approve it** | Yes |
 | `list_history` | Past runs in the allowed folders | No |
-| `find_cleanup` | Lists what Clean Up would: duplicates, similar photos, large, broken or empty files and old installers in the allowed folders, or app caches, installed apps and app leftovers on the whole computer | No |
+| `find_cleanup` | Lists what Clean Up would: duplicates, similar photos, large, broken or empty files, old installers and camera proxy files in the allowed folders, or app caches, installed apps and app leftovers on the whole computer | No |
 | `undo_run` | Puts a run's originals back, **after you approve it** | Yes |
 
 ## Why it's safe
