@@ -33,6 +33,7 @@ def apply(key: str, s: Settings) -> Settings:
     """``s`` with this answer's effort settings (everything else unchanged)."""
     c = BY_KEY.get(key, BY_KEY["balanced"])
     s.image_effort, s.video_effort = c.image_effort, c.video_effort
+    s.document_zopfli = c.key == "smaller"        # (several times slower to pack, a few percent smaller)
     s.validate()
     return s
 

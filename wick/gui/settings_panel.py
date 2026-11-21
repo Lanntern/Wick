@@ -437,6 +437,20 @@ class SettingsPanel(QWidget):
                                               "PDF looks the same without it, but Illustrator then opens it as a "
                                               "plain PDF.")
         f.addRow(self.document_drop_editing)
+        self.document_crop = QCheckBox("Remove cropped-away parts of pictures")
+        self.document_crop.setToolTip("Word and PowerPoint keep the whole picture when you crop it. This cuts off "
+                                      "the hidden part, so it looks the same but the crop can't be undone later. "
+                                      "Photos are only cut when large pictures are also reduced.")
+        f.addRow(self.document_crop)
+        self.document_pivots = QCheckBox("Let Excel rebuild pivot table caches")
+        self.document_pivots.setToolTip("Excel stores a copy of a pivot table's data in the file. Without it, the "
+                                        "file is smaller and Excel rebuilds the copy when it opens the file, which "
+                                        "can take a moment for large tables.")
+        f.addRow(self.document_pivots)
+        self.document_zopfli = QCheckBox("Pack documents tighter (slow)")
+        self.document_zopfli.setToolTip("Compresses the text inside Office files and e-books with Zopfli: a few "
+                                        "percent smaller, many times slower. Every app opens them as before.")
+        f.addRow(self.document_zopfli)
         f.addRow(_muted("Signed and password-protected documents are left alone."))
         self.sections.append(Section("Documents", g, False))
         lay.addWidget(self.sections[-1])
@@ -593,7 +607,7 @@ class SettingsPanel(QWidget):
                   self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
                   self.video_dup_audio, self.video_stereo, self.document_fonts,
                   self.video_drop_silent, self.video_dolby_vision, self.image_extras,
-                  self.document_drop_editing,
+                  self.document_drop_editing, self.document_crop, self.document_pivots, self.document_zopfli,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -709,6 +723,9 @@ class SettingsPanel(QWidget):
         self.document_fonts.setChecked(s.document_fonts)
         self.image_extras.setChecked(s.image_extras)
         self.document_drop_editing.setChecked(s.document_drop_editing)
+        self.document_crop.setChecked(s.document_crop)
+        self.document_pivots.setChecked(s.document_pivots)
+        self.document_zopfli.setChecked(s.document_zopfli)
         self.audio_mono.setChecked(s.audio_mono)
         self.audio_speech.setChecked(s.audio_speech)
         self.audio_fake_hires.setChecked(s.audio_fake_hires)
@@ -775,6 +792,8 @@ class SettingsPanel(QWidget):
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
             document_fonts=self.document_fonts.isChecked(), image_extras=self.image_extras.isChecked(),
             document_drop_editing=self.document_drop_editing.isChecked(),
+            document_crop=self.document_crop.isChecked(), document_pivots=self.document_pivots.isChecked(),
+            document_zopfli=self.document_zopfli.isChecked(),
         )
         s.validate()
         return s

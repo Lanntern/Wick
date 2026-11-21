@@ -35,6 +35,18 @@ Options:
 
 **Preview** any file to compare before and after in a zoomable split view, with the expected size.
 
+**What else a JPEG carries:**
+
+- **Ultra HDR gain maps** and other pictures stored after the photo (stereo and depth images) are kept, with the
+  MPF index pointing at them. Such photos stay JPEG when another format is chosen, since other formats would
+  keep only the main picture and lose the HDR.
+- **Hidden previews and thumbnails** (on by default): the camera's own smaller copy after the photo and the
+  EXIF thumbnail are left out. Viewers make their own.
+- **Colour profiles** that give the same colours as sRGB, but take kilobytes, become a 588-byte sRGB profile.
+- **Motion Photos** (Google format): the photo is made smaller with identical pixels and the clip re-encoded as
+  HEVC; the photo's XMP is updated to point at the new clip. Samsung's own format and HEIC Motion Photos are
+  left alone.
+
 ## Videos
 
 - **Codec:** *Automatic* uses HEVC for videos straight from cameras and phones (AV1 encoders tend to smooth
@@ -85,8 +97,16 @@ Options:
   same samples, usually 40 to 60% smaller. On AV1 and HEVC videos this happens without re-encoding the picture.
 - **Stereo only** (optional): 5.1 and 7.1 soundtracks are mixed down to stereo, for laptops, phones and
   headphones.
-- **Cover pictures** attached to MKV videos are stored smaller with the same pixels whenever the video is
-  rebuilt.
+- **Cover pictures** attached to MKV videos, and MP4 and MOV posters, are stored smaller with the same pixels
+  whenever the video is rebuilt.
+- **Soundtracks** that are encoded: stereo with identical channels becomes mono, talk over 10 minutes gets the
+  speech bitrate, and (optional) tracks silent from start to end are left out.
+- **Screen recordings** (large areas of exactly one colour, no camera noise) use SVT-AV1's screen-content tools.
+- **TV recordings** (.ts) in HEVC or AV1 are rewrapped into MKV without the broadcast padding, without
+  re-encoding the picture.
+- **iPhone HDR (Dolby Vision 8)**: when such a video has to be re-encoded (smaller size, frame rate or a size
+  limit), its HDR base picture is kept and the Dolby Vision layer left out; rewrapping keeps Dolby Vision. Other
+  Dolby Vision videos are skipped.
 - **Limits:** maximum resolution (never upscales), maximum frame rate, and an audio bitrate. The audio bitrate is
   for stereo: mono gets 60% of it, 5.1 twice and 7.1 about 2.7 times (at most 512 kbps). Tracks already at or
   under it are copied as they are, since re-encoding would make them bigger.
@@ -111,8 +131,12 @@ Options:
 - **Podcasts and audiobooks:** recordings of talk over 10 minutes (recognised by their frequent short pauses,
   little sound above 5 kHz and near-identical channels) are stored as mono at a lower bitrate when they're
   encoded to Opus, AAC or MP3: Opus 64, 48 or 32 kbps for High, Balanced or Small. Music is left as before.
-- **Album art** is stored smaller with the same pixels. Files whose art takes 300 KB or more get just that, with
+- **Album art** (every picture: front, back, booklet) is stored smaller with the same pixels. Files whose art takes 300 KB or more get just that, with
   the sound copied untouched, even when the audio itself is left alone.
+- **Upsampled "hi-res"**: 88.2 to 192 kHz files that are really CD-type audio (nothing above 22 or 24 kHz, a
+  resampler's wall) go back to 44.1 or 48 kHz when packed as FLAC. Real hi-res recordings stay as they are.
+- **Tag padding**: FLAC and MP3 files with 64 KB or more of empty space in their tags lose it, with sound and
+  tags checked unchanged.
 - **Hi-res to CD quality** (optional): 88.2 to 192 kHz, 24-bit audio becomes 44.1 or 48 kHz, 16-bit with dither.
 - **Music for your phone** (Watch Folders): keeps a smaller Opus, AAC or MP3 copy of your music library, with tags
   and album art. Only changed songs are redone, and copies of songs you deleted are removed.
@@ -124,11 +148,25 @@ everything else in the file stays byte-for-byte the same and is checked. PDFs ar
 losslessly with qpdf. Optionally, pictures larger than 2560 px are scaled down. Signed and password-protected
 documents are never changed.
 
+**E-books and comic books** (.epub, .cbz) are documents too: their pictures are stored smaller with identical
+pixels, and an e-book's fonts (plain or scrambled the IDPF or Adobe way) are cut to the characters in the book.
+Copy-protected e-books are left alone.
+
+**More inside documents:**
+
+- Office files lose pictures and embedded files nothing points to any more, and BMP and TIFF pictures become
+  PNG with the same pixels.
+- PDFs lose old page thumbnails; identical streams (a logo or font repeated in merged PDFs) are stored once;
+  black-and-white scans become CCITT Group 4 with the same pixels (often a third smaller).
+- Options: remove cropped-away parts of pictures in Word and PowerPoint (the crop can't be undone afterwards);
+  let Excel rebuild pivot table caches; leave out Illustrator's and Photoshop's editing data in PDFs (often half
+  the file); pack Office files and e-books tighter with Zopfli (slow; on with *Smallest files*).
+
 **Embedded fonts** (on by default) are cut to what the document uses. In Word, PowerPoint and OpenDocument files,
 each embedded font keeps every character that appears in the document, plus ASCII, Latin-1 and common
 punctuation; Word's scrambled fonts are unscrambled, cut and scrambled again with the same key, and marked as
-subsets. In PDFs, TrueType fonts embedded whole are cut to the glyphs the pages draw (glyph numbers unchanged),
-and every page is drawn before and after: if one pixel differs, the fonts stay whole. PDFs with forms, PDF/A
+subsets. In PDFs, TrueType and OpenType fonts embedded whole are cut to the glyphs the pages draw (glyph
+numbers unchanged), and every page is drawn before and after: if one pixel differs, the fonts stay whole. PDFs with forms, PDF/A
 files and PDFs over 300 pages keep their fonts. Fonts whose licence doesn't allow cutting always stay whole.
 
 ## Presets and Smart quality
@@ -191,7 +229,8 @@ Each tool scans first and only preselects what's safe. Everything can be undone 
 | Google Takeout | Google Photos exports | Merged into one folder with the correct dates and albums |
 | Caches | Browser, Discord, Spotify, Teams, Slack, Telegram, shader and Adobe caches, crash dumps, driver installers | Recycle Bin |
 | Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL and Docker disks | Recycle Bin; Docker data removed by Docker; disks compacted |
-| Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files | Removed with Windows' own tools |
+| Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files, and installer packages no installed program lists any more | Removed with Windows' own tools |
+| Camera Proxies | GoPro, DJI and Insta360 low-resolution copies and thumbnails, only when the full video is beside them | Recycle Bin |
 | Installers | Installers and disk images older than N days | Recycle Bin |
 | Apps | Installed apps, with when each was last opened; those not opened in 6 months first | The app's own uninstaller, then its leftover folders go to the Recycle Bin |
 | App Leftovers | Folders in AppData and ProgramData that no installed app uses and that haven't changed in months. Never preselected | Recycle Bin |

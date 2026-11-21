@@ -59,7 +59,7 @@ AUDIO_EXTS = {
     ".wma", ".ape", ".wv", ".mka", ".caf", ".w64",
 }
 DOCUMENT_EXTS = {".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
-                 ".odt", ".ods", ".odp", ".odg", ".pdf"}
+                 ".odt", ".ods", ".odp", ".odg", ".pdf", ".epub", ".cbz"}
 RAW_EXTS = {".dng", ".cr2", ".cr3", ".crw", ".nef", ".nrw", ".arw", ".srf", ".sr2", ".orf", ".rw2", ".raf", ".pef",
             ".srw", ".x3f", ".3fr", ".iiq", ".erf", ".kdc", ".dcr", ".mrw", ".mos", ".rwl", ".raw"}
 # What Pandoc reads, by extension (its reader's name). .docx and .odt are also DOCUMENT (Compress shrinks them).

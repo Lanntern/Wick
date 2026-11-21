@@ -442,11 +442,14 @@ def _plan_document(e: FileEntry, s: Settings) -> Plan:
         jpeg, png, _other = documents.office_pictures(e.path)
     except documents.Unsupported as x:
         return _skip(str(x))
-    if jpeg + png < 50 * 1024:
-        return _skip("No pictures inside worth shrinking")
-    saved = jpeg * (0.35 if reduce else 0.05) + png * (0.5 if reduce else 0.2)
-    return Plan(True, f"Pictures inside shrunk ({note})", ext, int(e.size - saved), lossless=not reduce,
-                route="document")
+    extras = documents.office_extras(e.path)
+    if jpeg + png < 50 * 1024 and extras < 50 * 1024 and not s.document_zopfli:
+        return _skip("No pictures or fonts inside worth shrinking")
+    saved = jpeg * (0.35 if reduce else 0.05) + png * (0.5 if reduce else 0.2) + extras * 0.5
+    what = {".epub": "E-book", ".cbz": "Comic book"}.get(ext, "Pictures inside shrunk")
+    if ext in (".epub", ".cbz"):
+        what += ": pictures shrunk" + (", fonts cut" if ext == ".epub" and s.document_fonts else "")
+    return Plan(True, f"{what} ({note})", ext, int(e.size - saved), lossless=not reduce, route="document")
 
 
 # Typical FLAC size relative to the source, for music.

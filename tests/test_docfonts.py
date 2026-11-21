@@ -59,7 +59,11 @@ def test_an_unreadable_font_part_stays_as_it_is(tmp_path):
     with zipfile.ZipFile(doc, "w") as z:
         z.writestr("ppt/slides/slide1.xml", "<p:sld><a:t>Hi</a:t></p:sld>")
         z.writestr("ppt/fonts/font1.fntdata", b"\x00not a font" * 500)
-    assert documents._office_fonts(zipfile.ZipFile(doc)) == ({}, 0)
+    from wick import officeslim
+
+    with zipfile.ZipFile(doc) as z:
+        pkg = officeslim.Package(z.namelist(), {n: z.read(n) for n in z.namelist()})
+    assert documents._office_fonts(pkg) == 0 and not pkg.changed
 
 
 def _pdf_with_font(tmp_path, kind: str):

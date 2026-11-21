@@ -59,6 +59,11 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
                    help="JPEG: keep camera previews and EXIF thumbnails stored inside photos")
     g.add_argument("--drop-editing-data", action="store_true",
                    help="PDF: leave out Illustrator's and Photoshop's editing copy (no longer editable there)")
+    g.add_argument("--crop-pictures", action="store_true",
+                   help="Office: cut off what picture crops hide (they can't be uncropped afterwards)")
+    g.add_argument("--drop-pivot-caches", action="store_true",
+                   help="Excel: leave pivot table caches for Excel to rebuild when the file opens")
+    g.add_argument("--zopfli", action="store_true", help="Office and e-books: denser, much slower compression")
     g.add_argument("--keep-document-fonts", action="store_true",
                    help="Office and PDF: keep embedded fonts whole (by default they're cut to the characters used)")
     g.add_argument("--whole", action="store_true",
@@ -128,7 +133,8 @@ def _settings(a: argparse.Namespace) -> Settings:
         min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "banding" if a.hide_banding else "auto",
         video_fonts=not a.keep_fonts,
         document_fonts=not a.keep_document_fonts, image_extras=not a.keep_previews,
-        document_drop_editing=a.drop_editing_data,
+        document_drop_editing=a.drop_editing_data, document_crop=a.crop_pictures,
+        document_pivots=a.drop_pivot_caches, document_zopfli=a.zopfli,
         video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
         video_drop_silent=a.drop_silent, video_dolby_vision=not a.skip_dolby_vision,
         video_chunked=not a.whole, video_metric=a.video_metric,

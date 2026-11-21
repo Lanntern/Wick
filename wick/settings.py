@@ -80,6 +80,9 @@ class Settings:
     #                                  scaled down) | none
     document_fonts: bool = True      # embedded fonts cut to the characters the document uses
     document_drop_editing: bool = False  # PDF: leave out Illustrator's/Photoshop's own copy (no longer editable there)
+    document_crop: bool = False      # Office: cut off what picture crops hide (pictures used once)
+    document_pivots: bool = False    # Excel: leave pivot table caches for Excel to rebuild when the file opens
+    document_zopfli: bool = False    # Office/EPUB: denser, much slower Deflate for the text inside (Smallest files)
     # Smart quality: search for the smallest result that still meets a measured quality target
     fit_under_kb: int = 0            # 0 = off; else make each image/video at most this size (KB)
     smart_quality: bool = False
