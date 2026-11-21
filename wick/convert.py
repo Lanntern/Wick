@@ -300,7 +300,7 @@ def convert_image(src: Path, kind: str, info, target: str, opts: ConvertOptions,
         if kind == "jpeg" and getattr(info, "frames", 1) <= 1:
             return _turn_jpeg(src, opts)
         if kind not in KEEP_TARGET:
-            raise ValueError(f"A {kind.upper()} file can't be saved in its own format here: choose a format")
+            raise ValueError(f"A {kind.upper()} file can't be saved in its own format here. Choose another format.")
         import dataclasses
 
         target = KEEP_TARGET[kind]

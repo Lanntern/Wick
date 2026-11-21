@@ -906,7 +906,7 @@ class ConvertTab(FileJobPage):
                     and t[0] not in convert.SOUND_TARGETS:
                 return "To rotate a video, convert it to MP4, or keep the format if it's already MP4 or MOV."
         if t[0] == "keep" and e.kind not in (*convert.KEEP_TARGET, VIDEO):
-            return f"{KIND_LABEL.get(e.kind, e.kind)} can't be saved in its own format: choose one"
+            return f"{KIND_LABEL.get(e.kind, e.kind)} can't be saved in its own format. Choose another one."
         return ""
 
     def row_values(self, e: FileEntry, p: Plan | None) -> list[str]:

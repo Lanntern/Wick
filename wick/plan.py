@@ -378,7 +378,7 @@ def _plan_document(e: FileEntry, s: Settings) -> Plan:
     if ext in documents.PDF_EXTS:
         if not documents.pdf_available():
             return _skip("PDF support isn't installed")
-        return Plan(True, f"PDF: pictures and structure optimized ({note})", ext,
+        return Plan(True, f"PDF with optimized pictures and structure ({note})", ext,
                     int(e.size * (0.7 if reduce else 0.92)), lossless=not reduce, route="document")
     try:
         jpeg, png, _other = documents.office_pictures(e.path)

@@ -34,17 +34,17 @@ SIDEBAR_COMPACT_BELOW = 1040   # window width at which the sidebar shows icons o
 
 # (sequence, description, group) - shown in the Keyboard Shortcuts window
 SHORTCUTS = [
-    ("Ctrl+O", "Add files (to the page you're on)", "Files"),
+    ("Ctrl+O", "Add files to the page you're on", "Files"),
     ("Ctrl+Shift+O", "Add a folder", "Files"),
-    ("Ctrl+A / Ctrl+Shift+A", "Tick all / none (every list)", "Lists"),
-    ("Space", "Tick or untick the row (Compress: preview)", "Lists"),
+    ("Ctrl+A / Ctrl+Shift+A", "Tick all or none in any list", "Lists"),
+    ("Space", "Tick or untick the row, or preview it on Compress", "Lists"),
     ("Menu key, Shift+F10", "Actions for the selected files", "Lists"),
     ("Ctrl+Return", "Run the page's main action", "Lists"),
     ("Esc", "Stop the running job", "Lists"),
     ("↑ ↓, Home, End", "Move through the list", "Lists"),
     ("Ctrl+L", "Type a path", "Compress"),
-    ("Ctrl+R / F5", "Rescan (Clean Up: scan this tool)", "Compress"),
-    ("Space", "Preview the selected file (audio: play)", "Compress"),
+    ("Ctrl+R / F5", "Rescan, or scan the current Clean Up tool", "Compress"),
+    ("Space", "Preview the selected file, or play it if it's audio", "Compress"),
     ("Delete / Insert", "Exclude / include the selected files", "Compress"),
     ("Ctrl+Shift+R", "Retry failed files", "Compress"),
     ("Ctrl+I", "Show or hide options", "Compress"),
