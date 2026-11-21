@@ -2531,3 +2531,33 @@ def test_the_crash_notice_offers_a_bug_report(win, monkeypatch):
     monkeypatch.setattr(dialogs, "report_problem", lambda parent: reported.append(parent))
     app._mention_crash(win)
     assert asked == ["Report a Problem"] and reported == [win]
+
+
+def test_everything_else_is_explained_with_safe_actions(win, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QApplication, QPushButton
+
+    from wick import systemspace
+    from wick.gui import hidden_space
+
+    items = [systemspace.Hidden("journal", "System logs", 3 * 1024 ** 3, "Logs.", systemspace.COMMAND,
+                                "Copy Command", "sudo journalctl --vacuum-time=4weeks"),
+             systemspace.Hidden("virtual_disks", "Linux (WSL) and Docker disks", 5 * 1024 ** 3, "Disks.",
+                                systemspace.VIRTUAL_DISKS, "Compact on Clean Up"),
+             systemspace.Hidden("swap", "Swap file", 2 * 1024 ** 3, "Leave it.")]
+    monkeypatch.setattr(systemspace, "measure", lambda drive: items)
+    monkeypatch.setattr(hidden_space, "inform", lambda *a, **k: None)
+    opened = []
+    from pathlib import Path
+
+    d = hidden_space.HiddenSpaceDialog(Path("/"), opened.append, win)
+    assert _wait(lambda: not d.worker.isRunning() and d.list.count() == 3, 10)
+    QApplication.processEvents()
+    buttons = {b.text(): b for b in d.findChildren(QPushButton)}
+    assert "Copy Command" in buttons and "Compact on Clean Up" in buttons
+    buttons["Copy Command"].click()
+    assert QGuiApplication.clipboard().text() == "sudo journalctl --vacuum-time=4weeks"
+    buttons["Compact on Clean Up"].click()
+    assert opened == ["devclean"]
+    win.open_cleanup_tool("apps")
+    assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "apps"

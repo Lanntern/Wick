@@ -338,11 +338,13 @@ class HomeTab(Page):
         from .. import space
 
         if key == space.CACHES:
-            cu = self.win.cleanup
-            self.win.go_to(cu)
-            names = [cu.tabs.tabText(i) for i in range(cu.tabs.count())]
-            if "Caches" in names:
-                cu.tabs.setCurrentIndex(names.index("Caches"))
+            self.win.open_cleanup_tool("caches")
+        elif key == "other":
+            from . import hidden_space
+
+            b = self.space_card.breakdown
+            drive = b.drive if b is not None else str(Path(self.roots[0]).anchor if self.roots else Path.home().anchor)
+            hidden_space.show(drive, self.win.open_cleanup_tool, self)
         elif key == space.BIN:
             if os.name == "nt":
                 import subprocess

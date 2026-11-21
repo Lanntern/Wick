@@ -334,6 +334,14 @@ class MainWindow(QMainWindow):
     def go_to(self, page: QWidget) -> None:
         self._go(self.pages.indexOf(page))
 
+    def open_cleanup_tool(self, key: str) -> None:
+        """Clean Up, on the tool with this key ("caches", "apps"…)."""
+        cu = self.cleanup
+        self.go_to(cu)
+        index = next((i for i, tool in enumerate(cu._tools) if tool.key == key), None)
+        if index is not None:
+            cu.tabs.setCurrentIndex(index)
+
     def focus_page(self) -> None:
         """After a keyboard page switch, put the focus where work happens: the page's list if it has rows,
         otherwise its first control (so the page's own shortcuts work straight away)."""
