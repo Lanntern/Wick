@@ -114,7 +114,12 @@ _TEXT_SUBS = {"mov_text", "subrip", "srt", "ass", "ssa", "webvtt", "text"}
 
 _ENCODER_CACHE_DAYS = 7
 HW_DECODE = True    # decode sources on the GPU where possible (falls back to the CPU per file)
-SVT_PROBE_PRESET = 10   # quick encodes for choosing the quality scene by scene (the final encode uses 6)
+SVT_PROBE_PRESET = 10   # quick encodes for choosing the quality scene by scene (the final encode uses svt_preset)
+
+
+def svt_preset(s: Settings) -> int:
+    """SVT-AV1's preset for a final encode: 6, or 5 when the person chose slower encodes for smaller files."""
+    return 5 if s.video_effort == "slow" else 6
 
 # Film grain: the noise level (standard deviation, 8-bit scale) in flat areas -> SVT-AV1 film-grain level. Below
 # the first step the video counts as clean (digital cameras, animation, screen recordings).
@@ -604,23 +609,23 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
             args += _gpu_rate_args(encoder, kbps, pixels)
             pix = gpu_pix
         elif encoder == "libsvtav1":
-            args += ["-preset", "6", "-b:v", f"{kbps}k"]
+            args += ["-preset", str(svt_preset(s)), "-b:v", f"{kbps}k"]
             if svt:
                 args += ["-svtav1-params", svt]
             pix = "yuv420p10le"
         else:
-            args += ["-preset", "medium", *rate, "-x265-params", x265]
+            args += ["-preset", s.video_effort, *rate, "-x265-params", x265]
             pix = "yuv420p10le" if ten_bit else "yuv420p"
     elif is_gpu(encoder):
         args += _gpu_quality_args(encoder, q if q is not None else encoder_quality(s, encoder), pixels=pixels)
         pix = gpu_pix
     elif encoder == "libsvtav1":
-        args += ["-crf", str(q), "-preset", str(SVT_PROBE_PRESET if probe else 6)]
+        args += ["-crf", str(q), "-preset", str(SVT_PROBE_PRESET if probe else svt_preset(s))]
         if svt:
             args += ["-svtav1-params", svt]
         pix = "yuv420p10le"
     else:  # libx265
-        args += ["-crf", str(q), "-preset", "veryfast" if probe else "medium", "-x265-params", x265]
+        args += ["-crf", str(q), "-preset", "veryfast" if probe else s.video_effort, "-x265-params", x265]
         pix = "yuv420p10le" if ten_bit else "yuv420p"
     if cap and encoder != "libsvtav1":
         args += ["-maxrate", f"{cap}k", "-bufsize", f"{cap * 2}k"]

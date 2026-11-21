@@ -1116,6 +1116,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_welcome_pending", False):
             self._welcome_pending = False
             QTimer.singleShot(300, self._welcome)       # once the window is on screen
+        elif not getattr(self, "_tradeoff_checked", False) and self.qsettings.value("welcome_done", False, bool):
+            self._tradeoff_checked = True                # (people who used Wick before the question existed)
+            QTimer.singleShot(1500, self.ask_tradeoff)
 
     def _welcome(self) -> None:
         from .welcome import WelcomeDialog
@@ -1128,8 +1131,30 @@ class MainWindow(QMainWindow):
             if result == WelcomeDialog.Accepted:
                 self.go_to(self.home)
                 self.home.analyze()
+            QTimer.singleShot(400, self.ask_tradeoff)
         dlg.finished.connect(closed)
         dlg.open()                    # (window-modal, doesn't block the event loop)
+
+    TRADEOFF_ASKED = "tradeoff/asked"
+
+    def ask_tradeoff(self) -> None:
+        """Once: smaller files, or faster? The answer sets JPEG XL effort and the processor speed for videos
+        (both still in the compression options)."""
+        if self.qsettings.value(self.TRADEOFF_ASKED, False, bool):
+            return
+        from .. import tradeoff
+        from .tradeoff_dialog import TradeoffDialog
+
+        dlg = TradeoffDialog(self)
+        self._tradeoff_dialog = dlg
+
+        def closed(_result: int) -> None:
+            self.qsettings.setValue(self.TRADEOFF_ASKED, True)
+            s = tradeoff.apply(dlg.choice(), self.compress.panel.settings())
+            self.compress.panel.load(s)
+            self.save_settings()
+        dlg.finished.connect(closed)
+        dlg.open()
 
     def show_window(self) -> None:
         from .. import power

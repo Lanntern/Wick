@@ -271,7 +271,11 @@ class SettingsPanel(QWidget):
         self.video_codec.setToolTip("Automatic: HEVC for videos from cameras and phones (AV1 smooths away fine grain "
                                     "and detail in those), AV1 for everything else.\nAV1: smallest files. HEVC: "
                                     "plays on more older devices.")
-        self.video_encoder.setToolTip("Automatic uses the NVIDIA GPU when available (fast), otherwise the CPU (slow).")
+        self.video_encoder.setToolTip("Automatic uses the graphics card when it can, which is fast, and the processor "
+                                      "otherwise.")
+        self.video_effort = _combo([("Faster", "medium"), ("Slower, smaller files", "slow")],
+                                   "How hard the processor works on each video. Slower makes files about 5% "
+                                   "smaller but takes about twice as long. Graphics card encodes aren't affected.")
         self.video_quality = _combo([("Visually identical", "identical"), ("High", "high"),
                                      ("Balanced", "balanced"), ("Smallest", "small"), ("Custom", "custom")],
                                     "Visually identical encodes short test clips, compares them with the original "
@@ -282,6 +286,7 @@ class SettingsPanel(QWidget):
         self.gpu_label = _muted("Checking GPU…")
         f.addRow("Codec", self.video_codec)
         f.addRow("Encoder", self.video_encoder)
+        f.addRow("Processor speed", self.video_effort)
         f.addRow("Quality", self.video_quality)
         f.addRow("Quality value", self.video_crf)
         self.video_height = _combo([("Original", 0), ("4K (2160p)", 2160), ("1440p", 1440), ("1080p", 1080),
@@ -522,7 +527,8 @@ class SettingsPanel(QWidget):
 
     def _signals(self):
         combos = (self.image_format, self.jpeg_mode, self.png_mode, self.jpeg_progressive, self.jpeg_subsampling,
-                  self.resize_mode, self.metadata, self.video_codec, self.video_encoder, self.video_quality,
+                  self.resize_mode, self.metadata, self.video_codec, self.video_encoder, self.video_effort,
+                  self.video_quality,
                   self.output_mode, self.smart_target, self.video_height, self.video_fps, self.audio,
                   self.audio_lossless, self.audio_lossy, self.audio_format, self.audio_quality, self.video_jobs,
                   self.video_tracks, self.documents, self.video_metric)
@@ -571,6 +577,7 @@ class SettingsPanel(QWidget):
         sec["Resize images"].setVisible(has("image") and images)
 
         videos = self.video_codec.currentData() != "none"
+        show(self.video_effort, videos and self.video_encoder.currentData() != "gpu")
         for w in (self.video_encoder, self.video_quality, self.video_height, self.video_fps, self.audio,
                   self.video_cadence, self.gpu_label, self.video_tracks):
             show(w, videos)
@@ -613,6 +620,7 @@ class SettingsPanel(QWidget):
         _set_combo(self.metadata, s.metadata)
         _set_combo(self.video_codec, s.video_codec)
         _set_combo(self.video_encoder, s.video_encoder)
+        _set_combo(self.video_effort, s.video_effort)
         _set_combo(self.video_quality, s.video_quality)
         self.video_crf.setValue(s.video_crf)
         _set_combo(self.video_tracks, s.video_tracks)
@@ -668,6 +676,7 @@ class SettingsPanel(QWidget):
             resize_height=self.resize_h.value(), resize_percent=self.resize_pct.value(),
             metadata=self.metadata.currentData(),
             video_codec=self.video_codec.currentData(), video_encoder=self.video_encoder.currentData(),
+            video_effort=self.video_effort.currentData(),
             video_quality=self.video_quality.currentData(), video_crf=self.video_crf.value(),
             video_tracks=self.video_tracks.currentData(),
             languages=self._languages,

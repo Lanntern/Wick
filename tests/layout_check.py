@@ -54,6 +54,7 @@ from wick.gui.language_dialog import LanguageDialog  # noqa: E402
 from wick.gui.main_window import MainWindow, ShortcutsDialog  # noqa: E402
 from wick.gui.preview import PreviewDialog  # noqa: E402
 from wick.gui.theme import apply_theme  # noqa: E402
+from wick.gui.tradeoff_dialog import TradeoffDialog  # noqa: E402
 from wick.gui.welcome import WelcomeDialog  # noqa: E402
 from wick.gui.widgets import _BodyScroll  # noqa: E402
 from wick.scanner import scan  # noqa: E402
@@ -218,7 +219,7 @@ for theme in ("light", "dark"):
             settle(3)
             check(d, f"{theme} Preview ({e.kind}) {d.width()}x{d.height()}")
         d.done(0)
-    for make in (AboutDialog, ShortcutsDialog, lambda p: LanguageDialog([], p), WelcomeDialog):
+    for make in (AboutDialog, ShortcutsDialog, lambda p: LanguageDialog([], p), WelcomeDialog, TradeoffDialog):
         d = make(w)
         d.show()
         settle()

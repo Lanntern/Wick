@@ -42,6 +42,7 @@ class Settings:
     # Videos
     video_codec: str = "auto"        # auto (HEVC for camera/phone videos, else AV1) | av1 | hevc | none
     video_encoder: str = "auto"      # auto | gpu | cpu
+    video_effort: str = "medium"     # processor encodes: medium | slow (about 5% smaller, about twice as long)
     video_quality: str = "balanced"  # identical (measured: smallest that's visually identical) | high | balanced | small
     #                                  | custom (video_crf)
     video_crf: int = 24              # "custom": the encoder's constant-quality value (CRF/CQ; lower = better)
@@ -154,6 +155,7 @@ class Settings:
         self.video_codec = pick(self.video_codec, VIDEO_CODECS, "auto")
         self.video_encoder = pick(self.video_encoder, VIDEO_ENCODERS, "auto")
         self.video_quality = pick(self.video_quality, VIDEO_QUALITIES, "balanced")
+        self.video_effort = pick(self.video_effort, ("medium", "slow"), "medium")
         self.video_tracks = pick(self.video_tracks, VIDEO_TRACKS, "all")
         self.video_grain = pick(self.video_grain, ("auto", "off"), "auto")
         self.video_metric = pick(self.video_metric, ("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli"), "auto")

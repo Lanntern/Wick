@@ -64,6 +64,7 @@ def win(tmp_path_factory):
     qs = QSettings(str(ini), QSettings.IniFormat)
     qs.setValue("home/auto_analyze", False)  # don't scan the real Pictures folder
     qs.setValue("welcome_done", True)        # (the welcome has its own test)
+    qs.setValue("tradeoff/asked", True)      # (so has the speed-or-size question)
     qs.sync()
     del qs
 
@@ -2623,3 +2624,40 @@ def test_the_command_bar_finds_pages_tools_and_actions(win, monkeypatch):
     bar.field.setText("history")
     bar._run_current()
     assert win.pages.currentWidget() is win.history
+
+
+
+def test_speed_or_size_is_asked_once_and_sets_the_defaults(win, monkeypatch):
+    from wick import tradeoff
+    from wick.gui import tradeoff_dialog
+
+    assert tradeoff.suggest(16, 32)[0] == "smaller" and tradeoff.suggest(4, 16)[0] == "faster"
+    assert tradeoff.suggest(8, 16)[0] == "balanced" and "8 processor threads" in tradeoff.suggest(8, 16)[1]
+    d = tradeoff_dialog.TradeoffDialog(win, suggested=("smaller", "Many cores."))
+    assert d.choice() == "smaller"
+    radios = {b.property("choice"): b for b in d.group.buttons()}
+    radios["faster"].setChecked(True)
+    assert d.choice() == "faster"
+
+    shown = []
+
+    class Fake:
+        def __init__(self, parent):
+            self.finished = type("S", (), {"connect": lambda _s, f: shown.append(f)})()
+
+        def choice(self):
+            return "smaller"
+
+        def open(self):
+            shown[-1](1)
+
+    monkeypatch.setattr(tradeoff_dialog, "TradeoffDialog", Fake)
+    win.qsettings.setValue("tradeoff/asked", False)
+    win.ask_tradeoff()
+    s = win.compress.panel.settings()
+    assert s.image_effort == 9 and s.video_effort == "slow" and tradeoff.choice_of(s) == "smaller"
+    assert win.qsettings.value("tradeoff/asked", False, bool)
+    shown.clear()
+    win.ask_tradeoff()                                       # once only
+    assert not shown
+    win.compress.panel.load(tradeoff.apply("balanced", win.compress.panel.settings()))
