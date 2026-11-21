@@ -70,6 +70,7 @@ class Settings:
     audio_quality: str = "balanced"  # high | balanced | small
     audio_mono: bool = True          # store as mono when both channels are identical
     audio_speech: bool = True        # long talk recordings (podcasts, audiobooks): mono at a lower bitrate
+    audio_fake_hires: bool = True    # "hi-res" that was upsampled from CD-type audio goes back to 44.1/48 kHz
     audio_cd_quality: bool = False   # reduce hi-res (88.2-192 kHz, 24-bit) to 44.1/48 kHz, 16-bit
     # Office documents and PDFs
     documents: str = "lossless"      # lossless (pictures inside shrunk, identical pixels) | reduce (+ large ones

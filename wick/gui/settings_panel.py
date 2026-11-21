@@ -384,6 +384,9 @@ class SettingsPanel(QWidget):
         self.audio_speech = QCheckBox("Smaller podcasts and audiobooks")
         self.audio_speech.setToolTip("Recordings of talk over 10 minutes are saved as mono at a lower bitrate, "
                                      "which is plenty for voices. Music is never affected.")
+        self.audio_fake_hires = QCheckBox("Undo upsampled hi-res")
+        self.audio_fake_hires.setToolTip("Some 88.2 to 192 kHz files are CD audio made bigger: nothing is there above "
+                                         "what 44.1 or 48 kHz holds. Those go back to that rate; real hi-res stays.")
         self.audio_cd = QCheckBox("Reduce hi-res to CD quality")
         self.audio_cd.setToolTip("Converts 96 or 192 kHz and 24-bit audio to 44.1 or 48 kHz and 16-bit. The "
                                  "difference is beyond what people can hear.")
@@ -393,6 +396,7 @@ class SettingsPanel(QWidget):
         f.addRow("Quality", self.audio_quality)
         f.addRow(self.audio_mono)
         f.addRow(self.audio_speech)
+        f.addRow(self.audio_fake_hires)
         f.addRow(self.audio_cd)
         self.sections.append(Section("Audio", g, False))
         lay.addWidget(self.sections[-1])
@@ -565,6 +569,7 @@ class SettingsPanel(QWidget):
                  self.min_audio_kb, self.video_crf)
         checks = (self.allow_delete, self.keep_structure, self.skip_programs, self.include_hidden,
                   self.low_priority, self.preserve_dates, self.require_savings, self.smart, self.audio_mono, self.audio_speech,
+                  self.audio_fake_hires,
                   self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
                   self.video_dup_audio, self.video_stereo, self.document_fonts,
                   self.video_chunked)
@@ -621,6 +626,7 @@ class SettingsPanel(QWidget):
         show(self.audio_mono, lossless != "keep" or lossy != "keep")
         show(self.audio_speech, uses_lossy)
         show(self.audio_cd, lossless == "flac")
+        show(self.audio_fake_hires, lossless == "flac" and not self.audio_cd.isChecked())
         sec["Audio"].setVisible(has("audio"))
         sec["Documents"].setVisible(has("document"))
 
@@ -681,6 +687,7 @@ class SettingsPanel(QWidget):
         self.document_fonts.setChecked(s.document_fonts)
         self.audio_mono.setChecked(s.audio_mono)
         self.audio_speech.setChecked(s.audio_speech)
+        self.audio_fake_hires.setChecked(s.audio_fake_hires)
         self.audio_cd.setChecked(s.audio_cd_quality)
         self.video_cadence.setChecked(s.video_fix_cadence)
         self.video_crop.setChecked(s.video_crop_bars)
@@ -730,6 +737,7 @@ class SettingsPanel(QWidget):
             audio_lossless=self.audio_lossless.currentData(), audio_lossy=self.audio_lossy.currentData(),
             audio_format=self.audio_format.currentData(), audio_quality=self.audio_quality.currentData(),
             audio_mono=self.audio_mono.isChecked(), audio_speech=self.audio_speech.isChecked(),
+            audio_fake_hires=self.audio_fake_hires.isChecked(),
             audio_cd_quality=self.audio_cd.isChecked(),
             min_audio_kb=self.min_audio_kb.value(), video_fix_cadence=self.video_cadence.isChecked(),
             video_crop_bars=self.video_crop.isChecked(),

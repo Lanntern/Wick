@@ -120,3 +120,87 @@ def test_jpeg_and_png_carry_the_mark_without_changing_a_pixel(tmp_path):
 
     entry = FileEntry(jpg, jpg.stat().st_size, JPEG, 0, image=read_image_info(jpg, JPEG), picked=True)
     assert plan_entry(entry, s).reason == "Already compressed with Wick"
+
+
+@needs_ffmpeg
+def test_every_picture_is_kept_and_stored_smaller(tmp_path):
+    front, back = _big_png(tmp_path / "front.png"), tmp_path / "back.png"
+    from PIL import Image
+
+    Image.new("RGB", (900, 900), (30, 60, 90)).save(back, compress_level=0)
+    src = tmp_path / "album.flac"
+    ffmpeg("-f", "lavfi", "-i", MUSIC.format(d=5), "-i", str(front), "-i", str(back), "-map", "0", "-map", "1",
+           "-map", "2", "-c:v", "copy", "-disposition:v", "attached_pic", "-metadata:s:v:0", "comment=Cover (front)",
+           "-metadata:s:v:1", "comment=Cover (back)", str(src))
+    info = probe_audio(src)
+    assert len(audio.pictures_of(info)) == 2
+    plan = plan_entry(_entry(src, info), Settings(audio_lossless="flac"))
+    out = audio.convert_audio(src, info, plan, Settings(audio_lossless="flac"))
+    try:
+        got = probe_audio(out)
+        pics = audio.pictures_of(got)
+        assert len(pics) == 2 and {p[2].get("comment") for p in pics} == {"Cover (front)", "Cover (back)"}
+        assert "album art stored smaller" in plan.outcome
+    finally:
+        out.unlink(missing_ok=True)
+
+
+@needs_ffmpeg
+def test_upsampled_hi_res_is_told_from_the_real_thing(tmp_path):
+    fake, real = tmp_path / "fake.flac", tmp_path / "real.flac"
+    # CD audio made 96 kHz: nothing above 22 kHz. Real hi-res: some sound up there, however quiet.
+    ffmpeg("-f", "lavfi", "-i", "anoisesrc=c=pink:r=44100:d=40:a=0.3", "-ar", "96000", "-sample_fmt", "s32",
+           str(fake))
+    ffmpeg("-f", "lavfi", "-i", "anoisesrc=c=pink:r=96000:d=40:a=0.3", "-sample_fmt", "s32", str(real))
+    assert audio.upsampled_from(fake, probe_audio(fake)) == 48000      # (the 96 kHz family's base)
+    assert audio.upsampled_from(real, probe_audio(real)) == 0
+    s = Settings(audio_lossless="flac")
+    plan = plan_entry(_entry(fake, probe_audio(fake)), s)
+    assert plan.audio_rate == 48000 and "upsampled" in plan.reason
+    out = audio.convert_audio(fake, probe_audio(fake), plan, s)
+    try:
+        assert probe_audio(out).sample_rate == 48000
+    finally:
+        out.unlink(missing_ok=True)
+    assert plan_entry(_entry(fake, probe_audio(fake)), Settings(audio_lossless="flac",
+                                                                audio_fake_hires=False)).audio_rate == 0
+
+
+def _pad_id3(path, pad: int) -> None:
+    """Grow the ID3v2 tag at the start of ``path`` by ``pad`` zero bytes (as some taggers leave it)."""
+    data = path.read_bytes()
+    assert data[:3] == b"ID3"
+    size = sum((b & 0x7F) << (7 * (3 - i)) for i, b in enumerate(data[6:10]))
+    new = size + pad
+    head = data[:6] + bytes((new >> (7 * (3 - i))) & 0x7F for i in range(4))
+    path.write_bytes(head + data[10:10 + size] + b"\0" * pad + data[10 + size:])
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("ext", [".mp3", ".flac"])
+def test_big_tag_padding_is_removed_and_nothing_else_changes(tmp_path, ext):
+    src = tmp_path / f"song{ext}"
+    ffmpeg("-f", "lavfi", "-i", MUSIC.format(d=10), "-metadata", "title=Song", "-metadata", "artist=Band",
+           *(["-c:a", "libmp3lame", "-b:a", "96k", "-id3v2_version", "3"] if ext == ".mp3" else []), str(src))
+    if ext == ".mp3":
+        _pad_id3(src, 300_000)
+    else:                                      # (a FLAC with a big PADDING block, as some taggers write)
+        data = bytearray(src.read_bytes())
+        pos = 4
+        while not data[pos] & 0x80:
+            pos += 4 + int.from_bytes(data[pos + 1:pos + 4], "big")
+        data[pos] &= 0x7F
+        end = pos + 4 + int.from_bytes(data[pos + 1:pos + 4], "big")
+        block = bytes([0x81]) + (300_000).to_bytes(3, "big") + b"\0" * 300_000
+        src.write_bytes(bytes(data[:end]) + block + bytes(data[end:]))
+    assert audio.padding(src) >= 300_000
+    s = Settings(audio_lossless="keep", audio_lossy="reencode")      # (both off would leave audio alone)
+    info = probe_audio(src)
+    plan = plan_entry(_entry(src, info), s)
+    assert plan.convert and plan.route == "audio_padding", plan.reason
+    out = audio.convert_audio(src, info, plan, s)
+    try:
+        assert out.stat().st_size < src.stat().st_size - 290_000 and audio.padding(out) < 10_000
+        assert probe_audio(out).tags == info.tags
+    finally:
+        out.unlink(missing_ok=True)

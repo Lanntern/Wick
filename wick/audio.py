@@ -138,14 +138,63 @@ def _cover_metadata(src: Path, info: AudioInfo, folder: Path | None = None) -> P
     return meta
 
 
-def _cover_bytes(src: Path, info: AudioInfo) -> bytes:
-    if info.cover_index < 0 or info.cover_codec not in ("mjpeg", "png"):
+def _cover_bytes(src: Path, info: AudioInfo, index: int | None = None) -> bytes:
+    """The picture at stream ``index`` (default: the front cover) as stored."""
+    index = info.cover_index if index is None else index
+    codec = next((c for i, c, _t in info.pictures if i == index), info.cover_codec)
+    if index < 0 or codec not in ("mjpeg", "png"):
         return b""
     ffmpeg = tools.require("ffmpeg")
     proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-i", str(src), "-map",
-                      f"0:{info.cover_index}", "-c", "copy", "-f", "image2pipe", "-"], timeout=120, text=False,
+                      f"0:{index}", "-c", "copy", "-f", "image2pipe", "-"], timeout=120, text=False,
                      check=False)
     return (proc.stdout or b"") if proc.returncode == 0 else b""
+
+
+def pictures_of(info: AudioInfo) -> list[tuple[int, str, dict]]:
+    """The pictures that travel along (JPEG and PNG), front cover first; older probes knew only the cover."""
+    pics = [p for p in info.pictures if p[1] in ("mjpeg", "png")]
+    if not pics and info.cover_index >= 0 and info.cover_codec in ("mjpeg", "png"):
+        pics = [(info.cover_index, info.cover_codec, {})]
+    return sorted(pics, key=lambda p: p[0] != info.cover_index)
+
+
+def small_pictures(src: Path, info: AudioInfo, folder: Path | None = None) -> tuple[list, int]:
+    """[(stream index, the picture stored smaller or None to copy it as it is, its tags)], bytes saved."""
+    out: list[tuple[int, Path | None, dict]] = []
+    saved = 0
+    for index, _codec, tags in pictures_of(info):
+        data = _cover_bytes(src, info, index)
+        new = _smaller(data) if data else data
+        if len(new) < len(data):
+            path = temp_name(folder or src.parent, ".png" if new[:4] == b"\x89PNG" else ".jpg", "-cover")
+            path.write_bytes(new)
+            out.append((index, path, tags))
+            saved += len(data) - len(new)
+        else:
+            out.append((index, None, tags))
+    return out, saved
+
+
+def _picture_args(pictures: list, first_input: int) -> tuple[list[str], list[str]]:
+    """(input arguments, output arguments) that put every picture in: copied, or from its smaller file. The
+    smaller ones lose their stream tags on the way in, so the title and type ("Cover (back)") are set again."""
+    inputs, outputs = [], []
+    n = first_input
+    for out_i, (index, path, tags) in enumerate(pictures):
+        if path is None:
+            outputs += ["-map", f"0:{index}"]
+        else:
+            inputs += ["-i", str(path)]
+            outputs += ["-map", f"{n}:0"]
+            n += 1
+            for key in ("comment", "title"):
+                if tags.get(key):
+                    outputs += [f"-metadata:s:v:{out_i}", f"{key}={tags[key]}"]
+        outputs += [f"-disposition:v:{out_i}", "attached_pic"]
+    if pictures:
+        outputs += ["-c:v", "copy"]
+    return inputs, outputs
 
 
 def _smaller(data: bytes) -> bytes:
@@ -153,17 +202,6 @@ def _smaller(data: bytes) -> bytes:
     from .documents import shrink_jpeg, shrink_png
 
     return shrink_png(data) if data[:8] == b"\x89PNG\r\n\x1a\n" else shrink_jpeg(data)
-
-
-def small_cover(src: Path, info: AudioInfo, folder: Path | None = None) -> tuple[Path | None, int]:
-    """(file with the album art stored smaller, bytes saved), or (None, 0) when it doesn't get smaller."""
-    data = _cover_bytes(src, info)
-    new = _smaller(data) if data else data
-    if len(new) >= len(data):
-        return None, 0
-    out = temp_name(folder or src.parent, ".png" if new[:4] == b"\x89PNG" else ".jpg", "-cover")
-    out.write_bytes(new)
-    return out, len(data) - len(new)
 
 
 def settings_tag(fmt: str, kbps: int, speech: bool) -> str:
@@ -174,22 +212,21 @@ def settings_tag(fmt: str, kbps: int, speech: bool) -> str:
 
 def build_args(src: Path, dst: Path, info: AudioInfo, s: Settings, fmt: str, mono: bool,
                meta: Path | None = None, kbps: int = 0, rate: int = 0, channels: int = 0,
-               cover: Path | None = None, speech: bool = False) -> list[str]:
+               pictures: list | None = None, speech: bool = False) -> list[str]:
     """``kbps``, ``rate`` and ``channels`` (Convert's per-file settings) override the automatic choices.
-    ``cover``: the album art stored smaller, used instead of the original's. ``speech``: mono, at the speech
-    bitrate."""
+    ``pictures``: from small_pictures (every picture copied when None). ``speech``: mono, at the speech
+    bitrate. Opus keeps only the front cover (in ``meta``)."""
     ffmpeg = tools.require("ffmpeg")
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
             "-i", str(src)]
     if meta is not None:
         args += ["-i", str(meta)]
-    art = fmt in ("flac", "aac", "mp3") and info.cover_index >= 0 and info.cover_codec in ("mjpeg", "png")
-    if art and cover is not None:
-        args += ["-i", str(cover)]
-    args += ["-map", f"0:{info.audio_index}"]
-    if art:
-        args += ["-map", f"{2 if meta is not None else 1}:0" if cover is not None else f"0:{info.cover_index}",
-                 "-c:v", "copy", "-disposition:v:0", "attached_pic"]
+    if fmt not in ("flac", "aac", "mp3"):
+        pictures = []
+    elif pictures is None:
+        pictures = [(index, None, tags) for index, _c, tags in pictures_of(info)]
+    pic_in, pic_out = _picture_args(pictures, 2 if meta is not None else 1)
+    args += pic_in + ["-map", f"0:{info.audio_index}"] + pic_out
     args += ["-map_metadata", "0"]
     if meta is not None:
         args += ["-map_metadata:s:a:0", "1:g"]
@@ -275,6 +312,125 @@ def is_speech(src: Path, info: AudioInfo) -> bool:
     return sum(verdicts) >= 2
 
 
+def upsampled_from(src: Path, info: AudioInfo) -> int:
+    """For "hi-res" audio that is really CD-type audio made bigger (nothing above what 44.1 or 48 kHz can hold):
+    that rate; else 0. Three 10-second stretches, averaged spectrum: above the lower rate's limit there must be 60 dB
+    less sound per Hz than just under it (real recordings fade gently; upsampling leaves a wall)."""
+    import numpy as np
+
+    rate = info.sample_rate
+    if rate <= 48000 or info.duration < 15:
+        return 0
+    target = 44100 if rate % 44100 == 0 else 48000
+    ffmpeg = tools.require("ffmpeg")
+    n = 16384
+    power = np.zeros(n // 2 + 1)
+    for at in (0.25, 0.5, 0.75):
+        p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-ss", f"{info.duration * at:.1f}", "-t",
+                       "10", "-i", str(src), "-map", f"0:{info.audio_index}", "-ac", "1", "-f", "f32le", "-"],
+                      timeout=120, check=False, text=False)
+        pcm = np.frombuffer(p.stdout or b"", dtype="<f4")
+        if p.returncode != 0 or len(pcm) < n * 4:
+            return 0
+        frames = pcm[: len(pcm) // n * n].reshape(-1, n) * np.hanning(n)
+        power += (np.abs(np.fft.rfft(frames, axis=1)) ** 2).sum(axis=0)
+    hz = np.linspace(0, rate / 2, len(power))
+    # Energy per Hz just under the lower rate's limit, and well above it (past any resampler's roll-off).
+    mid = power[(hz > 12000) & (hz < target / 2 - 2500)].mean()
+    high = power[(hz > target / 2 + 1500) & (hz < min(rate / 2 * 0.9, 40000))].mean()
+    if mid <= power.mean() * 1e-7:
+        return 0                     # (hardly anything up there to judge by: leave it)
+    return target if high / mid < 1e-6 else 0      # 60 dB down: a resampler's wall, not a recording
+
+
+# ---------------------------------------------------------------- tag padding
+
+PADDING_MIN = 64 * 1024
+
+
+def padding(path: Path) -> int:
+    """Bytes of empty padding in a FLAC file's metadata or an MP3's ID3v2 tag (0 when unknown)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(10)
+            if head[:4] == b"fLaC":
+                f.seek(4)
+                total = 0
+                while True:
+                    block = f.read(4)
+                    if len(block) < 4:
+                        return 0
+                    size = int.from_bytes(block[1:4], "big")
+                    if block[0] & 0x7F == 1:
+                        total += size + 4
+                    if block[0] & 0x80:
+                        return total
+                    f.seek(size, 1)
+            if head[:3] == b"ID3":
+                parsed = _id3(f, head)
+                return parsed[2] - parsed[1] if parsed else 0
+    except OSError:
+        pass
+    return 0
+
+
+def _id3(f, head: bytes) -> tuple[int, int, int] | None:
+    """(major version, end of the last frame, end of the tag) of an ID3v2.3/2.4 tag without unsynchronisation,
+    extended header or footer (None for others, which are left alone)."""
+    major, flags = head[3], head[5]
+    if major not in (3, 4) or flags & 0xF0:
+        return None
+    size = sum((b & 0x7F) << (7 * (3 - i)) for i, b in enumerate(head[6:10]))
+    f.seek(10)
+    body = f.read(size)
+    pos = 0
+    while pos + 10 <= len(body) and body[pos:pos + 1] not in (b"\0", b""):
+        raw = body[pos + 4:pos + 8]
+        length = (sum((b & 0x7F) << (7 * (3 - i)) for i, b in enumerate(raw)) if major == 4
+                  else int.from_bytes(raw, "big"))
+        pos += 10 + length
+    if pos > len(body) or any(body[pos:]):
+        return None                     # (not all zeros after the frames: not plain padding)
+    return major, 10 + pos, 10 + size
+
+
+def trim_padding(src: Path, dst: Path) -> int:
+    """Write ``src`` to ``dst`` without the padding (FLAC: every PADDING block; ID3v2: the zeros after the
+    frames). Returns the bytes saved; the audio itself is copied byte for byte."""
+    data = src.read_bytes()
+    if data[:4] == b"fLaC":
+        pos, blocks = 4, []
+        while True:
+            header = data[pos:pos + 4]
+            size = int.from_bytes(header[1:4], "big")
+            if header[0] & 0x7F != 1:
+                blocks.append(bytearray(data[pos:pos + 4 + size]))
+            last = header[0] & 0x80
+            pos += 4 + size
+            if last:
+                break
+        if not blocks:
+            return 0
+        for b in blocks:
+            b[0] &= 0x7F
+        blocks[-1][0] |= 0x80
+        new = b"fLaC" + b"".join(bytes(b) for b in blocks) + data[pos:]
+    elif data[:3] == b"ID3":
+        import io
+
+        parsed = _id3(io.BytesIO(data), data[:10])
+        if parsed is None:
+            return 0
+        _major, frames_end, tag_end = parsed
+        size = frames_end - 10
+        synchsafe = bytes(((size >> (7 * (3 - i))) & 0x7F) for i in range(4))
+        new = data[:6] + synchsafe + data[10:frames_end] + data[tag_end:]
+    else:
+        return 0
+    dst.write_bytes(new)
+    return len(data) - len(new)
+
+
 def pcm_md5(path: Path, stream: str, mono: bool = False) -> str:
     """MD5 of the decoded audio as 32-bit samples (comparable across WAV, FLAC, ALAC...)."""
     ffmpeg = tools.require("ffmpeg")
@@ -317,6 +473,9 @@ def convert_audio(src: Path, info: AudioInfo, plan: Plan, s: Settings,
     fmt = plan.route.split("_", 1)[1]
     if fmt == "art":
         return _shrink_art(src, info, plan, on_progress, cancel)
+    if fmt == "padding":
+        return _trim(src, info, plan)
+    rate = rate or plan.audio_rate
     speech = plan.speech and not (kbps or channels)
     if speech:
         channels = 1
@@ -327,10 +486,10 @@ def convert_audio(src: Path, info: AudioInfo, plan: Plan, s: Settings,
         raise tools.Cancelled()
     out = temp_name(src.parent, FORMATS[fmt][0])
     meta = _cover_metadata(src, info) if fmt == "opus" else None
-    cover, art_saved = small_cover(src, info) if fmt != "opus" else (None, 0)
+    pictures, art_saved = small_pictures(src, info) if fmt != "opus" else ([], 0)
     try:
         steps.report(f"Encoding {steps.format_name(FORMATS[fmt][0])}")
-        tools.run_ffmpeg_progress(build_args(src, out, info, s, fmt, mono, meta, kbps, rate, channels, cover,
+        tools.run_ffmpeg_progress(build_args(src, out, info, s, fmt, mono, meta, kbps, rate, channels, pictures,
                                              speech), info.duration, on_progress, cancel)
         steps.report("Checking the result")
         verify_audio(src, info, out, fmt, mono, exact, channels)
@@ -348,7 +507,26 @@ def convert_audio(src: Path, info: AudioInfo, plan: Plan, s: Settings,
         raise
     finally:
         remove_quietly(meta)
-        remove_quietly(cover)
+        for _i, path, _t in pictures:
+            remove_quietly(path)
+
+
+def _trim(src: Path, info: AudioInfo, plan: Plan) -> Path:
+    """Only the tag padding removed; checked: the same sound and the same tags."""
+    steps.report("Removing empty space from the tags")
+    out = temp_name(src.parent, src.suffix)
+    try:
+        trim_padding(src, out)
+        got = probe_audio(out)
+        if got is None or got.tags != info.tags or len(pictures_of(got)) != len(pictures_of(info)):
+            raise VerificationFailed("the tags changed")
+        if pcm_md5(src, f"0:{info.audio_index}") != pcm_md5(out, f"0:{got.audio_index}"):
+            raise VerificationFailed("the sound changed")
+        plan.outcome = "empty space in the tags removed, sound and tags untouched"
+        return out
+    except BaseException:
+        remove_quietly(out)
+        raise
 
 
 ART_CONTAINERS = {".mp3", ".flac", ".m4a", ".m4b"}     # (Ogg keeps art in a comment: not swapped this way)
@@ -359,15 +537,17 @@ def _shrink_art(src: Path, info: AudioInfo, plan: Plan, on_progress, cancel) -> 
     from .images import NotWorthIt
 
     steps.report("Making the album art smaller")
-    cover, saved = small_cover(src, info)
-    if cover is None or saved < max(32 * 1024, src.stat().st_size * 0.03):
-        remove_quietly(cover)
+    pictures, saved = small_pictures(src, info)
+    if saved < max(32 * 1024, src.stat().st_size * 0.03):
+        for _i, path, _t in pictures:
+            remove_quietly(path)
         raise NotWorthIt("The album art is already stored about as small as it gets; original kept")
     out = temp_name(src.parent, src.suffix)
     ffmpeg = tools.require("ffmpeg")
+    pic_in, pic_out = _picture_args(pictures, 1)
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats",
-            "-i", str(src), "-i", str(cover), "-map", f"0:{info.audio_index}", "-map", "1:0", "-c", "copy",
-            "-disposition:v:0", "attached_pic", "-map_metadata", "0", "-metadata", f"{TAG}={settings_tag('art', 0, False)}"]
+            "-i", str(src), *pic_in, "-map", f"0:{info.audio_index}", *pic_out, "-c:a", "copy",
+            "-map_metadata", "0", "-metadata", f"{TAG}={settings_tag('art', 0, False)}"]
     if src.suffix.lower() == ".mp3":
         args += ["-id3v2_version", "3"]
     elif src.suffix.lower() in (".m4a", ".m4b"):
@@ -376,8 +556,8 @@ def _shrink_art(src: Path, info: AudioInfo, plan: Plan, on_progress, cancel) -> 
         tools.run_ffmpeg_progress(args + [str(out)], info.duration, on_progress, cancel)
         steps.report("Checking the result")
         got = probe_audio(out)
-        if got is None or got.cover_index < 0:
-            raise VerificationFailed("the album art went missing")
+        if got is None or len(pictures_of(got)) != len(pictures):
+            raise VerificationFailed("some of the album art went missing")
         if pcm_md5(src, f"0:{info.audio_index}") != pcm_md5(out, f"0:{got.audio_index}"):
             raise VerificationFailed("the sound changed")
         plan.outcome = "album art stored smaller (same pixels), sound untouched"
@@ -386,9 +566,10 @@ def _shrink_art(src: Path, info: AudioInfo, plan: Plan, on_progress, cancel) -> 
         remove_quietly(out)
         raise
     finally:
-        remove_quietly(cover)
+        for _i, path, _t in pictures:
+            remove_quietly(path)
 
 
 __all__ = ["convert_audio", "verify_audio", "is_lossless", "source_label", "target_kbps", "cd_target", "is_speech",
-           "made_by_wick", "small_cover", "SPEECH_KBPS", "ART_CONTAINERS",
+           "made_by_wick", "small_pictures", "upsampled_from", "padding", "trim_padding", "SPEECH_KBPS", "ART_CONTAINERS",
            "flac_problem", "identical_channels", "FORMATS", "BITRATE"]

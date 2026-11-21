@@ -304,6 +304,8 @@ class AudioInfo:
     cover_index: int = -1      # attached picture (album art) stream, -1 if none
     cover_codec: str = ""
     tags: dict = field(default_factory=dict)
+    # Every attached picture (album art: front, back, booklet...): (stream index, codec, its tags).
+    pictures: list = field(default_factory=list)
 
 
 def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
@@ -316,6 +318,7 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
         ignored("probe.probe_audio")
         return None
     audio, cover = None, None
+    pictures = []
     for st in data.get("streams", []):
         kind = st.get("codec_type")
         if kind == "audio" and (audio is None or (st.get("disposition", {}).get("default")
@@ -323,7 +326,10 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
             audio = st
         elif kind == "video":
             if st.get("disposition", {}).get("attached_pic"):
-                cover = cover or st
+                pictures.append((int(st.get("index", 0)), str(st.get("codec_name", "")),
+                                 {str(k).lower(): str(v) for k, v in (st.get("tags") or {}).items()}))
+                front = "front" in str((st.get("tags") or {}).get("comment", "")).lower()
+                cover = st if cover is None or front else cover
             elif not allow_video:
                 return None  # a real video stream: this is a video file
     if audio is None:
@@ -364,6 +370,7 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
         cover_index=int(cover.get("index", -1)) if cover is not None else -1,
         cover_codec=cover.get("codec_name", "") if cover is not None else "",
         tags=tags,
+        pictures=pictures,
     )
 
 

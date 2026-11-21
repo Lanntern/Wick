@@ -40,6 +40,7 @@ class Plan:
     resize: tuple[int, int] | None = None
     note: str = ""                # extra info shown to the user
     speech: bool = False          # audio: talk (podcast, audiobook): mono at the speech bitrate
+    audio_rate: int = 0           # audio: resample to this (hi-res audio that was upsampled from CD-type audio)
     outcome: str = ""             # filled in by the encoder (e.g. Smart quality's choice)
     raw_est: int = 0              # estimate before learning from past results (see calibration.py)
     dest: Path | None = None      # save exactly here ("Save As…" in the preview) instead of per the output mode
@@ -418,8 +419,8 @@ _FLAC_RATIO = {"pcm": 0.58, "flac": 0.97, "alac": 0.98, "ape": 1.03, "wavpack": 
 
 
 def _plan_audio(e: FileEntry, s: Settings) -> Plan:
-    from .audio import (ART_CONTAINERS, FORMATS, SPEECH_KBPS, cd_target, flac_problem, is_lossless, is_speech,
-                        made_by_wick, source_label, target_kbps)
+    from .audio import (ART_CONTAINERS, FORMATS, PADDING_MIN, SPEECH_KBPS, cd_target, flac_problem, is_lossless,
+                        is_speech, made_by_wick, padding, source_label, target_kbps, upsampled_from)
 
     if s.audio_lossless == "keep" and s.audio_lossy == "keep":
         return _skip("Audio conversion is off")
@@ -438,28 +439,33 @@ def _plan_audio(e: FileEntry, s: Settings) -> Plan:
     lossless_src = is_lossless(a.codec)
     extra = []
     if lossless_src and s.audio_lossless == "keep":
-        return _skip("Lossless audio is set to stay as it is")
+        return _padding_plan(e, padding, PADDING_MIN) or _skip("Lossless audio is set to stay as it is")
     if lossless_src and s.audio_lossless == "flac":
         problem = flac_problem(a, s)
         if problem:
             return _skip(problem)
         rate, bits = cd_target(a) if s.audio_cd_quality else (None, None)
+        fake = 0 if rate or not s.audio_fake_hires else _guess(upsampled_from, e, a)
+        if fake:
+            rate = fake
+            extra.append("the original was upsampled")
         ratio = _FLAC_RATIO.get("pcm" if a.codec.startswith("pcm_") else a.codec, 1.0)
         if rate or bits:
             ratio *= ((rate or a.sample_rate) * (bits or a.bits or 16)) / max(1, a.sample_rate * (a.bits or 16))
             extra.append(f"{(rate or a.sample_rate) / 1000:g} kHz/{bits or a.bits}-bit")
         lossless = not (rate or bits)
         desc = f"{src} → FLAC" + (" (lossless)" if lossless else "") + (f", {', '.join(extra)}" if extra else "")
-        return Plan(True, desc, ".flac", int(e.size * min(0.98, ratio)), lossless, False, "audio_flac")
+        return Plan(True, desc, ".flac", int(e.size * min(0.98, ratio)), lossless, False, "audio_flac",
+                    audio_rate=fake)
     fmt = s.audio_format
     kbps = target_kbps(fmt, s.audio_quality, a.channels)
     lossy_on = lossless_src or s.audio_lossy != "keep"
     speech = (lossy_on and s.audio_speech and fmt in SPEECH_KBPS and a.duration >= 600
-              and _speech(e, a, is_speech))
+              and _guess(is_speech, e, a))
     if speech:
         kbps = SPEECH_KBPS[fmt][s.audio_quality]
     if not lossless_src:
-        art = _art_plan(e, a, ART_CONTAINERS)
+        art = _art_plan(e, a, ART_CONTAINERS) or _padding_plan(e, padding, PADDING_MIN)
         if s.audio_lossy == "keep":
             return art or _skip(f"Already compressed ({src}); re-encoding is off")
         src_kbps = a.bit_rate / 1000
@@ -488,10 +494,20 @@ def _art_plan(e: FileEntry, a, containers) -> Plan | None:
                 e.size - int(art * 0.15), True, False, "audio_art")
 
 
-def _speech(e: FileEntry, a, detect) -> bool:
+def _padding_plan(e: FileEntry, measure, minimum: int) -> Plan | None:
+    """Only the empty space in the tags removed, for files that keep a lot of it."""
+    pad = measure(e.path)
+    if pad < minimum:
+        return None
+    return Plan(True, "Empty space in the tags removed; sound and tags untouched", e.path.suffix.lower(),
+                e.size - pad, True, False, "audio_padding")
+
+
+def _guess(detect, e: FileEntry, a):
+    """A check that reads the sound (speech, upsampling); when it can't tell, the answer is no."""
     try:
         return detect(e.path, a)
-    except Exception:  # noqa: BLE001 - can't tell: treat it as music
+    except Exception:  # noqa: BLE001
         from .log import ignored
-        ignored("plan._speech")
-        return False
+        ignored("plan._guess")
+        return 0
