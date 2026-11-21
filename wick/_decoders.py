@@ -68,8 +68,15 @@ def _windows_job(memory_limit: int) -> bool:
                     ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
                     ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
 
+    # (Every argument type declared: a handle passed as a plain int overflows ctypes' default C int.)
     k32.CreateJobObjectW.restype = wintypes.HANDLE
+    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
     k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.GetCurrentProcess.argtypes = []
+    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k32.SetInformationJobObject.restype = wintypes.BOOL
+    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    k32.AssignProcessToJobObject.restype = wintypes.BOOL
     job = k32.CreateJobObjectW(None, None)
     if not job:
         raise OSError(ctypes.get_last_error(), "CreateJobObject failed")
@@ -101,7 +108,21 @@ def _windows_low_integrity() -> str:
     adv = ctypes.WinDLL("advapi32", use_last_error=True)
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
     k32.GetCurrentProcess.restype = wintypes.HANDLE
+    k32.GetCurrentProcess.argtypes = []
+    adv.OpenProcessToken.argtypes = [wintypes.HANDLE, wintypes.DWORD, ctypes.POINTER(wintypes.HANDLE)]
+    adv.OpenProcessToken.restype = wintypes.BOOL
+    adv.ConvertStringSidToSidW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p)]
+    adv.ConvertStringSidToSidW.restype = wintypes.BOOL
+    adv.GetLengthSid.argtypes = [ctypes.c_void_p]
+    adv.GetLengthSid.restype = wintypes.DWORD
+    adv.SetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    adv.SetTokenInformation.restype = wintypes.BOOL
+    adv.GetTokenInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                        ctypes.POINTER(wintypes.DWORD)]
+    adv.GetTokenInformation.restype = wintypes.BOOL
+    adv.GetSidSubAuthority.argtypes = [ctypes.c_void_p, wintypes.DWORD]
     adv.GetSidSubAuthority.restype = ctypes.POINTER(wintypes.DWORD)
+    adv.GetSidSubAuthorityCount.argtypes = [ctypes.c_void_p]
     adv.GetSidSubAuthorityCount.restype = ctypes.POINTER(ctypes.c_ubyte)
 
     class SidAndAttributes(ctypes.Structure):
