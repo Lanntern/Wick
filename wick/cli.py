@@ -64,6 +64,8 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--drop-pivot-caches", action="store_true",
                    help="Excel: leave pivot table caches for Excel to rebuild when the file opens")
     g.add_argument("--zopfli", action="store_true", help="Office and e-books: denser, much slower compression")
+    g.add_argument("--zip-pictures", action="store_true", help="shrink the pictures inside .zip files")
+    g.add_argument("--keep-svg", action="store_true", help="leave SVG drawings as they are")
     g.add_argument("--keep-document-fonts", action="store_true",
                    help="Office and PDF: keep embedded fonts whole (by default they're cut to the characters used)")
     g.add_argument("--whole", action="store_true",
@@ -135,6 +137,7 @@ def _settings(a: argparse.Namespace) -> Settings:
         document_fonts=not a.keep_document_fonts, image_extras=not a.keep_previews,
         document_drop_editing=a.drop_editing_data, document_crop=a.crop_pictures,
         document_pivots=a.drop_pivot_caches, document_zopfli=a.zopfli,
+        archive_pictures=a.zip_pictures, image_svg=not a.keep_svg,
         video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
         video_drop_silent=a.drop_silent, video_dolby_vision=not a.skip_dolby_vision,
         video_chunked=not a.whole, video_metric=a.video_metric,

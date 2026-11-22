@@ -13,7 +13,7 @@ from . import steps, tools
 from .fileops import remove_quietly, temp_name
 from .images import NotWorthIt, VerificationFailed
 from .plan import Plan
-from .probe import VideoInfo, probe_video
+from .probe import StreamInfo, VideoInfo, probe_video
 from .settings import Settings
 
 # GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF). Each is used only if a short
@@ -421,6 +421,8 @@ def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
         keep_a = [a for a in keep_a if a not in copies]
     if s.video_drop_silent:
         keep_a = [a for a in keep_a if not a.silent]
+    if s.video_dup_audio:
+        keep_s = [t for t in keep_s if not t.duplicate]
     dropped = [x for x in audio + subs if x not in keep_a and x not in keep_s]
     return keep_a, keep_s, dropped
 
@@ -452,7 +454,8 @@ def tracks_note(info: VideoInfo, s: Settings) -> str:
     copies = sum(1 for a in dropped if a.kind == "audio" and a in lower_copies(info.audio_streams()))
     copies = copies if s.video_dup_audio else 0
     silent = sum(1 for a in dropped if a.kind == "audio" and a.silent) if s.video_drop_silent else 0
-    other = len(dropped) - copies - silent
+    twins = sum(1 for t in dropped if t.kind == "subtitle" and t.duplicate) if s.video_dup_audio else 0
+    other = len(dropped) - copies - silent - twins
     parts = []
     if other:
         parts.append(f"{other} track{'s' if other != 1 else ''} in other languages left out")
@@ -460,7 +463,34 @@ def tracks_note(info: VideoInfo, s: Settings) -> str:
         parts.append(f"{copies} lower-quality cop{'ies' if copies != 1 else 'y'} of a soundtrack left out")
     if silent:
         parts.append(f"{silent} silent soundtrack{'s' if silent != 1 else ''} left out")
+    if twins:
+        parts.append(f"{twins} duplicate subtitle track{'s' if twins != 1 else ''} left out")
     return ", ".join(parts)
+
+
+_TEXT_SUBTITLES = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
+
+
+def find_duplicate_subtitles(src: Path, info: VideoInfo) -> None:
+    """Mark text subtitle tracks that repeat another one in the same language (same lines at the same times,
+    styling aside). Of each set, a styled (ASS) track is kept over a plain one, else the first."""
+    import hashlib
+
+    seen: dict[tuple, StreamInfo] = {}
+    tracks = sorted((t for t in info.subtitle_streams() if t.codec in _TEXT_SUBTITLES),
+                    key=lambda t: (t.codec not in ("ass", "ssa"), t.index))
+    ffmpeg = tools.require("ffmpeg")
+    for t in tracks:
+        p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-i", str(src), "-map", f"0:{t.index}",
+                       "-f", "srt", "-"], timeout=300, check=False)
+        if p.returncode != 0 or not (p.stdout or "").strip():
+            continue
+        text = re.sub(r"<[^>]*>|\{[^}]*\}", "", p.stdout)
+        key = (t.language, t.forced, hashlib.sha256(re.sub(r"[ \t]+", " ", text).strip().encode()).hexdigest())
+        if key in seen:
+            t.duplicate = True
+        else:
+            seen[key] = t
 
 
 def analyse_audio(src: Path, info: VideoInfo, s: Settings, mp4: bool) -> None:
@@ -469,6 +499,14 @@ def analyse_audio(src: Path, info: VideoInfo, s: Settings, mp4: bool) -> None:
     from . import audio as audio_mod
     from .probe import AudioInfo
 
+    if s.video_dup_audio:
+        try:
+            find_duplicate_subtitles(src, info)
+        except tools.Cancelled:
+            raise
+        except Exception:  # noqa: BLE001 - every subtitle track stays
+            from .log import ignored
+            ignored("video.find_duplicate_subtitles")
     for st in info.audio_streams():
         one = AudioInfo(st.codec, 0, st.channels, st.bits, "", info.duration, st.bit_rate, st.index)
         encoded = bool(s.audio_bitrate) or packs_as_flac(st, mp4)
@@ -1270,7 +1308,7 @@ def convert_video(
     """Encode to a temp file next to ``src``; verify; return (temp path, encoder used)."""
     import tempfile
 
-    if plan.route != "video_remux" or s.video_drop_silent:
+    if plan.route != "video_remux" or s.video_drop_silent or s.video_dup_audio:
         steps.report("Listening to the soundtracks")
         analyse_audio(src, info, s, plan.target_ext.lower() == ".mp4")
     with tempfile.TemporaryDirectory(prefix="wick-fonts-") as folder:

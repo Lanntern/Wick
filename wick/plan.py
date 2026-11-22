@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import tools
 from .fileops import BIN_NAME, trash_available
-from .formats import AUDIO, AVIF, BMP, DOCUMENT, GIF, HEIC, JPEG, PNG, TIFF, VIDEO, WEBP, video_output_ext
+from .formats import AUDIO, AVIF, BMP, DOCUMENT, GIF, HEIC, JPEG, PNG, SVG, TIFF, VIDEO, WEBP, video_output_ext
 from .scanner import FileEntry
 from .settings import Settings
 
@@ -69,6 +69,8 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
         p = _plan_audio(entry, s)
     elif entry.kind == DOCUMENT:
         p = _plan_document(entry, s)
+    elif entry.kind == SVG:
+        p = _plan_svg(entry, s)
     else:
         p = _plan_image(entry, s)
     if p.convert and p.est_size:
@@ -81,6 +83,15 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
         return _skip(f"No {BIN_NAME} on this drive (USB/network). Choose another output option, "
                      "or allow permanent deletion")
     return p
+
+
+def _plan_svg(e: FileEntry, s: Settings) -> Plan:
+    if not s.image_svg:
+        return _skip("SVG cleanup is off")
+    if _too_small(e, 10 * 1024):
+        return _skip("Smaller than 10 KB")
+    return Plan(True, "Editor data, metadata and comments removed (drawn the same)", e.path.suffix.lower(),
+                int(e.size * 0.8), lossless=True, route="svg")
 
 
 def _plan_motion(e: FileEntry, s: Settings) -> Plan:
@@ -446,12 +457,14 @@ def _plan_document(e: FileEntry, s: Settings) -> Plan:
         jpeg, png, _other = documents.office_pictures(e.path)
     except documents.Unsupported as x:
         return _skip(str(x))
+    if ext == ".zip" and e.size > 2 * 1024 ** 3:
+        return _skip("Larger than 2 GB")
     extras = documents.office_extras(e.path)
     if jpeg + png < 50 * 1024 and extras < 50 * 1024 and not s.document_zopfli:
         return _skip("No pictures or fonts inside worth shrinking")
     saved = jpeg * (0.35 if reduce else 0.05) + png * (0.5 if reduce else 0.2) + extras * 0.5
-    what = {".epub": "E-book", ".cbz": "Comic book"}.get(ext, "Pictures inside shrunk")
-    if ext in (".epub", ".cbz"):
+    what = {".epub": "E-book", ".cbz": "Comic book", ".zip": "ZIP file"}.get(ext, "Pictures inside shrunk")
+    if ext in (".epub", ".cbz", ".zip"):
         what += ": pictures shrunk" + (", fonts cut" if ext == ".epub" and s.document_fonts else "")
     return Plan(True, f"{what} ({note})", ext, int(e.size - saved), lossless=not reduce, route="document")
 

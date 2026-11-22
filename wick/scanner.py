@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .formats import (
     _EXT_KIND, AUDIO, AUDIO_EXTS, CONVERT_INPUTS, CONVERT_ONLY_KINDS, DOC, DOCUMENT, DOCUMENT_EXTS, HEIC, IMAGE_KINDS,
-    ARCHIVE, COMIC, COMIC_EXTS, FONT, JXL, PDF, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
+    ARCHIVE, COMIC, COMIC_EXTS, FONT, JXL, PDF, SVG, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
     ImageInfo, classify, read_image_info, sniff,
 )
 from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
@@ -157,6 +157,11 @@ def _kind(p: Path, settings: Settings | None) -> str | None:
         return PDF                                    # (Convert: its own kind, with its own choices)
     if settings is not None and settings.convert_inputs and p.suffix.lower() in COMIC_EXTS:
         return COMIC                                  # (Convert: pages to pictures or PDF; Compress: a document)
+    if settings is not None and not settings.convert_inputs:
+        if p.suffix.lower() == ".svg" and settings.image_svg:
+            return SVG
+        if p.suffix.lower() == ".zip" and settings.archive_pictures:
+            return DOCUMENT                           # (its pictures, like a comic book's)
     kind = classify(p)
     if kind is None and settings is not None:
         ext = p.suffix.lower()

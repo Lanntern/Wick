@@ -221,6 +221,32 @@ def place_output(entry: FileEntry, st: os.stat_result, tmp: Path, dest: Path, s:
     return dest
 
 
+def _clean_svg(src: Path) -> Path:
+    """An SVG without editor data, metadata, comments and excess digits (icons.optimize_svg), next to ``src``,
+    checked in the decoder worker to draw the same."""
+    from . import icons, sandbox
+    from .fileops import remove_quietly, temp_name
+    from .images import NotWorthIt, VerificationFailed
+
+    original = src.read_bytes()
+    try:
+        smaller = icons.optimize_svg(original)
+    except ValueError as e:
+        raise NotWorthIt("Can't be read as an SVG; left as it is") from e
+    if len(smaller) >= len(original) * 0.97:
+        raise NotWorthIt("Nothing worth removing; original kept")
+    out = temp_name(src.parent, src.suffix)
+    try:
+        out.write_bytes(smaller)
+        steps.report("Checking the result")
+        if not sandbox.svg_same(src, out):
+            raise VerificationFailed("The cleaned drawing doesn't look the same")
+        return out
+    except BaseException:
+        remove_quietly(out)
+        raise
+
+
 def process_file(
     entry: FileEntry,
     plan: Plan,
@@ -256,6 +282,9 @@ def process_file(
             tmp = optimize(src, reduce=s.documents == "reduce", fonts=s.document_fonts,
                            editing=s.document_drop_editing, crop=s.document_crop, pivots=s.document_pivots,
                            zopfli=s.document_zopfli)
+        elif plan.route == "svg":
+            steps.report("Removing editor data")
+            tmp = _clean_svg(src)
         else:
             tmp = convert_image(src, entry.kind, entry.image, plan, s)
         if cancel is not None and cancel.is_set():

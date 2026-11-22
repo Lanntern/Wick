@@ -259,6 +259,10 @@ class SettingsPanel(QWidget):
                                      "in its details. Viewers make their own. HDR gain maps and other pictures "
                                      "that change how the photo looks are always kept.")
         f.addRow(self.image_extras)
+        self.image_svg = QCheckBox("Clean up SVG drawings")
+        self.image_svg.setToolTip("Removes what only the editor needed (Inkscape settings, metadata, comments). "
+                                  "Each drawing is drawn before and after and only kept if it looks the same.")
+        f.addRow(self.image_svg)
         self.preserve_dates = QCheckBox("Keep original file dates")
         self.preserve_dates.setToolTip("Results get the original's modified and created dates, so photos stay "
                                        "sorted by when they were taken.")
@@ -313,9 +317,10 @@ class SettingsPanel(QWidget):
                                    "the ones in languages you don't use, but always keeps the main soundtrack.")
         self.video_tracks.setAccessibleName("Audio and subtitle tracks")
         f.addRow("Tracks", self.video_tracks)
-        self.video_dup_audio = QCheckBox("Leave out lower-quality copies of a soundtrack")
+        self.video_dup_audio = QCheckBox("Leave out duplicate soundtracks and subtitles")
         self.video_dup_audio.setToolTip("Blu-ray films often have the same soundtrack twice: lossless, and a "
-                                        "smaller copy for older players. This keeps only the lossless one. "
+                                        "smaller copy for older players. This keeps only the lossless one, and of "
+                                        "subtitle tracks with the same lines in the same language, keeps one. "
                                         "Commentaries always stay.")
         f.addRow(self.video_dup_audio)
         self.video_stereo = QCheckBox("Mix surround sound down to stereo")
@@ -451,6 +456,10 @@ class SettingsPanel(QWidget):
         self.document_zopfli.setToolTip("Compresses the text inside Office files and e-books with Zopfli: a few "
                                         "percent smaller, many times slower. Every app opens them as before.")
         f.addRow(self.document_zopfli)
+        self.archive_pictures = QCheckBox("Shrink pictures inside ZIP files")
+        self.archive_pictures.setToolTip("Stores the JPEG and PNG pictures inside .zip files smaller, with identical "
+                                         "pixels. Everything else inside stays byte for byte the same.")
+        f.addRow(self.archive_pictures)
         f.addRow(_muted("Signed and password-protected documents are left alone."))
         self.sections.append(Section("Documents", g, False))
         lay.addWidget(self.sections[-1])
@@ -608,6 +617,7 @@ class SettingsPanel(QWidget):
                   self.video_dup_audio, self.video_stereo, self.document_fonts,
                   self.video_drop_silent, self.video_dolby_vision, self.image_extras,
                   self.document_drop_editing, self.document_crop, self.document_pivots, self.document_zopfli,
+                  self.image_svg, self.archive_pictures,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -722,6 +732,8 @@ class SettingsPanel(QWidget):
         _set_combo(self.documents, s.documents)
         self.document_fonts.setChecked(s.document_fonts)
         self.image_extras.setChecked(s.image_extras)
+        self.image_svg.setChecked(s.image_svg)
+        self.archive_pictures.setChecked(s.archive_pictures)
         self.document_drop_editing.setChecked(s.document_drop_editing)
         self.document_crop.setChecked(s.document_crop)
         self.document_pivots.setChecked(s.document_pivots)
@@ -791,6 +803,7 @@ class SettingsPanel(QWidget):
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
             document_fonts=self.document_fonts.isChecked(), image_extras=self.image_extras.isChecked(),
+            image_svg=self.image_svg.isChecked(), archive_pictures=self.archive_pictures.isChecked(),
             document_drop_editing=self.document_drop_editing.isChecked(),
             document_crop=self.document_crop.isChecked(), document_pivots=self.document_pivots.isChecked(),
             document_zopfli=self.document_zopfli.isChecked(),

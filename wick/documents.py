@@ -129,7 +129,7 @@ def office_pictures(path: Path) -> tuple[int, int, int]:
         raise Unsupported("Password-protected, or not a standard Office document") from e
     if any(i.filename.lower().startswith(_SIGNATURES) for i in infos):
         raise Unsupported("Digitally signed: any change would break the signature")
-    book = path.suffix.lower() in (".epub", ".cbz")
+    book = path.suffix.lower() in (".epub", ".cbz", ".zip")
     jpeg = png = other = 0
     for i in infos:
         if _picture_part(i.filename, book):
@@ -217,11 +217,13 @@ def optimize_office(src: Path, reduce: bool = False, long_edge: int = REDUCE_LON
 
     office_pictures(src)        # raises Unsupported for signed / encrypted files
     ext = src.suffix.lower()
-    book = ext in (".epub", ".cbz")
+    book = ext in (".epub", ".cbz", ".zip")
     out = temp_name(src.parent, src.suffix)
     try:
         with zipfile.ZipFile(src) as zin:
             infos = zin.infolist()
+            if any(i.flag_bits & 0x1 for i in infos):
+                raise Unsupported("Password-protected")
             pkg = officeslim.Package([i.filename for i in infos], {i.filename: zin.read(i) for i in infos})
         if fonts:
             if ext == ".epub":

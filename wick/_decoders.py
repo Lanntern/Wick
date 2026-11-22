@@ -266,8 +266,27 @@ def display_image(path: str, max_pixels: int):
     return _rgba(open_for_display(Path(path)), int(max_pixels))
 
 
+_GUI: list = []
+
+
+def svg_same(a: str, b: str):
+    """Do two SVG drawings look the same (drawn at 256 and 1024 pixels)? Qt draws them here, in an off-screen
+    application of the worker's own, so a hostile drawing can't harm the app (and no window is needed)."""
+    from pathlib import Path
+
+    if not _GUI:
+        from PySide6.QtGui import QGuiApplication
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        _GUI.append(QGuiApplication.instance() or QGuiApplication(["wick-decoder"]))
+    from .icons import looks_same
+
+    x, y = Path(a).read_bytes(), Path(b).read_bytes()
+    return {"result": bool(looks_same(x, y, 256) and looks_same(x, y, 1024))}, None
+
+
 FUNCTIONS: dict[str, Callable] = {f.__name__: f for f in (broken_check, similar_fingerprint, similar_inspect, thumbnail,
-                                                          display_image)}
+                                                          display_image, svg_same)}
 
 
 def _test_sleep(seconds: float):

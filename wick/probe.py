@@ -36,6 +36,7 @@ class StreamInfo:
     silent: bool = False       # nothing above -60 dB from start to end
     identical: bool = False    # stereo whose two channels carry the same signal
     speech: bool = False       # talk (a lecture, a meeting) rather than music or a film's sound
+    duplicate: bool = False    # subtitles: the same lines and times as another track in the language
     filename: str = ""         # attachment: its file name inside the video
     mimetype: str = ""         # attachment: its type ("application/x-truetype-font")
     size: int = 0              # attachment: bytes
