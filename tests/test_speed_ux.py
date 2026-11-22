@@ -242,18 +242,41 @@ def test_summaries_say_what_happens_where_space_comes_from_and_why_files_were_le
 
 def test_helper_processes_end_with_the_app():
     """The pool's workers hold both ends of their job queue: they only stop when told to, so stop() ends them
-    (the app exits with os._exit, which skips the pool's own atexit). A private pool: other tests' background
-    work can't share it."""
-    import multiprocessing
-    from concurrent.futures import ProcessPoolExecutor
+    (the app exits with os._exit, which skips the pool's own atexit), and kills any that ignore the request.
+    (Stand-in processes: real ones on a loaded CI machine made this timing-dependent; the macOS smoke test
+    checks the real thing, a built app that exits after using its helpers.)"""
+    from wick import procpool
 
-    from wick import _workers, procpool
+    class Worker:
+        def __init__(self, ignores_stop: bool):
+            self.ignores_stop, self.alive, self.calls = ignores_stop, True, []
 
-    pool = ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context("spawn"))
-    pool.submit(_workers.set_low_priority, False).result(timeout=120)
-    workers = list(pool._processes.values())
-    assert workers
+        def terminate(self):
+            self.calls.append("terminate")
+            if not self.ignores_stop:
+                self.alive = False
+
+        def kill(self):
+            self.calls.append("kill")
+            self.alive = False
+
+        def join(self, timeout=None):
+            self.calls.append("join")
+
+        def is_alive(self):
+            return self.alive
+
+    class Pool:
+        def __init__(self):
+            self._processes = {1: Worker(False), 2: Worker(True)}
+            self.shut = None
+
+        def shutdown(self, wait=True, cancel_futures=False):
+            self.shut = (wait, cancel_futures)
+
+    pool = Pool()
+    polite, stubborn = pool._processes[1], pool._processes[2]
     procpool.stop(pool)
-    for p in workers:
-        p.join(30)
-        assert not p.is_alive()
+    assert pool.shut == (False, True)
+    assert not polite.alive and "kill" not in polite.calls
+    assert not stubborn.alive and stubborn.calls[:1] == ["terminate"] and "kill" in stubborn.calls
