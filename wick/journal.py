@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -23,6 +24,8 @@ def data_dir() -> Path:
     else:
         if os.name == "nt":
             base, names = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"), [APP_NAME, *FORMER_NAMES]
+        elif sys.platform == "darwin":
+            base, names = Path.home() / "Library" / "Application Support", [APP_NAME, *FORMER_NAMES]
         else:
             base = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share")
             names = [n.lower() for n in (APP_NAME, *FORMER_NAMES)]

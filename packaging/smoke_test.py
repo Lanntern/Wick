@@ -39,7 +39,7 @@ def gui_start(exe: Path, work: Path) -> bool:
 
 def main() -> int:
     app = Path(sys.argv[1])
-    exe = next(p for p in (app / "Wick.exe", app / "Wick") if p.exists())
+    exe = next(p for p in (app / "Wick.exe", app / "Wick", app / "Contents" / "MacOS" / "Wick") if p.exists())
     work = Path(tempfile.mkdtemp(prefix="smoke-åäö-"))
     src = work / "in"
     src.mkdir()
@@ -124,7 +124,8 @@ def main() -> int:
     except (OSError, ValueError):
         check = {}
     applied = check.get("applied") or {}
-    decoder_ok = bool(check.get("ok")) and applied.get("integrity") == "low" and applied.get("job") is True
+    decoder_ok = bool(check.get("ok")) and "error" not in applied and (
+        os.name != "nt" or (applied.get("integrity") == "low" and applied.get("job") is True))
     print(f"decoder worker: exit {proc.returncode}, {check} {'OK' if decoder_ok else 'FAILED'}")
     failed |= not decoder_ok
     applog = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Wick" / "logs" / "wick.log"

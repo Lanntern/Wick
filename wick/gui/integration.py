@@ -14,6 +14,8 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from .. import APP_NAME
 
 IS_WINDOWS = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
+HAS_MENU = not IS_MAC          # (macOS: Finder's Open With comes from the app bundle; no per-user menu to add)
 _MENU_KEYS = (r"Software\Classes\*\shell\Wick", r"Software\Classes\Directory\shell\Wick")
 # "Convert with Wick": one submenu per kind of file (Windows' perceived types), with the usual formats.
 _CONVERT_KEY = r"Software\Classes\SystemFileAssociations\{kind}\shell\WickConvert"
@@ -43,6 +45,8 @@ def _quote(parts: list[str]) -> str:
 # ------------------------------------------------------------------ context menu
 
 def context_menu_installed() -> bool:
+    if IS_MAC:
+        return False
     if IS_WINDOWS:
         import winreg
 
@@ -145,6 +149,8 @@ def install_context_menu() -> None:
                 with winreg.CreateKey(winreg.HKEY_CURRENT_USER, item + r"\command") as k:
                     winreg.SetValueEx(k, None, 0, winreg.REG_SZ, _quote(launch_command(*extra)) + ' "%1"')
         install_modern_menu()
+        return
+    if IS_MAC:
         return
     path = _desktop_file()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -394,7 +400,16 @@ def _desktop_entry(extra: str = "%F") -> str:
 
 # ------------------------------------------------------------------ start at login
 
+_LAUNCH_AGENT = "com.lanntern.wick.plist"
+
+
+def _launch_agent() -> Path:
+    return Path.home() / "Library" / "LaunchAgents" / _LAUNCH_AGENT
+
+
 def autostart_enabled() -> bool:
+    if IS_MAC:
+        return _launch_agent().exists()
     if IS_WINDOWS:
         import winreg
 
@@ -408,6 +423,23 @@ def autostart_enabled() -> bool:
 
 
 def set_autostart(enabled: bool) -> None:
+    if IS_MAC:
+        # A LaunchAgent: macOS starts Wick (in the background) when you sign in.
+        import plistlib
+
+        path = _launch_agent()
+        if enabled:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "wb") as f:
+                plistlib.dump({"Label": _LAUNCH_AGENT.removesuffix(".plist"),
+                               "ProgramArguments": launch_command("--background"),
+                               "RunAtLoad": True, "ProcessType": "Interactive"}, f)
+        else:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        return
     if IS_WINDOWS:
         import winreg
 

@@ -138,8 +138,13 @@ class AppSettingsTab(Page):
         self.menu.toggled.connect(self._menu_toggled)
         menu_desc = ("Adds Compress with Wick and Convert with Wick when you right-click files and folders."
                      if integration.IS_WINDOWS else "Adds Wick to your file manager's Open With menu.")
-        card.lay.addWidget(setting_row("Context menu", menu_desc, self.menu))
-        card.lay.addWidget(separator())
+        menu_row = setting_row("Context menu", menu_desc, self.menu)
+        card.lay.addWidget(menu_row)
+        sep = separator()
+        card.lay.addWidget(sep)
+        if not integration.HAS_MENU:
+            menu_row.hide()
+            sep.hide()
         self.quick = ToggleSwitch("Compress right away from the context menu")
         self.quick.setChecked(self.qs.value("explorer/quick", False, bool))
         self.quick.toggled.connect(lambda on: self.qs.setValue("explorer/quick", on))

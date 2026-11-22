@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import plistlib
+import sys
 import threading
 import time
 from pathlib import Path
@@ -19,6 +20,9 @@ from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 def apple_backup_folders() -> list[Path]:
     """Where iTunes (desktop or Microsoft Store) and Apple Devices keep iPhone and iPad backups."""
     out = []
+    if sys.platform == "darwin":                  # Finder (and iTunes before Catalina)
+        p = Path.home() / "Library" / "Application Support" / "MobileSync" / "Backup"
+        return [p] if p.is_dir() else []
     for base in (os.environ.get("APPDATA", ""), os.environ.get("USERPROFILE", "")):
         if not base:
             continue
@@ -31,8 +35,10 @@ def apple_backup_folders() -> list[Path]:
 
 def samsung_backup_folders() -> list[Path]:
     home = os.environ.get("USERPROFILE") or str(Path.home())
-    p = Path(home, "Documents", "Samsung", "SmartSwitch", "backup")
-    return [p] if p.is_dir() else []
+    found = [Path(home, "Documents", "Samsung", "SmartSwitch", "backup")]
+    if sys.platform == "darwin":
+        found.append(Path.home() / "Documents" / "Samsung" / "SmartSwitch" / "Backup")
+    return [p for p in dict.fromkeys(found) if p.is_dir()]
 
 
 def describe_apple(folder: Path) -> tuple[str, float]:
@@ -73,7 +79,8 @@ def find_backups(progress: ProgressFn | None = None, cancel: threading.Event | N
         result.items.append(Candidate(
             folder, size, title=f"{name} backup", is_dir=True, selected=False,
             detail=f"Made {date}" + (f", {int(age // 30)} months ago" if age > 60 else "") + ". "
-                   + ("iTunes or Apple Devices can restore a phone from it."
+                   + (("Finder can restore a phone from it." if sys.platform == "darwin" else
+                       "iTunes or Apple Devices can restore a phone from it.")
                       if kind == "apple" else "Smart Switch can restore a phone from it."),
             warning="Remove it only if the phone is gone or backed up somewhere else",
             extra={"location": str(folder)}))

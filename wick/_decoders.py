@@ -156,7 +156,9 @@ def _posix_limits(memory_limit: int) -> dict:
 
     applied = {}
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    if memory_limit:
+    if memory_limit and sys.platform != "darwin":
+        # (macOS doesn't enforce an address-space limit, and its system libraries reserve far more address space
+        # than they use, so a limit there only breaks decoding.)
         resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
         applied["memory"] = memory_limit
     if sys.platform.startswith("linux"):

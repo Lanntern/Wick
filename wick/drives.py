@@ -8,6 +8,7 @@ device's ``queue/rotational``. Unknown counts as not spinning.
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
@@ -96,7 +97,33 @@ def readers(paths: list[Path], parallel: int) -> int:
 
 
 NETWORK_FS = {"nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "sshfs", "9p", "afs", "fuse.rclone",
-              "davfs", "fuse.davfs2", "ceph", "glusterfs"}
+              "davfs", "fuse.davfs2", "ceph", "glusterfs", "afpfs", "webdav", "macfuse", "osxfuse"}
+
+
+@lru_cache(maxsize=1)
+def _mac_mounts() -> tuple[tuple[str, str], ...]:
+    """(mount point, file system type) from macOS's ``mount``, longest mount point first."""
+    import re
+    import subprocess
+
+    try:
+        out = subprocess.run(["/sbin/mount"], capture_output=True, text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    found = []
+    for line in out.splitlines():           # "//me@nas/share on /Volumes/share (smbfs, nodev, nosuid, mounted by me)"
+        m = re.match(r".* on (.+) \(([^,)]+)", line)
+        if m:
+            found.append((m.group(1), m.group(2).strip()))
+    return tuple(sorted(found, key=lambda f: -len(f[0])))
+
+
+def _mac_mount_fs(path: Path) -> str:
+    text = os.path.realpath(path)
+    for point, fs in _mac_mounts():
+        if text == point or text.startswith(point.rstrip("/") + "/"):
+            return fs
+    return ""
 
 
 @lru_cache(maxsize=64)
@@ -127,6 +154,8 @@ def network(path: Path) -> bool:
 
             drive = _anchor(path)
             return bool(drive) and ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4     # DRIVE_REMOTE
+        if sys.platform == "darwin":
+            return _mac_mount_fs(path) in NETWORK_FS
         return _linux_mount_fs(os.stat(path).st_dev) in NETWORK_FS
     except Exception:  # noqa: BLE001 - unknown: treat it as local
         from .log import ignored

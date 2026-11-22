@@ -175,7 +175,9 @@ def lower_thread_priority() -> None:
 
             k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             k32.SetThreadPriority(k32.GetCurrentThread(), -1)  # THREAD_PRIORITY_BELOW_NORMAL
-        elif hasattr(os, "setpriority"):
+        elif sys.platform.startswith("linux") and hasattr(os, "setpriority"):
+            # (Linux only: there a thread's id works as a process id. On macOS it doesn't, and could name some
+            # other process; the encoders' own processes are already started at low priority there.)
             os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
     except Exception:  # noqa: BLE001
         from wick.log import ignored
@@ -224,6 +226,9 @@ def _candidate_dirs() -> Iterator[Path]:
         from .journal import data_dir
 
         yield data_dir() / "tools"
+    if sys.platform == "darwin":
+        # Homebrew (Apple silicon, then Intel) and MacPorts: an app opened from Finder doesn't get the shell's PATH.
+        yield from (Path("/opt/homebrew/bin"), Path("/usr/local/bin"), Path("/opt/local/bin"))
 
 
 @lru_cache(maxsize=None)
