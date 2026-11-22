@@ -1,6 +1,7 @@
 """Fast tests that need no external tools."""
 
 import os
+import sys
 import struct
 import zlib
 from pathlib import Path
@@ -297,7 +298,7 @@ def test_watcher_waits_for_stable_new_files(tmp_path):
         assert fw.poll_once() == []      # our own output is ignored
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Linux desktop-entry variant")
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="Linux desktop-entry variant")
 def test_desktop_integration_files(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))

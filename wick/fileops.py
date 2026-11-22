@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import secrets
 import shutil
 import time
@@ -212,6 +213,11 @@ def move_to_trash(path: Path, size: int | None = None) -> None:
                 "so Windows would delete it permanently. Left as it is. You can raise the limit in the "
                 "Recycle Bin's Properties.")
     with _TRASH_LOCK:
+        if sys.platform == "darwin":
+            from . import mactrash
+
+            mactrash.move_to_trash(path)       # (remembers where it went: macOS doesn't say, later)
+            return
         send2trash(str(path))
 
 

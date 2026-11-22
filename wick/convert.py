@@ -844,6 +844,39 @@ def convert_video(src: Path, info: VideoInfo, target: str, s: Settings,
         raise
 
 
+
+MAX_WEBP_FRAMES_BYTES = 1_500_000_000     # decoded frames held for Pillow's WebP writer (see _webp_with_pillow)
+
+
+def _ffmpeg_has_webp() -> bool:
+    """Whether this ffmpeg can write animated WebP (Homebrew's macOS build, for one, leaves libwebp out)."""
+    from .video import encoder_works
+
+    return encoder_works("libwebp_anim")
+
+
+def _webp_with_pillow(decode_args: list[str], w: int, h: int, fps: float, out: Path, cancel) -> None:
+    """Animated WebP without ffmpeg's libwebp: ffmpeg decodes the (scaled) frames, Pillow's libwebp writes them."""
+    from PIL import Image
+
+    frame = w * h * 4
+    if "-progress" in decode_args:                # (progress text on stdout would mix with the frames)
+        i = decode_args.index("-progress")
+        decode_args = decode_args[:i] + decode_args[i + 2:]
+    proc = tools.run([*decode_args, "-f", "rawvideo", "-pix_fmt", "rgba", "-"], timeout=3600, check=False, text=False)
+    if cancel is not None and cancel.is_set():
+        raise tools.Cancelled()
+    data = proc.stdout or b""
+    if proc.returncode != 0 or len(data) < frame:
+        raise RuntimeError("ffmpeg couldn't decode the video for the animated WebP")
+    if len(data) > MAX_WEBP_FRAMES_BYTES:
+        raise RuntimeError("Too long for an animated WebP with this ffmpeg (it has no WebP encoder); "
+                           "trim it first, or choose GIF")
+    frames = [Image.frombytes("RGBA", (w, h), data[i:i + frame]) for i in range(0, len(data) - frame + 1, frame)]
+    frames[0].save(out, "WEBP", save_all=True, append_images=frames[1:], duration=max(1, round(1000 / fps)),
+                   loop=0, quality=80, method=4, lossless=False)
+
+
 def video_to_animation(src: Path, info: VideoInfo, target: str, opts: ConvertOptions, s: Settings,
                        on_progress: Callable[[float], None] | None = None,
                        cancel: threading.Event | None = None) -> Path:
@@ -875,7 +908,10 @@ def video_to_animation(src: Path, info: VideoInfo, target: str, opts: ConvertOpt
                        "-quality", "80", "-compression_level", "4", "-loop", "0", str(out)]
     try:
         steps.report(f"Making the {'GIF' if target == 'gif' else 'animated WebP'}")
-        tools.run_ffmpeg_progress(args, info.duration, on_progress, cancel)
+        if target != "gif" and not _ffmpeg_has_webp():
+            _webp_with_pillow(base + ["-map", f"0:{info.main_video_index}", "-vf", scale], w, h, fps, out, cancel)
+        else:
+            tools.run_ffmpeg_progress(args, info.duration, on_progress, cancel)
         steps.report("Checking the result")
         try:
             with Image.open(out) as im:

@@ -162,3 +162,14 @@ def test_old_folders_are_suggested_for_windows_compression(tmp_path):
     folder("small", [("a.txt", 10)], year_ago)
     found = appcompress.old_folders([tmp_path / "Documents"], now=now, min_size=1000)
     assert [p.name for p in found] == ["old project"]
+
+
+def test_mac_processes_are_read_from_ps_and_lsof():
+    from wick.cleanup import inuse
+
+    procs = {p.pid: p for p in inuse.parse_mac(
+        "  101     1 /bin/zsh\n  202   101 /opt/homebrew/bin/node\n",
+        "  101 -zsh\n  202 node /Users/me/site/node_modules/.bin/vite\n",
+        "p101\nfcwd\nn/Users/me/site\np202\nfcwd\nn/Users/me/site\n")}
+    assert procs[101].name == "zsh" and procs[101].cwd == "/Users/me/site"
+    assert procs[202].ppid == 101 and "node_modules/.bin/vite" in procs[202].cmdline

@@ -1,16 +1,18 @@
-"""Restoring a file we sent to the Recycle Bin (Windows) or Trash (Linux).
+"""Restoring a file we sent to the Recycle Bin (Windows) or Trash (Linux, macOS).
 
 send2trash can delete but not restore, so this reads the bins directly:
 
 * Windows: ``X:\\$Recycle.Bin\\<SID>\\$Ixxxxxx.ext`` holds the original path and
   deletion time; ``$Rxxxxxx.ext`` next to it is the file itself.
 * freedesktop.org Trash: ``<trash>/info/<name>.trashinfo`` + ``<trash>/files/<name>``.
+* macOS: Wick records where each item went when it trashes it (mactrash.py).
 """
 
 from __future__ import annotations
 
 import os
 import struct
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +20,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 _IS_WINDOWS = os.name == "nt"
+_IS_MAC = sys.platform == "darwin"
 
 
 @dataclass
@@ -174,7 +177,10 @@ def find_trashed(original: Path, not_before: float = 0.0, bins=None) -> TrashedI
     ``bins`` overrides the bin locations (for tests).
     """
     original = Path(original)
-    if _IS_WINDOWS:
+    if _IS_MAC and bins is None:
+        want = os.path.normpath(str(original))
+        items = [i for i in _all_mac() if os.path.normpath(str(i.original)) == want]
+    elif _IS_WINDOWS:
         items = _windows_candidates(original, bins if bins is not None else _windows_bins(original))
     else:
         items = _freedesktop_candidates(original, bins if bins is not None else _freedesktop_bins(original))
@@ -223,10 +229,36 @@ def _all_freedesktop(bins: list[tuple[Path, Path | None]]) -> list[TrashedItem]:
     return found
 
 
+_MAC_RECORD = Path("trash-macos.json")      # (meta_path of macOS items: their record is in mactrash's list)
+
+
+def _all_mac() -> list[TrashedItem]:
+    from . import mactrash
+
+    return [TrashedItem(original, at, where, _MAC_RECORD) for original, at, where in mactrash.entries()]
+
+
+def _forget_meta(item: TrashedItem) -> None:
+    if item.meta_path == _MAC_RECORD:
+        from . import mactrash
+
+        mactrash.forget(item.data_path)
+        return
+    try:
+        os.remove(item.meta_path)
+    except OSError:
+        pass
+
+
 def index(originals, bins=None) -> dict[str, list[TrashedItem]]:
     """Everything in the bins that hold ``originals`` (each bin read once), by normalized original path.
     ``bins`` overrides the bin locations (for tests)."""
     originals = [Path(o) for o in originals]
+    if _IS_MAC and bins is None:
+        out_mac: dict[str, list[TrashedItem]] = {}
+        for it in _all_mac():
+            out_mac.setdefault(os.path.normcase(os.path.normpath(str(it.original))), []).append(it)
+        return out_mac
     if bins is None:
         if _IS_WINDOWS:
             drives = {os.path.splitdrive(str(o))[0].upper(): o for o in originals}
@@ -262,10 +294,7 @@ def restore(item: TrashedItem) -> None:
         import shutil
 
         shutil.move(str(item.data_path), str(item.original))
-    try:
-        os.remove(item.meta_path)
-    except OSError:
-        pass
+    _forget_meta(item)
 
 
 def purge(item: TrashedItem) -> None:
@@ -286,8 +315,5 @@ def purge(item: TrashedItem) -> None:
         except PermissionError:
             os.chmod(data, stat.S_IWRITE | stat.S_IREAD)
             os.remove(data)
-    try:
-        os.remove(item.meta_path)
-    except OSError:
-        pass
+    _forget_meta(item)
 

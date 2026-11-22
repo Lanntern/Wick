@@ -22,7 +22,8 @@ def apple_backup_folders() -> list[Path]:
     out = []
     if sys.platform == "darwin":                  # Finder (and iTunes before Catalina)
         p = Path.home() / "Library" / "Application Support" / "MobileSync" / "Backup"
-        return [p] if p.is_dir() else []
+        if p.is_dir():
+            out.append(p)
     for base in (os.environ.get("APPDATA", ""), os.environ.get("USERPROFILE", "")):
         if not base:
             continue
