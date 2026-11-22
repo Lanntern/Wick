@@ -12,8 +12,9 @@ import os
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtWidgets import QApplication, QHBoxLayout
+from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from ..engine import CANCELLED, DONE, FAILED
 from .. import report
@@ -33,9 +34,123 @@ def _folder(path: Path) -> str:
     return "~" + p[len(home):] if p.startswith(home + os.sep) else p
 
 
+COMPARE_PX = 112                 # the before/after pictures' longer side
+COMPARE_EVERY = 4.0              # seconds between new before/after pairs (a big batch doesn't decode every photo)
+
+
+class _ThumbSignals(QObject):
+    done = Signal(str, int, bytes)   # which ("before"/"after"), job token, PNG
+
+
+class _Thumb(QRunnable):
+    def __init__(self, which: str, token: int, path: Path, kind: str, signals: _ThumbSignals):
+        super().__init__()
+        self.which, self.token, self.path, self.kind, self.signals = which, token, path, kind, signals
+
+    def run(self) -> None:
+        from .thumbs import make_thumbnail
+
+        try:
+            data = make_thumbnail(self.path, self.kind, COMPARE_PX) or b""
+        except Exception:  # noqa: BLE001 - a picture that can't be shown just isn't compared
+            data = b""
+        self.signals.done.emit(self.which, self.token, data)
+
+
+class CompareStrip(QWidget):
+    """A photo just compressed, before and after, side by side and small: it shows the quality was kept
+    (and how much smaller it got). One every few seconds; pictures only."""
+
+    PICTURE_KINDS = {"jpeg", "png", "webp", "heic", "avif", "tiff", "bmp"}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAccessibleName("Before and after")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, Space.XS, 0, 0)
+        lay.setSpacing(Space.M)
+        self.pics, self.captions = {}, {}
+        for which in ("before", "after"):
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            pic = QLabel()
+            pic.setFixedSize(COMPARE_PX, COMPARE_PX)
+            pic.setAlignment(Qt.AlignCenter)
+            cap = text("", Type.FOOTNOTE, secondary=True)
+            col.addWidget(pic)
+            col.addWidget(cap)
+            lay.addLayout(col)
+            self.pics[which], self.captions[which] = pic, cap
+        self.note = text("", Type.FOOTNOTE, secondary=True, wrap=True)
+        lay.addWidget(self.note, 1, Qt.AlignBottom)
+        self.signals = _ThumbSignals()
+        self.signals.done.connect(self._got)
+        self.token = 0
+        self._entry = None
+        self._last = 0.0
+        self._before: bytes = b""
+        self._after: bytes = b""
+        self._result = None
+        self.hide()
+
+    def reset(self) -> None:
+        self.token += 1
+        self._entry, self._result, self._before, self._after, self._last = None, None, b"", b"", 0.0
+        self.hide()
+
+    def file_started(self, entry) -> None:
+        now = time.monotonic()
+        if self._entry is not None or now - self._last < COMPARE_EVERY or getattr(entry, "kind", None) not in self.PICTURE_KINDS:
+            return
+        self._entry, self._last, self._before, self._after, self._result = entry, now, b"", b"", None
+        self.token += 1
+        QThreadPool.globalInstance().start(_Thumb("before", self.token, entry.path, entry.kind, self.signals))
+
+    def file_finished(self, result) -> None:
+        if self._entry is None or getattr(result, "entry", None) is not self._entry:
+            return
+        if result.status != DONE or result.output is None:
+            self._entry = None
+            return
+        self._result = result
+        kind = {".heic": "heic", ".heif": "heic", ".avif": "avif"}.get(result.output.suffix.lower(), result.entry.kind)
+        QThreadPool.globalInstance().start(_Thumb("after", self.token, result.output, kind, self.signals))
+
+    def _got(self, which: str, token: int, data: bytes) -> None:
+        # The two pictures can arrive in either order (a small file finishes before its "before" is made).
+        if token != self.token:
+            return
+        if not data:
+            self._entry = None                   # (one couldn't be made: no pair this time)
+            self._before = self._after = b""
+            return
+        if which == "before":
+            self._before = data
+        else:
+            self._after = data
+        r, before, after = self._result, self._before, self._after
+        if not (before and after and r is not None):
+            return
+        self._entry = None
+        self._before = self._after = b""
+        data = after
+        for key, png in (("before", before), ("after", data)):
+            pm = QPixmap()
+            pm.loadFromData(png)
+            pm.setDevicePixelRatio(max(1.0, pm.width() / COMPARE_PX, pm.height() / COMPARE_PX))   # (fits the box)
+            self.pics[key].setPixmap(pm)
+        old, new = r.entry.size, r.new_size
+        self.captions["before"].setText(f"Before · {human(old)}")
+        self.captions["after"].setText(f"After · {human(new)}")
+        self.note.setText(f"{r.entry.path.name}: {100 * (old - new) / max(1, old):.0f}% smaller")
+        self.setAccessibleDescription(f"{r.entry.path.name}, {human(old)} before, {human(new)} after")
+        self.show()
+
+
 class JobStatus(Card):
     stop_requested = Signal()
     pause_toggled = Signal(bool)     # the user paused (True) or resumed (False)
+    fix_requested = Signal(str)      # a failure's fix button (see fixes.py): its key
 
     def __init__(self, verb: str = "Compressing", done_word: str = "compressed", parent=None):
         super().__init__(parent, padding=Space.M, spacing=Space.XS)
@@ -75,6 +190,16 @@ class JobStatus(Card):
         self.bar.setAccessibleName("Progress")
         self.lay.addSpacing(Space.XS)
         self.lay.addWidget(self.bar)
+        self.compare = CompareStrip()
+        self.lay.addWidget(self.compare)
+        # What to do about failures (fixes.py): a line of advice with the button that usually fixes it.
+        self.fix_text = text("", Type.FOOTNOTE, wrap=True)
+        self.fix_text.setTextFormat(Qt.PlainText)
+        self.fix_text.setAccessibleName("How to fix it")
+        self.fix_row = FlowLayout(spacing=Space.S)
+        self.lay.addWidget(self.fix_text)
+        self.lay.addLayout(self.fix_row)
+        self.fix_text.hide()
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addStretch(1)
@@ -116,7 +241,13 @@ class JobStatus(Card):
 
     # ---------------------------------------------------------------- a job
     def start(self, n_files: int, total_bytes: int) -> None:
+        from ..eta import TimeLeft
+
         self._n, self._bytes, self._bytes_done, self._finished = n_files, max(1, total_bytes), 0, 0
+        self._saved = 0
+        self._eta = TimeLeft()
+        self.compare.reset()
+        self._show_fixes([])
         self._running.clear()
         self._stage_times.clear()
         self._activity.clear()
@@ -144,6 +275,7 @@ class JobStatus(Card):
         self._stage_times[id(entry)] = self._activity[id(entry)] = time.monotonic()
         self._running[id(entry)] = [entry.path.name, entry.size, "Starting", None]
         self._last_name = entry.path.name
+        self.compare.file_started(entry)
         self._render()
 
     def file_step(self, entry, message: str) -> None:
@@ -173,7 +305,12 @@ class JobStatus(Card):
         self._stall_logged.discard(id(result.entry))
         self._bytes_done += r[1] if r else result.entry.size
         self._finished += 1
+        self._saved += getattr(result, "saved", 0)
+        self.compare.file_finished(result)
         self._render()
+
+    def saved_so_far(self) -> int:
+        return getattr(self, "_saved", 0)
 
     def _render(self) -> None:
         if not self._tick.isActive():
@@ -186,9 +323,13 @@ class JobStatus(Card):
             name = running[0][0] if running else self._last_name
             self.title.setText(f"{paused}{self.verb} {name}")
         else:
-            self.title.setText(f"{paused}{self.verb} {self._n} files · {self._finished} done")
+            saved = f" · {human(self._saved)} saved" if self._saved > 0 and self.done_word == "compressed" else ""
+            self.title.setText(f"{paused}{self.verb} {self._n} files · {self._finished} done{saved}")
         partial = sum(size * f for _n, size, _s, f in running if f is not None)
         known = self._bytes_done + partial
+        from ..eta import say
+
+        whole = "" if self._paused_reason else say(self._eta.update(known, self._bytes, spent))
         left = ""
         if self._paused_reason and not running:
             self.detail.setText(self._paused_reason)
@@ -200,8 +341,11 @@ class JobStatus(Card):
             quiet = now - self._activity.get(key, now)
             if _f is not None:
                 step += f" ({_f * 100:.0f}%)"
-                if stage_spent >= 3 and 0.03 < _f < 0.98 and not self._paused_reason:
+                if stage_spent >= 3 and 0.03 < _f < 0.98 and not self._paused_reason and \
+                        (self._n == 1 or not whole):
                     left = f" · about {_elapsed(stage_spent * (1 - _f) / _f)} left in this stage"
+            if whole and self._n > 1:
+                left = f" · {whole}" + left
             if quiet >= 15:
                 left += f" · no progress update for {_elapsed(quiet)}; the tool may still be working"
             if quiet >= 60 and key not in self._stall_logged:
@@ -289,15 +433,45 @@ class JobStatus(Card):
                              f"{first.entry.path.name}" + (f" (while {first.step.lower()})" if first.step else "")
                              + f": {first.message}")
             if skipped:
-                reasons = {r.message for r in skipped}
-                why = skipped[0].message.rstrip(".") if len(reasons) == 1 else "each one's reason is in the list"
-                why = why.removesuffix("; original kept").removesuffix(", original kept")   # (said already)
-                lines.append(f"{len(skipped)} left as they were: {why[0].lower() + why[1:]}.")
+                from ..summary import group_skips
+
+                groups = group_skips([r.message for r in skipped])
+                if len(groups) == 1:
+                    why = groups[0][0]
+                else:
+                    why = ", ".join(f"{n:,} {reason}" for reason, n in groups[:3])
+                    if len(groups) > 3:
+                        why += f"; {len(groups) - 3} other reason{'s' if len(groups) > 4 else ''} are in the list"
+                lines.append(f"{len(skipped):,} left as they were: {why}.")
             self._color("danger" if failed and not done else "warning" if failed else "success" if done else None)
         self.detail.setText("\n".join(lines))
+        from .. import fixes
+
+        self._show_fixes(fixes.suggest([r.message for r in failed + skipped]))
         self._set_buttons(show=bool(self._outputs), copy=bool(failed or skipped), log=bool(failed), close=True,
                           report=len(results) > 1, undo=bool(done) and on_undo is not None)
         self.setVisible(True)
+
+    def _show_fixes(self, found) -> None:
+        """Advice and buttons for the reasons files failed (fixes.suggest); nothing when there's none."""
+        while self.fix_row.count():
+            item = self.fix_row.takeAt(0)
+            w = item.widget() if item is not None else None
+            if w is not None:
+                w.deleteLater()
+        self.fix_text.setVisible(bool(found))
+        if not found:
+            return
+        lines, labels = [], []
+        for key, label, why, n in found[:3]:
+            lines.append(f"{n} file{'s' if n != 1 else ''}: {why}")
+            if label in labels:
+                continue
+            labels.append(label)
+            b = button(label, "", None, why)
+            b.clicked.connect(lambda _=False, k=key: self.fix_requested.emit(k))
+            self.fix_row.add_group(b)
+        self.fix_text.setText("\n".join(lines))
 
     def failed(self, message: str) -> None:
         """The whole job stopped (not one file)."""

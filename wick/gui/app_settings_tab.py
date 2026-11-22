@@ -140,6 +140,13 @@ class AppSettingsTab(Page):
                      if integration.IS_WINDOWS else "Adds Wick to your file manager's Open With menu.")
         card.lay.addWidget(setting_row("Context menu", menu_desc, self.menu))
         card.lay.addWidget(separator())
+        self.quick = ToggleSwitch("Compress right away from the context menu")
+        self.quick.setChecked(self.qs.value("explorer/quick", False, bool))
+        self.quick.toggled.connect(lambda on: self.qs.setValue("explorer/quick", on))
+        card.lay.addWidget(setting_row("Compress right away from the context menu",
+                                       "Files sent to Wick are compressed with your current options without opening "
+                                       "the window; a notification says when it's done and can undo it.", self.quick))
+        card.lay.addWidget(separator())
         self.autostart = ToggleSwitch("Start at sign-in")
         self.autostart.setChecked(integration.autostart_enabled())
         self.autostart.toggled.connect(self._autostart_toggled)

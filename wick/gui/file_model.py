@@ -48,6 +48,7 @@ class Row:
     running: bool = False
     step: str = ""                # what it's doing while running ("Encoding JPEG XL")
     created: float | None = -1.0  # read when first shown (-1: not yet)
+    pending: bool = False         # listed, details still being read (shown, not yet planned)
 
     def created_at(self) -> float | None:
         if self.created == -1.0:
@@ -63,6 +64,9 @@ def _pct(before: int, after: int) -> str:
         return "–"
     p = round(100 * (after - before) / before)
     return f"−{-p}%" if p < 0 else f"+{p}%"
+
+
+READING = Plan(False, "Reading file details…")
 
 
 class FileTableModel(QAbstractTableModel):
@@ -81,6 +85,50 @@ class FileTableModel(QAbstractTableModel):
             self.rows.append(Row(e, p, p.convert))
         self._index = {id(r.entry): i for i, r in enumerate(self.rows)}
         self.endResetModel()
+
+    def show_listed(self, entries: list[FileEntry]) -> None:
+        """Everything a scan found, straight away: files whose details still have to be read wait as
+        "Reading file details…" and are planned as their details arrive (see ``details_read``)."""
+        self.beginResetModel()
+        self.rows = [Row(e, READING, False, pending=True) for e in entries]
+        self._index = {id(r.entry): i for i, r in enumerate(self.rows)}
+        self.endResetModel()
+
+    def details_read(self, entries: list[FileEntry], settings: Settings) -> None:
+        """Plan the rows whose details have just been read."""
+        lo, hi = len(self.rows), -1
+        for e in entries:
+            i = self._index.get(id(e))
+            if i is None or not self.rows[i].pending:
+                continue
+            r = self.rows[i]
+            r.plan = plan_entry(e, settings)
+            r.checked, r.pending = r.plan.convert, False
+            lo, hi = min(lo, i), max(hi, i)
+        if hi >= 0:
+            self.dataChanged.emit(self.index(lo, 0), self.index(hi, len(COLUMNS) - 1))
+
+    def finish_listed(self, entries: list[FileEntry], settings: Settings) -> None:
+        """The scan ended: keep the rows shown (and any ticks changed meanwhile), drop ones no longer in the
+        result, plan what's still waiting, and add anything new, in the result's order."""
+        if not self.rows:
+            self.set_entries(entries, settings)
+            return
+        keep = {id(e) for e in entries}
+        by_id = {id(r.entry): r for r in self.rows if id(r.entry) in keep}
+        self.beginResetModel()
+        self.rows = []
+        for e in entries:
+            r = by_id.get(id(e))
+            if r is None or r.pending:
+                p = plan_entry(e, settings)
+                r = Row(e, p, p.convert)
+            self.rows.append(r)
+        self._index = {id(r.entry): i for i, r in enumerate(self.rows)}
+        self.endResetModel()
+
+    def pending_count(self) -> int:
+        return sum(r.pending for r in self.rows)
 
     def remove_rows(self, rows: list[Row]) -> None:
         """Take rows off the list; the others keep their ticks and results."""
@@ -341,16 +389,35 @@ class FileFilterProxy(QSortFilterProxyModel):
         self.show_skipped = False
         self.setSortRole(SORT_ROLE)
 
+    def _refilter(self, change) -> None:
+        # Qt 6.10+: beginFilterChange/endFilterChange (invalidateFilter is deprecated there); older: invalidateFilter.
+        if hasattr(self, "beginFilterChange"):
+            self.beginFilterChange()
+            change()
+            self.endFilterChange()
+        else:
+            change()
+            self.invalidateFilter()
+
     def set_show_skipped(self, show: bool) -> None:
-        self.show_skipped = show
-        self.invalidateFilter()
+        self._refilter(lambda: setattr(self, "show_skipped", show))
+
+    group = ""          # only this kind of file ("video", "image", "audio", "document"; see summary.group_of)
+
+    def set_group(self, group: str) -> None:
+        self._refilter(lambda: setattr(self, "group", group))
 
     def filterAcceptsRow(self, source_row, source_parent):
-        if self.show_skipped:
-            return True
         m: FileTableModel = self.sourceModel()  # type: ignore[assignment]
         r = m.rows[source_row]
-        return r.plan.convert or r.result is not None
+        if self.group:
+            from ..summary import group_of
+
+            if group_of(r.entry.kind) != self.group:
+                return False
+        if self.show_skipped:
+            return True
+        return r.plan.convert or r.result is not None or r.pending
 
 
 def open_in_file_manager_many(paths) -> None:

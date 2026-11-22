@@ -21,7 +21,6 @@ from ..settings import Settings
 from . import style
 from .home_tab import HomeTab
 from .compress_tab import CompressTab
-from .history_tab import HistoryTab
 from .dialogs import ask
 from .style import Space, Type
 from .watch_tab import WatchTab
@@ -66,7 +65,8 @@ SHORTCUTS = [
 
 
 # Pages built the first time they're opened: attribute -> (module, class).
-LAZY_PAGES = {"converter": (".convert_tab", "ConvertTab"), "metadata": (".metadata_tab", "MetadataTab"),
+LAZY_PAGES = {"history": (".history_tab", "HistoryTab"),
+              "converter": (".convert_tab", "ConvertTab"), "metadata": (".metadata_tab", "MetadataTab"),
               "cleanup": (".cleanup_tab", "CleanupTab"), "app_settings": (".app_settings_tab", "AppSettingsTab")}
 
 
@@ -216,7 +216,6 @@ class MainWindow(QMainWindow):
 
         self.frame = WindowFrame(self) if custom_frame() else None
 
-        self.history = HistoryTab(self)
         self.compress = CompressTab(self)
         self.compress.panel.load(self.load_settings())
         self.watch = WatchTab(self)
@@ -268,7 +267,6 @@ class MainWindow(QMainWindow):
         self.watch.state_changed.connect(lambda on: power.set_restart_after_update(on))
         power.set_restart_after_update(self.watch.watching)
         self._update_tray(self.watch.watching)
-        self.history.refresh()
 
         self._welcome_pending = not self.qsettings.value("welcome_done", False, bool)
         if self.qsettings.value("home/auto_analyze", True, bool) and not self._welcome_pending:
@@ -329,7 +327,7 @@ class MainWindow(QMainWindow):
             if lazy is not None:
                 self._build_page(lazy)
             self.pages.setCurrentIndex(index)
-            if self.pages.widget(index) is self.history:
+            if self.pages.widget(index) is self.built("history"):
                 self.history.refresh()
             if self.sidebar.list.currentRow() != index:
                 self.sidebar.list.setCurrentRow(index)
@@ -379,8 +377,6 @@ class MainWindow(QMainWindow):
         add("Ctrl+Shift+A", c.select_none.click, c.page, page_ctx)
         add("Ctrl+Shift+R", c.retry_failed, c, page_ctx)
         add("Ctrl+I", lambda: (self.go_to(c), c.toggle_options()))
-        add("Ctrl+Z", self.history.undo_selected, self.history, page_ctx)
-        add("F5", self.history.reload, self.history, page_ctx)
         add("Delete", self.watch.remove_folder, self.watch.folders, Qt.WidgetShortcut)
         for n in range(1, 8):
             add(f"Ctrl+{n}", lambda i=n - 1: (self._go(i), self.focus_page()))
@@ -411,7 +407,10 @@ class MainWindow(QMainWindow):
         from .filelist import set_all_checked
 
         add, page_ctx = self._shortcut, Qt.WidgetWithChildrenShortcut
-        if name in ("converter", "metadata"):
+        if name == "history":
+            add("Ctrl+Z", page.undo_selected, page, page_ctx)
+            add("F5", page.reload, page, page_ctx)
+        elif name in ("converter", "metadata"):
             add("Ctrl+A", lambda p=page: set_all_checked(p.tree, True, 0, p._update), page, page_ctx)
             add("Ctrl+Shift+A", lambda p=page: set_all_checked(p.tree, False, 0, p._update), page, page_ctx)
             add("Ctrl+Return", lambda p=page: p.start(), page, page_ctx)
@@ -583,7 +582,8 @@ class MainWindow(QMainWindow):
         self.watch.refresh()
         self.compress.model._changed_all()
         self.compress.update_summary()
-        self.history.refresh()
+        if self.built("history") is not None:
+            self.history.refresh()
         if self.frame is not None:
             self.frame.set_dark(style.tokens().dark)
         self.update()
@@ -1035,9 +1035,49 @@ class MainWindow(QMainWindow):
     OPEN_PAGES = {"home": "home", "compress": "compress", "convert": "converter", "metadata": "metadata",
                   "cleanup": "cleanup", "watch": "watch", "history": "history", "settings": "app_settings"}
 
+    def apply_fix(self, key: str, retry=None, rescan=None) -> None:
+        """A failure's fix button (fixes.py) on a job's progress panel."""
+        if key in ("in_use", "denied") and retry is not None:
+            retry()
+        elif key == "changed" and rescan is not None:
+            rescan()
+        elif key == "space":
+            self.go_to(self.cleanup)
+        elif key == "protected":
+            from .. import cfa
+
+            cfa.open_settings()
+        elif key == "tool":
+            self.go_to(self.app_settings)
+
+    def quick_done(self) -> None:
+        """A compression started from the context menu without the window ended: if nothing else keeps Wick
+        open (the window, watched folders, the tray icon), close once the notification has been shown."""
+        if self.isVisible() or self.watch.watching or (self.tray is not None and self.tray.isVisible()):
+            return
+        QTimer.singleShot(10_000, lambda: None if self.isVisible() or self.compress.busy() else self.quit())
+
+    def remember_finished(self, run_id: str | None, outputs) -> None:
+        """The last job that can be undone and what it made: a notification's Undo and Show Files act on it."""
+        self._last_run = run_id
+        self._last_outputs = [Path(p) for p in outputs if p]
+
     def open_target(self, target: str) -> None:
         """Show a page (jump list, tray), or pick files on one: compress-files, convert-files."""
         self.show_window()
+        if target == "undo-last":                       # a notification's "Undo" button (asks first)
+            run_id = getattr(self, "_last_run", None)
+            if run_id:
+                self.go_to(self.compress)
+                QTimer.singleShot(0, lambda: self.compress._undo_job(run_id))
+            return
+        if target == "show-files":                      # ...and its "Show Files"
+            outputs = [p for p in getattr(self, "_last_outputs", []) if p.exists()]
+            if outputs:
+                from .file_model import open_in_file_manager_many
+
+                open_in_file_manager_many([str(p) for p in outputs])
+            return
         if target == "apps":
             page = self.cleanup
             index = next(i for i, tool in enumerate(page._tools) if tool.key == "appcompress")
@@ -1073,6 +1113,9 @@ class MainWindow(QMainWindow):
             self.tray_message(f"There's no preset called “{preset}”; using the current options.")
         if paths:
             self.go_to(self.compress)
+            if not show and not open_target and not self.isVisible():
+                # Settings › "Compress right away": scan, compress with the current options, say when it's done.
+                self.compress.quick = True
             # Explorer starts one process per selected file: collect them briefly before scanning.
             self.compress.add_paths(paths, scan=False)
             if not hasattr(self, "_scan_debounce"):

@@ -14,6 +14,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     background, preset, convert_to, paths = parse_args(argv)
     target = open_target(argv)
+    if paths and not convert_to and not target and quick_compress_on():
+        background = True       # Settings › "Compress right away": no window, a notification when it's done
 
     from PySide6.QtCore import QLockFile
     from PySide6.QtWidgets import QApplication
@@ -88,6 +90,17 @@ def main(argv: list[str] | None = None) -> int:
     resilience.exit_now_if_stuck(code)   # (a task that never stopped: end here, not in a crash at shutdown)
     resilience.end_cleanly()
     return code
+
+
+def quick_compress_on() -> bool:
+    """Settings › Integration › "Compress right away from the context menu"."""
+    from PySide6.QtCore import QSettings
+
+    from .. import APP_NAME
+
+    path = os.environ.get("WICK_SETTINGS_FILE")
+    qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+    return bool(qs.value("explorer/quick", False, bool))
 
 
 def _mention_crash(win) -> None:

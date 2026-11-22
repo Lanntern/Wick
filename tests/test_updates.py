@@ -4,6 +4,7 @@ import io
 import json
 import sys
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -35,11 +36,11 @@ def test_check_reads_github_release(monkeypatch):
         return _Answer(json.dumps({"tag_name": "v99.0.0", "html_url": "https://example.invalid/r",
                                    "body": "Updates FFmpeg to fix CVE-2026-12345."}).encode())
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
     rel = updates.check()
     assert rel.version == "99.0.0" and rel.security and rel.url == "https://example.invalid/r"
     assert sent["ua"].startswith("Wick/")          # no other identifying information
-    monkeypatch.setattr(updates.urllib.request, "urlopen",
+    monkeypatch.setattr(urllib.request, "urlopen",
                         lambda req, timeout: _Answer(json.dumps({"tag_name": "v0.0.1", "body": ""}).encode()))
     assert updates.check() is None                         # already newer than that
 
@@ -48,14 +49,14 @@ def test_check_failures_are_explained(monkeypatch):
     def missing(req, timeout):
         raise urllib.error.HTTPError(updates.API, 404, "Not Found", {}, None)
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", missing)
+    monkeypatch.setattr(urllib.request, "urlopen", missing)
     with pytest.raises(updates.CheckFailed, match="No published releases"):
         updates.check()
 
     def offline(req, timeout):
         raise urllib.error.URLError("no route")
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
     with pytest.raises(updates.CheckFailed, match="No connection"):
         updates.check()
 

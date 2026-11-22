@@ -12,7 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import journal, steps, tools, trash_restore
@@ -37,6 +37,7 @@ class FileResult:
     output: Path | None = None
     new_size: int = 0
     step: str = ""            # what it was doing when it failed ("Encoding JPEG XL"...)
+    not_smaller: bool = False  # tried, and it wouldn't get (enough) smaller: remembered for next time
 
     @property
     def saved(self) -> int:
@@ -305,7 +306,8 @@ def process_file(
             need = f"{s.min_savings_pct:g}%" + (f" and {human(s.min_savings_kb * 1024)}" if s.min_savings_kb else "")
             return FileResult(entry, SKIPPED, f"Would only save {max(saved_pct, 0):.1f}% "
                               f"({human(max(0, st.st_size - new_size))}); needs {need}; original kept"
-                              if new_size < st.st_size else "Result would be larger; original kept")
+                              if new_size < st.st_size else "Result would be larger; original kept",
+                              not_smaller=True)
 
         sha = _sha256(src) if plan.reversible else ""
         dest = _place(entry, st, tmp, lambda: output_path(entry, plan, s), s, writer,
@@ -317,7 +319,7 @@ def process_file(
     except tools.Cancelled:
         return FileResult(entry, CANCELLED, "Cancelled; original kept")
     except NotWorthIt as e:
-        return FileResult(entry, SKIPPED, str(e))
+        return FileResult(entry, SKIPPED, str(e), not_smaller=True)
     except VerificationFailed as e:
         return FileResult(entry, FAILED, f"Verification failed ({e}); original kept")
     except tools.ToolMissing as e:
@@ -453,8 +455,121 @@ def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=N
     return _guarded(entry, work)
 
 
+TRIED = "tried"
+# Settings that don't change what a file compresses to: a change to these keeps what was learned.
+_NOT_OUTPUT = {"workers", "encoder_threads", "video_jobs", "low_priority", "output_mode", "output_dir",
+               "output_suffix", "keep_structure", "originals_to", "allow_permanent_delete", "min_image_kb",
+               "min_video_mb", "min_audio_kb", "skip_program_folders", "include_hidden", "scan_jxl", "preserve_dates"}
+
+
+def tried_key(s: Settings, plan: Plan) -> str:
+    """Names the settings and conversion a file was tried with; any change to them means trying again."""
+    import json
+
+    d = {k: v for k, v in s.to_dict().items() if k not in _NOT_OUTPUT}
+    blob = json.dumps([d, plan.route, plan.target_ext, plan.resize], sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()[:16]
+
+
+def already_tried(entry: FileEntry, plan: Plan, s: Settings) -> bool:
+    """Tried before with the same settings and it wouldn't get smaller (the file is unchanged since)."""
+    from . import index
+
+    if entry.picked or not entry.mtime:          # (a file chosen by itself is always tried)
+        return False
+    return index.lookup_value(TRIED, entry.path, entry.size, entry.mtime) == tried_key(s, plan)
+
+
+def remember_tried(results: list[FileResult], plans: dict[Path, Plan], s: Settings) -> None:
+    from . import index
+
+    index.store_values(TRIED, [(r.entry.path, r.entry.size, r.entry.mtime, tried_key(s, plans[r.entry.path]))
+                               for r in results if r.not_smaller and r.entry.mtime and r.entry.path in plans])
+
+
 def default_workers(s: Settings) -> int:
     return s.image_workers()
+
+
+@dataclass
+class Schedule:
+    image_workers: int
+    video_workers: int
+    overlap: bool                  # videos encode on the graphics card while photos run
+    notes: list[str] = field(default_factory=list)
+
+
+def schedule(s: Settings, paths: list[Path], has_images: bool, has_videos: bool) -> Schedule:
+    """How many files at once, and whether videos run alongside the photos.
+
+    Fewer photo jobs at once on a hard drive or a network share (parallel reads there make the drive seek back
+    and forth, or fill the network link, and every job waits). Videos overlap the photos only when a graphics card
+    encodes them: a processor encoder already uses every core.
+    """
+    from . import drives
+    from .video import choose_encoder, codec_for, is_gpu, parallel_videos
+
+    images = default_workers(s)
+    notes = []
+    if not s.workers and paths:
+        kind = drives.slow(paths)
+        if kind and images > drives.SLOW_PARALLEL:
+            images = drives.SLOW_PARALLEL
+            notes.append(f"Files are on a {'network share' if kind == 'network' else 'hard drive'}: "
+                         f"{images} at a time")
+    videos = parallel_videos(s) if has_videos else 1
+    overlap = False
+    if has_images and has_videos:
+        try:
+            overlap = is_gpu(choose_encoder(codec_for(None, s), s.video_encoder))
+        except Exception:  # noqa: BLE001 - no encoder information: one after the other, as before
+            from .log import ignored
+            ignored("engine.schedule")
+        if overlap and images > 1 and not s.workers:
+            images -= 1                 # (the thread feeding the graphics card and decoding needs a core)
+        if overlap:
+            notes.append("Videos encode on the graphics card while photos are compressed")
+    return Schedule(images, videos, overlap, notes)
+
+
+class Gate:
+    """Lets at most ``limit`` files run at once, fewer while something full-screen is in front (a game, a
+    film, a presentation): half, so the computer stays responsive. Files already running carry on."""
+
+    CHECK_EVERY = 5.0
+
+    def __init__(self, limit: int, busy=None):
+        from . import power
+
+        self.limit = max(1, limit)
+        self.busy = busy or power.user_busy
+        self.active = 0
+        self.cond = threading.Condition()
+        self._checked = 0.0
+        self._busy = False
+
+    def allowed(self) -> int:
+        now = time.monotonic()
+        if now - self._checked >= self.CHECK_EVERY:
+            self._checked = now
+            try:
+                self._busy = bool(self.busy())
+            except Exception:  # noqa: BLE001
+                self._busy = False
+        return max(1, self.limit // 2) if self._busy else self.limit
+
+    def __enter__(self):
+        with self.cond:
+            while self.active >= self.allowed():
+                self.cond.wait(self.CHECK_EVERY)
+            self.active += 1
+        return self
+
+    def __exit__(self, *exc):
+        with self.cond:
+            self.active -= 1
+            self.cond.notify_all()
+        return False
 
 
 def run_job(
@@ -467,8 +582,8 @@ def run_job(
     tool: str = "",
     pause: threading.Event | None = None,
 ) -> tuple[list[FileResult], str | None]:
-    """Process files (images in parallel, then videos one at a time). While ``pause`` is set, no new file
-    starts (the ones running finish); the computer is kept awake meanwhile (see power.py).
+    """Process files (biggest first; photos in parallel, videos alongside them when a graphics card encodes).
+    While ``pause`` is set, no new file starts (the ones running finish); the computer is kept awake meanwhile (see power.py).
 
     Returns (results, run_id or None if nothing was converted).
     """
@@ -479,6 +594,7 @@ def run_job(
 
     preload_codecs(heif=any(e.kind == "heic" or p.route == "heic" or p.target_ext == ".heic" for e, p in items))
     writer = journal.RunWriter(root, {**s.to_dict(), "tool": tool} if tool else s.to_dict())
+    remember = processor is None                  # (only the Compress processor's "not smaller" is remembered)
     processor = processor or process_file
     results: list[FileResult] = []
     lock = threading.Lock()
@@ -490,6 +606,8 @@ def run_job(
             time.sleep(0.25)
         if cancel.is_set():
             r = FileResult(entry, CANCELLED, "Cancelled")
+        elif remember and already_tried(entry, plan, s):
+            r = FileResult(entry, SKIPPED, "Tried before with these settings: it wouldn't get smaller")
         else:
             log.info("Starting %s: %s", tool or "compression", entry.path)
             events.file_started(entry)
@@ -505,13 +623,22 @@ def run_job(
             log.info("%s: %s (%s)", entry.path, r.status, r.message)
         events.file_finished(r)
 
-    images = [(e, p) for e, p in items if e.kind != VIDEO and p.convert]
-    videos = [(e, p) for e, p in items if e.kind == VIDEO and p.convert]
+    # Biggest first: a large file started last would keep one core busy while the others sit idle.
+    images = sorted(((e, p) for e, p in items if e.kind != VIDEO and p.convert), key=lambda ep: -ep[0].size)
+    videos = sorted(((e, p) for e, p in items if e.kind == VIDEO and p.convert), key=lambda ep: -ep[0].size)
     from . import power
-    from .video import parallel_videos
 
-    def run_all(pool: ThreadPoolExecutor, jobs: list[tuple[FileEntry, Plan]]) -> None:
-        futures = [pool.submit(one, e, p) for e, p in jobs]
+    plan = schedule(s, [e.path for e, _ in images + videos], bool(images), bool(videos))
+    for line in plan.notes:
+        log.info(line)
+    image_gate = Gate(plan.image_workers)
+
+    def image_one(entry: FileEntry, p: Plan) -> None:
+        with image_gate:
+            one(entry, p)
+
+    def run_all(pool: ThreadPoolExecutor, jobs: list[tuple[FileEntry, Plan]], fn) -> None:
+        futures = [pool.submit(fn, e, p) for e, p in jobs]
         try:
             for fut in futures:
                 fut.result()
@@ -521,17 +648,36 @@ def run_job(
             cancel.set()
             raise
 
-    with power.awake():
-        with ThreadPoolExecutor(max_workers=default_workers(s)) as pool:
-            run_all(pool, images)
+    def run_videos() -> None:
         # Own threads so priority can be lowered; two at once on NVIDIA GPUs (two hardware encoders).
-        with ThreadPoolExecutor(max_workers=parallel_videos(s) if videos else 1) as pool:
-            run_all(pool, videos)
+        with ThreadPoolExecutor(max_workers=plan.video_workers) as pool:
+            run_all(pool, videos, one)
+
+    with power.awake():
+        side = None
+        if videos and plan.overlap:
+            # A graphics card encodes the videos while the processor does the photos (one photo job fewer).
+            side = ThreadPoolExecutor(max_workers=1)
+            side_done = side.submit(run_videos)
+        try:
+            if images:
+                with ThreadPoolExecutor(max_workers=plan.image_workers) as pool:
+                    run_all(pool, images, image_one)
+        finally:
+            if side is not None:
+                try:
+                    side_done.result()
+                finally:
+                    side.shutdown()
+        if videos and not plan.overlap:
+            run_videos()
 
     from . import calibration
 
     writer.close()          # every journal record on disk
     calibration.save()
+    if remember:
+        remember_tried(results, {e.path: p for e, p in items}, s)
     counts = {k: sum(r.status == k for r in results) for k in (DONE, SKIPPED, FAILED, CANCELLED)}
     log.info("Job %s%s finished: %s", writer.run.run_id, f" ({tool})" if tool else "",
              ", ".join(f"{v} {k}" for k, v in counts.items() if v) or "nothing to do")

@@ -210,6 +210,27 @@ Graphics cards get the best settings they accept, each tried once with a tiny en
 full-resolution first pass, temporal AQ and B-frame references; Intel adds look-ahead; AMD uses quality-defined
 VBR with pre-analysis and adaptive quantization, matched to the size its constant QP would give.
 
+### Speed
+
+- The biggest files start first, so the end of a job isn't one large file on one core.
+- Videos encoded on a graphics card run alongside the photos (with one photo job fewer); processor encodes wait,
+  since they use every core.
+- On a hard drive or a network share, three files at a time, unless Parallel images is set in the options.
+- While a game, film or presentation is full screen, half as many files run at once.
+- A file that didn't get smaller is remembered with the options it was tried with, and skipped next time unless
+  the file or those options change. Files you pick yourself are always tried.
+- Scans show the list as soon as the folders are listed; each file's details fill in as they're read.
+
+### While it works
+
+- Time left for the whole job, from how fast this job has gone, and the space saved so far.
+- A recently compressed photo, before and after, every few seconds.
+- Failed files come with what usually fixes them: close the app that has the file open, free up space, allow
+  Wick in Controlled folder access, or install the missing encoder.
+- Notifications have Undo and Show Files buttons.
+- **Compress right away** (Settings › Integration): files sent from File Explorer's menu are compressed without
+  opening the window.
+
 ## Home, Convert and Metadata
 
 - **Home** reads the headers of the files in your Pictures, Videos, Downloads, Desktop and Documents folders in

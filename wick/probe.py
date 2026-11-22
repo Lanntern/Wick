@@ -55,7 +55,8 @@ class VideoInfo:
     streams: list[StreamInfo] = field(default_factory=list)
     tags: dict = field(default_factory=dict)   # container metadata
     creation_time: str = ""
-    cadence: int = 0           # N if one frame in every N is a repeat (24 fps stored as 30: 5); 0 = none found
+    cadence: int = 0           # N if one frame in every N is a repeat (24 fps stored as 30: 5); 0 = none found;
+                               # NOT_MEASURED when repeated frames weren't looked for (the option was off)
     vfr: bool = False          # variable frame rate (phones)
     interlaced: bool = False   # fields, not frames (camcorders, TV recordings)
     hdr: str = ""              # "" (SDR), "HDR10", "HLG" or "Dolby Vision"
@@ -71,7 +72,7 @@ class VideoInfo:
     @property
     def content_fps(self) -> float:
         """The frame rate of the actual motion (repeated frames don't count)."""
-        return self.fps * (self.cadence - 1) / self.cadence if self.cadence else self.fps
+        return self.fps * (self.cadence - 1) / self.cadence if self.cadence > 0 else self.fps
 
     @property
     def is_10bit(self) -> bool:
@@ -259,6 +260,10 @@ def is_camera_original(info: VideoInfo) -> bool:
     return any(info.tags.get(k) for k in _CAMERA_TAGS)
 
 
+NOT_MEASURED = -1
+_hw_decode_ok = True       # cleared once GPU decoding fails, so later videos skip straight to the processor
+
+
 def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  # noqa: C901
     """Find frames that were repeated to pad the frame rate (e.g. a 24 fps film uploaded as 30 fps).
 
@@ -274,7 +279,8 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
     d: list[float] = []
     # GPU decoding when present; then on the processor, if that failed (some ffmpeg builds crash outright when
     # a GPU library is missing, and a crashed measurement must not read as "no repeated frames").
-    for hw in (["-hwaccel", "auto"], []):
+    global _hw_decode_ok
+    for hw in ((["-hwaccel", "auto"],) if _hw_decode_ok else ()) + ([],):
         try:
             ffmpeg = tools.require("ffmpeg")
             proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", *hw,
@@ -286,7 +292,11 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
         except Exception:  # noqa: BLE001 - detection is optional
             from wick.log import ignored
             ignored("probe.detect_cadence")
+            if hw:
+                _hw_decode_ok = False
             continue
+        if hw and proc.returncode != 0:
+            _hw_decode_ok = False
         d = [float(x) for x in re.findall(r"YAVG=([0-9.]+)", proc.stdout or "")]
         if proc.returncode == 0 and len(d) >= 40:
             break

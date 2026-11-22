@@ -2662,3 +2662,63 @@ def test_speed_or_size_is_asked_once_and_sets_the_defaults(win, monkeypatch):
     win.ask_tradeoff()                                       # once only
     assert not shown
     win.compress.panel.load(tradeoff.apply("balanced", win.compress.panel.settings()))
+
+
+def test_compress_page_says_where_the_space_comes_from_and_what_will_happen(win, tmp_path):
+    """The list appears while details are read; the breakdown by kind filters the list; the settings line
+    says what will be done."""
+    import shutil
+    import subprocess
+
+    from wick.settings import Settings
+
+    folder = tmp_path / "mixed"
+    folder.mkdir()
+    for i in range(3):
+        Image.effect_noise((300, 200), 30 + i).convert("RGB").save(folder / f"p{i}.png")
+    if shutil.which("ffmpeg"):
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=320x240:d=2", "-pix_fmt",
+                        "yuv420p", "-c:v", "libx264", "-crf", "5", str(folder / "clip.mp4")], check=True)
+    page = win.compress
+    page.panel.load(Settings(min_image_kb=0, min_video_mb=0))
+    page.clear()
+    page.add_paths([str(folder)])
+    assert _wait(lambda: not page.busy() and len(page.model.rows) >= 3, 90)
+    assert page.model.pending_count() == 0
+    assert "Pictures to JPEG XL" in page.settings_line.text()
+    if (folder / "clip.mp4").exists() and any(r.entry.kind == "video" and r.plan.convert for r in page.model.rows):
+        assert not page.breakdown.isHidden() and "group:video" in page.breakdown.text()
+        page._show_group("group:video")
+        assert page.proxy.rowCount() == 1 and "Show all files" in page.breakdown.text()
+        page._show_group("group:all")
+        assert page.proxy.rowCount() == 4
+    page.clear()
+
+
+def test_files_from_the_context_menu_can_be_compressed_without_the_window(win, tmp_path, monkeypatch):
+    """Settings › "Compress right away": the files are scanned and compressed with the current options, a
+    notification says so, and Undo / Show Files work from the notification."""
+    from wick.settings import Settings
+
+    folder = tmp_path / "quick"
+    folder.mkdir()
+    pic = folder / "shot.png"
+    Image.effect_noise((200, 150), 40).convert("RGB").save(pic)
+    notes = []
+    monkeypatch.setattr(win, "tray_message", lambda msg, force=False, actions=(), launch="": notes.append(
+        (msg, [a[1] for a in actions])))
+    quits = []
+    monkeypatch.setattr(win, "quick_done", lambda: quits.append(True))
+    page = win.compress
+    page.panel.load(Settings(min_image_kb=0, image_format="jxl", output_mode="suffix"))
+    page.clear()
+    monkeypatch.setattr(win, "isVisible", lambda: False)
+    monkeypatch.setattr(win, "isActiveWindow", lambda: False)
+    monkeypatch.setattr(page, "window", lambda: win)
+    win.receive_paths([str(pic)], show=False)
+    assert page.quick
+    assert _wait(lambda: quits, 90), notes
+    assert notes[0][0].startswith("Compressing 1 file")
+    assert "undo-last" in notes[-1][1] and "show-files" in notes[-1][1]
+    assert win._last_run and win._last_outputs and win._last_outputs[0].exists()
+    page.clear()

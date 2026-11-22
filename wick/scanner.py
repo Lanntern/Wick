@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -101,10 +102,14 @@ def scan(
     probe: bool = True,
     picked: bool = False,
     found: Callable[[FileEntry], None] | None = None,
+    listed: Callable[[list[FileEntry]], None] | None = None,
+    ready: Callable[[list[FileEntry]], None] | None = None,
 ) -> ScanResult:
     """Scan folders and/or individual files. Files given directly are always included; with ``picked`` (someone
     chose them, rather than Watch Folders finding them) the size minimums don't apply to them either.
-    ``found`` runs on the scanning thread for each new entry, before optional compression probing."""
+    ``found`` runs on the scanning thread for each new entry, before optional compression probing.
+    ``listed`` gets every entry once the folders are listed, before their details are read (a list can show them
+    straight away); ``ready`` then gets batches of entries whose details have been read."""
     if isinstance(paths, (str, os.PathLike)):
         paths = [Path(paths)]
     roots = [Path(os.path.abspath(p)) for p in paths]
@@ -127,8 +132,10 @@ def scan(
             return result
 
     mark_live_photos(result.entries)
+    if listed is not None:
+        listed(list(result.entries))
     if probe:
-        probe_entries(result.entries, progress, cancel)
+        probe_entries(result.entries, progress, cancel, settings, ready)
         if cancel is not None and cancel.is_set():
             result.cancelled = True
     result.entries.sort(key=lambda e: e.size, reverse=True)
@@ -397,8 +404,13 @@ def preload_codecs(heif: bool = True) -> None:
 
 
 def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
-                  cancel: threading.Event | None = None) -> None:
-    """Read image headers and video info (in parallel)."""
+                  cancel: threading.Event | None = None, settings: Settings | None = None,
+                  ready: Callable[[list[FileEntry]], None] | None = None) -> None:
+    """Read image headers and video info (in parallel). Repeated frames in videos are only looked for when
+    the option to remove them is on (one FFmpeg run per video saved otherwise)."""
+    from .probe import NOT_MEASURED
+
+    cadence = settings is None or settings.video_fix_cadence
     from . import index
 
     todo = []
@@ -408,17 +420,34 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         cached = index.lookup(e.path, e.size, e.mtime, e.kind)
         if cached is None:
             todo.append(e)
+        elif e.kind == VIDEO and cadence and cached.cadence == NOT_MEASURED:
+            todo.append(e)                        # (scanned with the option off: look for repeated frames now)
         elif e.kind == VIDEO:
             e.video = cached
         elif e.kind == AUDIO:
             e.audio = cached
         else:
             e.image = cached
+    waiting = {id(e) for e in todo}
+    batch: list[FileEntry] = [e for e in entries if id(e) not in waiting] if ready is not None else []
+    last_sent = [time.monotonic()]
+
+    def send(force: bool = False) -> None:
+        # (called under ``lock``) every quarter second at most, so the list updates smoothly without flooding
+        if ready is None or not batch or (not force and time.monotonic() - last_sent[0] < 0.25):
+            return
+        ready(batch.copy())
+        batch.clear()
+        last_sent[0] = time.monotonic()
+
     if not todo:
+        send(True)
         return
     preload_codecs(heif=any(e.kind == HEIC for e in entries))
     done = 0
     lock = threading.Lock()
+    with lock:
+        send(True)                     # (cached ones first)
 
     def work(e: FileEntry) -> None:
         nonlocal done
@@ -433,16 +462,21 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         if e.kind == VIDEO:
             e.video = probe_video(e.path)
             if e.video is not None:
-                e.video.cadence = detect_cadence(e.path, e.video)
+                e.video.cadence = detect_cadence(e.path, e.video) if cadence else NOT_MEASURED
         elif e.kind == AUDIO:
             e.audio = probe_audio(e.path)
         else:
             e.image = read_image_info(e.path, e.kind)
         with lock:
             done += 1
+            if ready is not None:
+                batch.append(e)
+                send()
             if progress and (done % 20 == 0 or e.kind in (VIDEO, AUDIO)):
                 progress(f"Reading file info: {e.path.name}", done, len(todo))
 
     with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
         list(pool.map(work, todo))
+    with lock:
+        send(True)
     index.store([(e.path, e.size, e.mtime, e.kind, e.info) for e in todo if e.info is not None])

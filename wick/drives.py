@@ -95,4 +95,66 @@ def readers(paths: list[Path], parallel: int) -> int:
     return parallel
 
 
-__all__ = ["spinning", "readers"]
+NETWORK_FS = {"nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "sshfs", "9p", "afs", "fuse.rclone",
+              "davfs", "fuse.davfs2", "ceph", "glusterfs"}
+
+
+@lru_cache(maxsize=64)
+def _linux_mount_fs(dev: int) -> str:
+    """The file system type of the mount that device ``dev`` belongs to ("" if unknown)."""
+    try:
+        with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 10 or ":" not in parts[2]:
+                    continue
+                major, minor = parts[2].split(":", 1)
+                if (int(major), int(minor)) == (os.major(dev), os.minor(dev)):
+                    return parts[parts.index("-") + 1] if "-" in parts else ""
+    except (OSError, ValueError):
+        pass
+    return ""
+
+
+def network(path: Path) -> bool:
+    """True when ``path`` is on a network share (a mapped drive, a UNC path, NFS/SMB/SSHFS mounts)."""
+    try:
+        text = os.path.abspath(path)
+        if os.name == "nt":
+            if text.startswith(("\\\\", "//")) and not text.startswith("\\\\?\\"):
+                return True
+            import ctypes
+
+            drive = _anchor(path)
+            return bool(drive) and ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4     # DRIVE_REMOTE
+        return _linux_mount_fs(os.stat(path).st_dev) in NETWORK_FS
+    except Exception:  # noqa: BLE001 - unknown: treat it as local
+        from .log import ignored
+        ignored("drives.network")
+        return False
+
+
+SLOW_PARALLEL = 3          # files worked on at once when they're on a hard drive or a network share
+
+
+def slow(paths: list[Path], limit: int = 200) -> str:
+    """"network" or "hdd" if any of ``paths`` (the first ``limit`` drives' worth) is on one, else ""."""
+    seen: set[str] = set()
+    found = ""
+    for p in paths[:limit]:
+        try:
+            dev = os.stat(p).st_dev
+        except OSError:
+            continue
+        key = _anchor(p) if os.name == "nt" else str(dev)
+        if key in seen:
+            continue
+        seen.add(key)
+        if network(Path(p)):
+            return "network"
+        if spinning(Path(p)):
+            found = "hdd"
+    return found
+
+
+__all__ = ["spinning", "readers", "network", "slow", "SLOW_PARALLEL"]

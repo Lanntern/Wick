@@ -61,6 +61,7 @@ class CompressTab(QWidget):
         self.cloud_only = 0
         self._rescan_after = False
         self._inspector_user_choice: bool | None = None
+        self.quick = False                 # files from the context menu: compress them once scanned (no window)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -92,10 +93,30 @@ class CompressTab(QWidget):
         self.tile_save = StatTile("Could save", accent=True)
         tiles = hbox(self.tile_files, self.tile_size, self.tile_save, spacing=Space.L)
         rl.addLayout(tiles)
+        # Where the saving comes from, by kind (each part shows only those files), and what the options will do.
+        self.breakdown = text("", Type.FOOTNOTE, wrap=True)
+        self.breakdown.setTextFormat(Qt.RichText)
+        self.breakdown.setAccessibleName("Where the space comes from")
+        self.breakdown.linkActivated.connect(self._show_group)
+        # Tab reaches each part, Enter opens it (links in a label are mouse-only by default).
+        self.breakdown.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
+        self.breakdown.setFocusPolicy(Qt.TabFocus)
+        self.breakdown.hide()
+        self.settings_line = text("", Type.FOOTNOTE, secondary=True, wrap=True)
+        self.settings_line.setTextFormat(Qt.PlainText)
+        self.settings_line.setAccessibleName("What will be done")
+        self.settings_line.setToolTip("Change this in Options (Ctrl+I)")
+        summary_box = QVBoxLayout()
+        summary_box.setSpacing(2)
+        summary_box.addWidget(self.breakdown)
+        summary_box.addWidget(self.settings_line)
+        rl.addLayout(summary_box)
 
         # progress while working; afterwards, what happened and where the result is
         self.job_status = JobStatus("Compressing", "compressed")
         self.job_status.stop_requested.connect(self.cancel)
+        self.job_status.fix_requested.connect(lambda key: self.win.apply_fix(key, retry=self.retry_failed,
+                                                                             rescan=self.start_scan))
         self.pauser = PauseControl(self.job_status, window)
         rl.addWidget(self.job_status)
 
@@ -421,6 +442,8 @@ class CompressTab(QWidget):
         self.model.set_entries([], self.panel.settings())
         self.scan_thread = ScanThread(paths, self.panel.settings(), self)
         self.scan_thread.progress.connect(self._scan_progress)
+        self.scan_thread.listed.connect(self._scan_listed)
+        self.scan_thread.ready.connect(self._scan_ready)
         self.scan_thread.result.connect(self._scan_done)
         self.scan_thread.error.connect(lambda m: self._fail(f"Scan failed: {m}"))
         self.scan_thread.finished.connect(self._thread_finished)
@@ -431,9 +454,40 @@ class CompressTab(QWidget):
 
     def _scan_progress(self, msg: str, done: int, total: int) -> None:
         self.job_status.busy(msg, done, total)
-        if self.placeholder.loading:
+        if self.placeholder.loading and not self.model.rows:
             self.placeholder.show_loading(f"Reading file details… {done:,} of {total:,}" if total else
                                           "Looking for images, videos and audio…")
+
+    def _quick_start(self) -> None:
+        """Compress what the context menu sent, with the current options and no questions; the window opens only
+        if something needs a decision (a missing encoder)."""
+        self.quick = False
+        items = self.model.selected_items()
+        if not items:
+            self.win.tray_message(self._why_nothing() if self.model.rows else "Nothing there that Wick compresses.")
+            self.win.quick_done()
+            return
+        size = sum(e.size for e, _ in items)
+        if not self.start_job(confirm=False):
+            self.win.show_window()
+            return
+        self.win.tray_message(f"Compressing {len(items)} file{'s' if len(items) != 1 else ''} ({human(size)}) in "
+                              "the background…", actions=[("Show Progress", "compress")])
+        self._quick_running = True
+
+    def _scan_listed(self, entries) -> None:
+        """Show what was found straight away; details fill in as they're read."""
+        entries = [e for e in entries if os.path.normcase(str(e.path)) not in self.removed]
+        if not entries:
+            return
+        self._scan_settings = self.panel.settings()
+        self.model.show_listed(entries)
+        self.placeholder.clear()
+        self.update_summary()
+
+    def _scan_ready(self, entries) -> None:
+        self.model.details_read(entries, getattr(self, "_scan_settings", None) or self.panel.settings())
+        self.update_summary()
 
     def _scan_done(self, result) -> None:
         kinds = {"video" if e.kind == VIDEO else "audio" if e.kind == AUDIO else
@@ -442,8 +496,40 @@ class CompressTab(QWidget):
         self.skipped_dirs = result.skipped_program_dirs
         self.cloud_only = result.cloud_only_files
         entries = [e for e in result.entries if os.path.normcase(str(e.path)) not in self.removed]
-        self.model.set_entries(entries, self.panel.settings())
+        self.model.finish_listed(entries, self.panel.settings())
+        self._scan_settings = None
         self.update_summary()
+
+    def _show_group(self, link: str) -> None:
+        """A part of "where the space comes from" was clicked: list only those files (again: all files)."""
+        group = link.removeprefix("group:")
+        self.proxy.set_group("" if group in ("all", self.proxy.group) else group)
+        self.update_summary()
+
+    def _update_breakdown(self) -> None:
+        import html
+
+        from .. import summary
+
+        rows = [r for r in self.model.rows if r.checked and r.plan.convert
+                and not (r.result and r.result.status == DONE)]
+        parts = summary.savings_breakdown([(r.entry, r.plan) for r in rows])
+        kinds = {summary.group_of(r.entry.kind) for r in self.model.rows} or None
+        self.settings_line.setText(summary.describe_settings(self.panel.settings(), kinds, BIN_NAME)
+                                   if self.model.rows else "")
+        if self.proxy.group and self.proxy.group not in {g for g, _n, _b in parts}:
+            self.proxy.set_group("")             # (nothing of that kind selected any more)
+        if len(parts) < 2 and not self.proxy.group:
+            self.breakdown.setText("")           # (one kind: the tiles already say it)
+            self.breakdown.hide()
+            return
+        links = []
+        for (g, _n, _b), words in zip(parts, summary.say_breakdown(parts), strict=True):
+            shown = html.escape(words)
+            links.append(f"<b>{shown}</b>" if g == self.proxy.group else f'<a href="group:{g}">{shown}</a>')
+        tail = ' · <a href="group:all">Show all files</a>' if self.proxy.group else ""
+        self.breakdown.setText("Where the space comes from: " + " · ".join(links) + tail)
+        self.breakdown.show()
 
     def _replan(self) -> None:
         self.win.save_settings()
@@ -492,6 +578,7 @@ class CompressTab(QWidget):
 
     def update_summary(self) -> None:
         self._update_off_banner()
+        self._update_breakdown()
         has_rows = bool(self.model.rows)
         self.stack.setCurrentIndex(1 if (has_rows or self.busy()) else 0)
         n, size, est = self.model.totals()
@@ -518,9 +605,10 @@ class CompressTab(QWidget):
                 extra.append(f"{len(self.skipped_dirs)} program/game folder(s) skipped")
             if self.cloud_only:
                 extra.append(f"{self.cloud_only} cloud-only file(s) skipped")
+            pending = self.model.pending_count()
             self.page.subtitle.setText(
                 f"{names} · {len(self.model.rows)} file{'s' if len(self.model.rows) != 1 else ''} found, "
-                f"{convertible} can be compressed"
+                + (f"reading details of {pending:,}…" if pending else f"{convertible} can be compressed")
                 + (f" · {', '.join(extra)}" if extra else ""))
 
         done = [r for r in self.model.rows if r.result and r.result.status == DONE]
@@ -736,10 +824,15 @@ class CompressTab(QWidget):
                     else f"The original{'s were' if many else ' was'} kept.")
         self.job_status.finish(results, note, replaced=self._job_settings.output_mode == "replace",
                                on_undo=(lambda: self._undo_job(run_id)) if run_id else None)
+        self.win.remember_finished(run_id if done else None, [r.output for r in done])
+        quick, self._quick_running = getattr(self, "_quick_running", False), False
         if not self.window().isActiveWindow():      # finished in the background: say so
-            self.win.tray_message(self.job_status.title.text(), actions=[("Show in History", "history")],
-                                  launch="compress")
+            actions = ([("Show Files", "show-files")] if done else []) + \
+                ([("Undo", "undo-last")] if done and run_id else []) + [("Show in History", "history")]
+            self.win.tray_message(self.job_status.title.text(), actions=actions, launch="compress")
             QApplication.alert(self.window())
+        if quick:
+            self.win.quick_done()
 
     def _job_error(self, message: str) -> None:
         self.job_status.failed(f"Compression stopped: {message}")
@@ -776,6 +869,8 @@ class CompressTab(QWidget):
             self.placeholder.show_message(self._why_nothing())
         else:
             self.placeholder.clear()
+        if self.quick and not self.busy() and not self._rescan_after:
+            QTimer.singleShot(0, self._quick_start)
         if self._rescan_after:
             self._rescan_after = False
             QTimer.singleShot(0, self.start_scan)
@@ -792,7 +887,8 @@ class CompressTab(QWidget):
         for w in (self.panel, self.select_all, self.select_none, self.preview_btn, self.add_files_btn,
                   self.add_folder_btn, self.drop):
             w.setEnabled(not busy)
-        self.win.history.setEnabled(not busy)
+        if self.win.built("history") is not None:
+            self.win.history.setEnabled(not busy)
         self.update_summary()
         if busy:
             self.compress_btn.setEnabled(False)

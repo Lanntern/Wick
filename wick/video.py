@@ -583,7 +583,7 @@ def display_filter(info: VideoInfo) -> str:
 
 def drops_repeats(info: VideoInfo, s: Settings) -> bool:
     """Whether repeated (padding) frames are removed, restoring the original frame rate."""
-    return bool(s.video_fix_cadence and info.cadence)
+    return bool(s.video_fix_cadence and info.cadence > 0)
 
 
 def output_fps(info: VideoInfo, s: Settings) -> float | None:
