@@ -151,6 +151,10 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
 
     route, target, lossless, reversible = "", "", mode == "lossless", False
 
+    if kind in (HEIC, AVIF) and info.extras:
+        # No encoder here writes these back: re-encoding keeps only the main picture.
+        return _skip("HDR photo. Re-encoding would lose its HDR (gain map)" if info.extras == "gainmap"
+                     else "Photo with a depth map or several views. Re-encoding would keep only the main picture")
     if kind == JPEG and fmt != "keep" and getattr(info, "extras", "") in ("gainmap", "other"):
         # Other formats would carry only the main picture: an Ultra HDR photo would lose its HDR, a stereo or
         # depth photo its second picture. It stays a JPEG, made smaller with nothing lost.

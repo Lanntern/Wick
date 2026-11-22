@@ -15,7 +15,7 @@ import struct
 
 SOI, EOI, SOS = 0xD8, 0xD9, 0xDA
 MPF_PREVIEW_TYPES = (0x010001, 0x010002, 0x010003)       # large thumbnails: VGA, full HD, 4K
-GAIN_MAP_MARKS = (b"hdrgm:", b'xmlns:hdrgm="', b"urn:iso:std:iso:ts:21496")
+GAIN_MAP_MARKS = (b"hdrgm:", b'xmlns:hdrgm="', b"urn:iso:std:iso:ts:21496", b":aux:hdrgainmap")
 
 
 def segments(data: bytes) -> list[tuple[int, int, int]]:

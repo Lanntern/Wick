@@ -253,6 +253,9 @@ def cut_pdf_fonts(pdf) -> int:
     from fontTools import subset as ft_subset
     from fontTools.ttLib import TTFont
 
+    from .subfonts import _quiet_fonttools
+
+    _quiet_fonttools()
     if pdf.Root.get("/AcroForm") is not None:
         return 0                   # (form fields draw their text when they're filled in: any character)
     used: dict = {}

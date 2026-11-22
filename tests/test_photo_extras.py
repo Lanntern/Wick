@@ -186,3 +186,46 @@ def test_a_motion_photo_is_rebuilt_smaller_with_its_clip(tmp_path):
         assert "clip re-encoded as HEVC" in plan.outcome
     finally:
         out.unlink(missing_ok=True)
+
+
+def _boxes(*boxes: tuple[bytes, bytes]) -> bytes:
+    return b"".join(struct.pack(">I", 8 + len(body)) + kind + body for kind, body in boxes)
+
+
+def test_heic_hdr_and_multi_picture_photos_are_left_alone(tmp_path):
+    from wick.formats import HEIC, ImageInfo, heif_extras
+    from wick.plan import plan_entry
+    from wick.scanner import FileEntry
+
+    ftyp = (b"ftyp", b"heic\0\0\0\0mif1heic")
+    apple = (b"meta", b"\0\0\0\0" + _boxes((b"iprp", b"auxCurn:com:apple:photo:2020:aux:hdrgainmap\0")))
+    iso = (b"meta", b"\0\0\0\0" + _boxes((b"iinf", b"infe\x02\x00\x00\x00\x00\x05\x00\x00tmap")))
+    data = (b"mdat", b"tmap" * 100)                        # (picture data that happens to hold the letters)
+    cases = {"apple-meta-last.heic": (ftyp, data, apple), "iso.heic": (ftyp, iso, data),
+             "plain.heic": (ftyp, (b"meta", b"\0\0\0\0"), data)}
+    for name, boxes in cases.items():
+        (tmp_path / name).write_bytes(_boxes(*boxes))
+    assert heif_extras(tmp_path / "apple-meta-last.heic") == "gainmap"      # (meta after the picture data)
+    assert heif_extras(tmp_path / "iso.heic") == "gainmap"
+    assert heif_extras(tmp_path / "plain.heic") == ""
+    hdr = tmp_path / "iso.heic"
+    info = ImageInfo(4000, 3000, lossless_source=False, extras="gainmap")
+    for fmt in ("keep", "jxl", "avif"):
+        plan = plan_entry(FileEntry(hdr, 5_000_000, HEIC, 0, image=info, picked=True), Settings(image_format=fmt))
+        assert not plan.convert and "HDR" in plan.reason
+    info.extras = "other"
+    plan = plan_entry(FileEntry(hdr, 5_000_000, HEIC, 0, image=info, picked=True), Settings())
+    assert not plan.convert and "several views" in plan.reason
+
+
+def test_a_samsung_trailer_alone_isnt_a_motion_photo(tmp_path):
+    from wick.formats import has_embedded_video
+
+    jpeg = io.BytesIO()
+    _photo((64, 64)).save(jpeg, "JPEG")
+    plain = tmp_path / "samsung.jpg"
+    plain.write_bytes(jpeg.getvalue() + b"\0" * 64 + b"Image_UTC_Data1700000000000SEFHxxxxSEFT")
+    assert not has_embedded_video(plain)
+    motion = tmp_path / "motion.jpg"
+    motion.write_bytes(jpeg.getvalue() + b"MotionPhoto_Data" + b"\0" * 64 + b"SEFT")
+    assert has_embedded_video(motion)

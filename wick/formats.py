@@ -210,7 +210,8 @@ class ImageInfo:
     lossless_source: bool = True   # pixels are exact (PNG/GIF/BMP/TIFF/lossless WebP)
     mode: str = ""
     motion: bool = False           # Motion Photo: a short video is stored inside the image file
-    extras: str = ""               # JPEG: pictures after the main one ("gainmap", "previews", "other"; jpegparts.kind)
+    extras: str = ""               # JPEG: pictures after the main one ("gainmap", "previews", "other"; jpegparts.kind);
+    #                                HEIC/AVIF: a gain map, depth map or more pictures (heif_extras)
 
     @property
     def animated(self) -> bool:
@@ -272,7 +273,57 @@ def register_heif() -> bool:
 
 
 _MOTION_HEAD = (b"MotionPhoto", b"MicroVideo")   # Google/Samsung XMP (GCamera:MotionPhoto, Container items)
-_MOTION_TAIL = (b"MotionPhoto_Data", b"SEFT")    # Samsung trailer
+_MOTION_TAIL = (b"MotionPhoto_Data",)            # Samsung's trailer ("SEFT" alone is on many ordinary photos)
+
+
+def _heif_meta(path: Path) -> bytes:
+    """The 'meta' box of a HEIF/AVIF file (its item list and properties), wherever it is: some phones write it
+    after the picture data. Top-level boxes are walked by their sizes; nothing else is read."""
+    import struct
+
+    with open(path, "rb") as f:
+        size_total = path.stat().st_size
+        pos = 0
+        while pos + 8 <= size_total:
+            f.seek(pos)
+            header = f.read(16)
+            size, kind = struct.unpack(">I4s", header[:8])
+            if size == 1 and len(header) >= 16:
+                size = struct.unpack(">Q", header[8:16])[0]
+            elif size == 0:
+                size = size_total - pos
+            if kind == b"meta":
+                f.seek(pos)
+                return f.read(min(size, 16 * 1024 * 1024))
+            if size < 8:
+                break
+            pos += size
+    return b""
+
+
+def heif_extras(path: Path) -> str:
+    """What a HEIC or AVIF holds besides its main picture that no conversion carries over: "gainmap" (an HDR gain
+    map: Apple's and Samsung's auxiliary images, or an ISO 21496 'tmap' item), "other" (a depth map, or more than
+    one picture: spatial and stereo photos, bursts), or ""."""
+    try:
+        head = _heif_meta(path)
+    except OSError:
+        return ""
+    import re
+
+    # (a 'tmap' item is declared in an item-info entry: 'infe', version and flags, item ID, protection, type)
+    if b":aux:hdrgainmap" in head or re.search(rb"infe.{8,10}tmap", head, re.S):
+        return "gainmap"
+    try:
+        import pillow_heif
+
+        heif = pillow_heif.open_heif(path)
+        if len(heif) > 1 or any(im.info.get("depth_images") for im in heif):
+            return "other"
+    except Exception:  # noqa: BLE001 - not readable here: decided elsewhere
+        from wick.log import ignored
+        ignored("formats.heif_extras")
+    return ""
 
 
 def has_embedded_video(path: Path) -> bool:
@@ -340,6 +391,8 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
                 info.frames = 1                    # (its other "frames" are the layers: the picture is the first)
             elif kind == ICO:
                 info.frames = 1
+            if kind in (HEIC, AVIF):
+                info.extras = heif_extras(path)
             if kind in (JPEG, HEIC):
                 info.motion = has_embedded_video(path)
             return info
