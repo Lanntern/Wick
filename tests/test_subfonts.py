@@ -91,10 +91,11 @@ def test_fonts_in_an_hevc_mkv_are_cut_and_unused_ones_left_out(tmp_path, monkeyp
     unused = make_font(tmp_path / "unused.ttf", "Nobody Uses Me", CJK)
     (tmp_path / "subs.ass").write_text(ASS, "utf-8")
     src = tmp_path / "episode.mkv"
-    ffmpeg("-f", "lavfi", "-i", "testsrc=s=160x120:d=2", "-i", str(tmp_path / "subs.ass"), "-map", "0", "-map", "1",
+    # (attached by relative name: FFmpeg on Windows would store the full path as the font's name)
+    ffmpeg("-f", "lavfi", "-i", "testsrc=s=160x120:d=2", "-i", "subs.ass", "-map", "0", "-map", "1",
            "-pix_fmt", "yuv420p", "-c:v", "libx265", "-x265-params", "log-level=error", "-c:s", "copy",
-           "-attach", str(sans), "-attach", str(serif), "-attach", str(unused),
-           "-metadata:s:t", "mimetype=application/x-truetype-font", str(src))
+           "-attach", sans.name, "-attach", serif.name, "-attach", unused.name,
+           "-metadata:s:t", "mimetype=application/x-truetype-font", src.name, cwd=tmp_path)
     info = probe_video(src)
     monkeypatch.setattr(subfonts, "MIN_FONT_BYTES", 200_000)        # (real fonts are bigger: quicker to make)
     assert info is not None and subfonts.font_bytes(info) > subfonts.MIN_FONT_BYTES
