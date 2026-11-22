@@ -10,8 +10,8 @@ from pathlib import Path
 from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox
 
 from ..cleanup import (
-    actions, appcompress, archives, broken, caches, devclean, duplicates, empties, extensions, folders, installers,
-    largefiles, music, proxies, similar, takeout, videos, winclean,
+    actions, appcompress, archives, backups, broken, caches, devclean, duplicates, empties, extensions, folders,
+    installers, largefiles, music, pairs, proxies, similar, takeout, videos, winclean,
 )
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
@@ -136,6 +136,17 @@ def _broken_options(sec: "ToolSection"):
     box.toggled.connect(lambda on: sec.qs.setValue("cleanup/broken/thorough", on))
     sec.extra_thorough = box
     return [("", box)]
+
+
+def _pairs_options(sec: "ToolSection"):
+    combo = QComboBox()
+    combo.addItem("List the JPEGs (keep the RAW files)", "raw")
+    combo.addItem("List the RAW files (keep the JPEGs)", "jpeg")
+    combo.setCurrentIndex(max(0, combo.findData(sec.qs.value("cleanup/pairs/keep", "raw", str))))
+    combo.setAccessibleName("Which of each pair to list")
+    combo.currentIndexChanged.connect(lambda _i: sec.qs.setValue("cleanup/pairs/keep", combo.currentData()))
+    sec.extra_keep = combo
+    return [("Of each pair", combo)]
 
 
 def _similar_group_title(g: str, items: list[Candidate]) -> str:
@@ -520,6 +531,18 @@ def tools() -> list[Tool]:
              lambda: _existing("Videos", "Pictures", "Desktop", "Downloads"),
              lambda s, p, c: proxies.find_proxies(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
+        Tool("pairs", "RAW + JPEG",
+             "Photos the camera saved twice, as RAW and as JPEG or HEIC. One of each pair is listed; which one is "
+             "up to you, and nothing is selected for you.",
+             lambda: _existing("Pictures", "Desktop", "Downloads"),
+             lambda s, p, c: pairs.find_pairs(s.folders, s.extra_keep.currentData(), p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_pairs_options),
+        Tool("backups", "Phone Backups",
+             "iPhone and iPad backups made by iTunes or Apple Devices, and Samsung Smart Switch backups, newest "
+             "first. Each can be tens of gigabytes; nothing is selected for you.",
+             None, lambda s, p, c: backups.find_backups(p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             available=lambda: "" if os.name == "nt" else "Available on Windows."),
         Tool("apps", "Apps",
              "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
              f"uninstaller, then moves the folders it left behind to the {BIN_NAME}.",

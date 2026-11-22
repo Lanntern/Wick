@@ -40,3 +40,96 @@ def test_the_removal_script_rechecks_every_path():
     assert "'C:\\Windows\\Installer\\o''k.msp'" in script
     assert "Split-Path -Parent $f) -eq $installer" in script and "\\.ms[ip]$" in script
     assert "installer" not in winclean.script(["memory_dumps"], [r"C:\x.msi"]).lower()
+
+
+def test_raw_and_jpeg_pairs(tmp_path):
+    from wick.cleanup import pairs
+
+    shoot = tmp_path / "shoot"
+    shoot.mkdir()
+    for name in ("DSC0001.ARW", "DSC0001.JPG", "DSC0002.ARW", "IMG_5.CR3", "IMG_5.HEIC", "IMG_6.JPG",
+                 "two.NEF", "two.jpg", "two.heic"):                       # (two developed copies: left alone)
+        (shoot / name).write_bytes(b"x" * 100)
+    jpegs = pairs.find_pairs([tmp_path], keep="raw").items
+    assert sorted(c.path.name for c in jpegs) == ["DSC0001.JPG", "IMG_5.HEIC"]
+    assert not any(c.selected for c in jpegs) and jpegs[0].keeper.suffix.lower() in (".arw", ".cr3")
+    raws = pairs.find_pairs([tmp_path], keep="jpeg").items
+    assert sorted(c.path.name for c in raws) == ["DSC0001.ARW", "IMG_5.CR3"]
+
+
+def test_phone_backups_are_listed_newest_first(tmp_path, monkeypatch):
+    import datetime
+    import plistlib
+
+    from wick.cleanup import backups
+
+    base = tmp_path / "Apple Computer" / "MobileSync" / "Backup"
+    for udid, name, year in (("00008030-old", "Old iPhone", 2019), ("00008110-new", "Anna's iPhone", 2026)):
+        folder = base / udid
+        folder.mkdir(parents=True)
+        (folder / "Manifest.db").write_bytes(b"x" * 5000)
+        with open(folder / "Info.plist", "wb") as f:
+            plistlib.dump({"Device Name": name, "Product Name": "iPhone 15", "Last Backup Date":
+                           datetime.datetime(year, 5, 1)}, f)
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "nobody"))
+    items = backups.find_backups().items
+    assert [c.title for c in items] == ["Anna's iPhone (iPhone 15) backup", "Old iPhone (iPhone 15) backup"]
+    assert all(not c.selected and c.warning and c.size >= 5000 for c in items)
+    assert "2019" in items[1].detail and "months ago" in items[1].detail
+
+
+VBOX_HDDS = """UUID:           1b2c3d4e-0000-4000-8000-000000000001
+Parent UUID:    base
+State:          created
+Type:           normal (base)
+Location:       {disk}
+Storage format: VDI
+Capacity:       51200 MBytes
+Encryption:     disabled
+In use by VMs:  Ubuntu (UUID: 9a9a9a9a-0000-4000-8000-0000000000aa)
+
+UUID:           1b2c3d4e-0000-4000-8000-000000000002
+Location:       {other}
+Storage format: VMDK
+In use by VMs:  Old (UUID: 9a9a9a9a-0000-4000-8000-0000000000bb)
+"""
+
+
+def test_virtualbox_and_vmware_disks_are_found_and_compacted(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from wick.cleanup import vdisk
+
+    disk = tmp_path / "Ubuntu.vdi"
+    disk.write_bytes(b"\0" * 4096)
+    calls = tmp_path / "calls.txt"
+    tool = tmp_path / "bin" / "VBoxManage"
+    tool.parent.mkdir()
+    listing = tmp_path / "hdds.txt"
+    listing.write_text(VBOX_HDDS.format(disk=disk, other=tmp_path / "old.vmdk"))
+    tool.write_text(f"#!/bin/sh\necho \"$@\" >> {calls}\n"
+                    f"if [ \"$1 $2\" = \"list hdds\" ]; then cat {listing}; fi\n"
+                    "if [ \"$1\" = modifymedium ]; then truncate -s 1024 \"$3\" 2>/dev/null || true; fi\n")
+    tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{tool.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(vdisk, "MIN_FILE", 1000)
+    home = tmp_path / "home"
+    vm = home / "vmware" / "Win11"
+    vm.mkdir(parents=True)
+    (vm / "Win11.vmdk").write_bytes(b"\0" * 5000)
+    (vm / "Win11-s001.vmdk").write_bytes(b"\0" * 5000)            # (a piece of the disk, not a disk)
+    (vm / "Win11.vmx.lck").mkdir()                                # (the machine is on)
+    monkeypatch.setattr(vdisk.Path, "home", staticmethod(lambda: home))
+
+    parsed = vdisk.parse_vbox_hdds(VBOX_HDDS.format(disk=disk, other="x.vmdk") +
+                                   "\nRUNNING:\n\"Ubuntu\" {9a9a9a9a-0000-4000-8000-0000000000aa}\n")
+    assert parsed[0] == (disk, "VDI", True) and parsed[1][1] == "VMDK" and not parsed[1][2]
+    items = {c.extra["vdisk"]: c for c in vdisk.vm_candidates()}
+    assert set(items) == {"vbox", "vmware"} and not any(c.selected for c in items.values())
+    assert items["vmware"].extra["busy"] and items["vmware"].warning
+    results = {c.extra["vdisk"]: (ok, msg, freed) for c, ok, msg, freed in vdisk.compact(list(items.values()))}
+    assert results["vbox"][0] and results["vbox"][2] == 4096 - 1024
+    assert f"modifymedium disk {disk} --compact" in calls.read_text()
+    assert not results["vmware"][0] and "shut it down" in results["vmware"][1]

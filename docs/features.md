@@ -228,7 +228,7 @@ Each tool scans first and only preselects what's safe. Everything can be undone 
 | Compress Apps | Installed games (Steam, Epic, GOG) and folders you add | Windows' built-in transparent compression |
 | Google Takeout | Google Photos exports | Merged into one folder with the correct dates and albums |
 | Caches | Browser, Discord, Spotify, Teams, Slack, Telegram, shader and Adobe caches, crash dumps, driver installers | Recycle Bin |
-| Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL and Docker disks | Recycle Bin; Docker data removed by Docker; disks compacted |
+| Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL, Docker, Hyper-V, VirtualBox and VMware disks | Recycle Bin; Docker data removed by Docker; disks compacted |
 | Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files, and installer packages no installed program lists any more | Removed with Windows' own tools |
 | Camera Proxies | GoPro, DJI and Insta360 low-resolution copies and thumbnails, only when the full video is beside them | Recycle Bin |
 | Installers | Installers and disk images older than N days | Recycle Bin |

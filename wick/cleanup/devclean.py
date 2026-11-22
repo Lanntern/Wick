@@ -565,7 +565,7 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
         from . import vdisk
 
         if progress:
-            progress("Measuring WSL and Docker virtual disks…", 0, 0)
+            progress("Measuring virtual disks…", 0, 0)
         for c in vdisk.find():
             c.extra["kind"] = "vdisk"
             result.items.append(c)
@@ -594,7 +594,7 @@ def _compose_name(project: Path) -> str:
 
 
 def group_title(group: str, items: list[Candidate]) -> str:
-    if group in (SHARED, "Docker", "WSL and Docker virtual disks"):
+    if group in (SHARED, "Docker", "Virtual disks"):
         return group
     idle = items[0].extra.get("idle_days", 0)
     n = len(items)
