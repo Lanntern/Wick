@@ -65,4 +65,14 @@ def shutdown() -> None:
                     p.terminate()
                 except Exception:  # noqa: BLE001 - already gone
                     pass
+            # A stop request is ignored when the app was started with that signal ignored (children inherit it):
+            # whatever is still there after a moment is ended outright.
+            for p in processes:
+                try:
+                    p.join(2)
+                    if p.is_alive():
+                        p.kill()
+                        p.join(2)
+                except Exception:  # noqa: BLE001
+                    pass
             _pool = None
