@@ -101,8 +101,7 @@ def test_jpeg_rebuilt_when_bin_emptied(media_dir):
     from wick import trash_restore
     item = trash_restore.find_trashed(Path(rec.original), rec.trashed_at)
     assert item is not None, "original should be findable in the Recycle Bin/Trash"
-    os.remove(item.data_path)
-    os.remove(item.meta_path)
+    trash_restore.purge(item)
 
     ok, failed = undo_run(run_id)
     assert failed == 0

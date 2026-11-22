@@ -77,6 +77,12 @@ def main() -> int:
                                      "Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List"],
                                     capture_output=True, text=True)
                 print("PROCESSES:\n" + ps.stdout[-6000:])
+            else:
+                ps = subprocess.run(["ps", "-axo", "pid,ppid,stat,etime,command"], capture_output=True, text=True)
+                print("PROCESSES (Wick, Python and encoders):\n" + "\n".join(
+                    line for line in ps.stdout.splitlines()
+                    if any(k in line for k in ("PID", "Wick", "python", "ffmpeg", "cjxl", "caffeinate")))[-6000:])
+            print("main process still running:", proc.poll() is None)
             if trace.exists():
                 text = trace.read_text(encoding="utf-8", errors="replace")
                 print("TRACE (first 6000 chars):\n" + text[:6000])
