@@ -253,6 +253,9 @@ def exit_now_if_stuck(code: int) -> None:
 
     logging.shutdown()
     end_cleanly()                         # (a deliberate exit, not a crash)
+    from .. import procpool
+
+    procpool.shutdown()                   # (os._exit below skips atexit, which would stop the helper processes)
     sys.stdout.flush()
     os._exit(code)
 

@@ -52,8 +52,17 @@ def call(fn, *args):
 
 
 def shutdown() -> None:
+    """Stop the helper processes now. They hold both ends of their own job queue, so they never notice the app
+    has ended; without this they'd outlive it when it exits with os._exit (seen on macOS: the leftover processes
+    kept a terminal's output open)."""
     global _pool
     with _lock:
         if _pool is not None:
+            processes = list((getattr(_pool, "_processes", None) or {}).values())
             _pool.shutdown(wait=False, cancel_futures=True)
+            for p in processes:
+                try:
+                    p.terminate()
+                except Exception:  # noqa: BLE001 - already gone
+                    pass
             _pool = None

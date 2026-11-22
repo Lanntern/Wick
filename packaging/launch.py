@@ -44,6 +44,12 @@ if __name__ == "__main__":
     multiprocessing.freeze_support()   # helper processes (see wick/procpool.py) start here and stop
     # No arguments (or file paths) open the window; "scan"/"run"/... use the command line.
     code = _run()
+    try:
+        from wick import procpool
+
+        procpool.shutdown()   # helper processes: os._exit below skips the atexit hook that would stop them
+    except Exception:  # noqa: BLE001
+        pass
     # Exit immediately: native libraries' worker threads can deadlock while they are
     # unloaded on Windows. All files and the history journal
     # are already flushed and fsynced at this point.

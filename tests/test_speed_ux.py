@@ -238,3 +238,24 @@ def test_summaries_say_what_happens_where_space_comes_from_and_why_files_were_le
                                   "HDR photo: kept as it is", "File no longer exists"])
     assert groups[0] == ("already as small as they'll get", 3)
     assert ("HDR photo: kept as it is", 1) in groups and ("changed or moved since the scan", 1) in groups
+
+
+def test_helper_processes_end_with_the_app():
+    """The pool's workers hold both ends of their job queue: they only stop when told to, so shutdown ends them
+    (the app exits with os._exit, which skips the pool's own atexit)."""
+    import os
+
+    from wick import _workers, procpool
+
+    if os.environ.get("WICK_NO_PROCESSES"):
+        return
+    procpool.call(_workers.set_low_priority, False)
+    pool = procpool._pool
+    if pool is None:                                       # (helper processes unavailable here)
+        return
+    workers = list(pool._processes.values())
+    assert workers
+    procpool.shutdown()
+    for p in workers:
+        p.join(10)
+        assert not p.is_alive()
