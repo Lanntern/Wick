@@ -251,7 +251,7 @@ def test_repeated_frames_detected_and_removed(tmp_path):
            cwd=tmp_path)
     assert detect_cadence(tmp_path / "real.mp4", probe_video(tmp_path / "real.mp4")) == 0
 
-    s = Settings(video_codec="hevc", min_video_mb=0, output_mode="suffix", image_format="none")
+    s = Settings(video_codec="hevc", video_encoder="cpu", min_video_mb=0, output_mode="suffix", image_format="none")
     entry = next(e for e in scan([tmp_path], s).entries if e.path.name == "padded.mp4")
     assert entry.video.cadence == 5 and round(entry.video.content_fps) == 24, _cadence_report(entry.path, entry.video)
     assert "30→24 fps" in mediainfo.describe(entry) and "padded" in mediainfo.cadence_note(entry.video)

@@ -173,7 +173,7 @@ def test_a_motion_photo_is_rebuilt_smaller_with_its_clip(tmp_path):
     src = tmp_path / "PXL_20240101_MP.jpg"
     src.write_bytes(jpeg + clip_bytes)
     assert motionphoto.clip_length(src.read_bytes()) == len(clip_bytes)
-    s = Settings(image_format="keep", jpeg_mode="lossless")
+    s = Settings(image_format="keep", jpeg_mode="lossless", video_encoder="cpu")   # (x265: a known size)
     info, plan = _plan(src, s)
     assert info.motion and plan.convert and plan.route == "motion_photo", plan.reason
     out = convert_image(src, "jpeg", info, plan, s)
