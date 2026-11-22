@@ -2722,3 +2722,65 @@ def test_files_from_the_context_menu_can_be_compressed_without_the_window(win, t
     assert "undo-last" in notes[-1][1] and "show-files" in notes[-1][1]
     assert win._last_run and win._last_outputs and win._last_outputs[0].exists()
     page.clear()
+
+
+def test_the_job_panel_shows_savings_fixes_and_a_before_and_after(win, tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    from PIL import Image
+
+    from wick.engine import DONE, FAILED, FileResult
+    from wick.formats import JPEG
+    from wick.gui.jobstatus import JobStatus
+    from wick.scanner import FileEntry
+
+    src, out = tmp_path / "a.jpg", tmp_path / "a-small.jpg"
+    Image.effect_noise((300, 200), 40).convert("RGB").save(src, quality=95)
+    Image.open(src).save(out, quality=60)
+    panel = JobStatus()
+    panel.show()
+    panel.start(3, 3_000_000)
+    a = FileEntry(src, src.stat().st_size, JPEG, 0)
+    panel.file_started(a)
+    done = FileResult(a, DONE, "Saved", out, out.stat().st_size)
+    panel.file_finished(done)
+    assert "saved" in panel.title.text() and panel.saved_so_far() == done.saved
+    deadline = time.monotonic() + 30
+    while panel.compare.isHidden() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert not panel.compare.isHidden() and panel.compare.pics["after"].pixmap() is not None
+    assert "Before" in panel.compare.captions["before"].text()
+    b = FileEntry(tmp_path / "b.jpg", 1000, JPEG, 0)
+    busy = FileResult(b, FAILED, "[WinError 32] being used by another process; original kept")
+    keys = []
+    panel.fix_requested.connect(keys.append)
+    panel.finish([done, busy])
+    assert not panel.fix_text.isHidden() and "Close the app" in panel.fix_text.text()
+    panel.fix_row.itemAt(0).widget().click()
+    assert keys == ["in_use"]
+    panel.start(1, 10)                                             # a new job starts clean
+    assert panel.fix_text.isHidden() and panel.compare.isHidden()
+
+
+def test_before_and_after_show_in_whichever_order_they_arrive(win, tmp_path):
+    from PIL import Image
+
+    from wick.engine import DONE, FileResult
+    from wick.formats import JPEG
+    from wick.gui.jobstatus import CompareStrip
+    from wick.scanner import FileEntry
+
+    png = tmp_path / "x.png"
+    Image.new("RGB", (40, 30), "red").save(png)
+    strip = CompareStrip()
+    e = FileEntry(tmp_path / "a.jpg", 2000, JPEG, 0)
+    strip._entry, strip.token = e, 7
+    strip._result = FileResult(e, DONE, "Saved", tmp_path / "a.jxl", 1000)
+    strip._got("after", 7, png.read_bytes())               # (the result's picture first)
+    assert strip.isHidden()
+    strip._got("before", 7, png.read_bytes())
+    assert not strip.isHidden() and "50% smaller" in strip.note.text()
+    strip._got("after", 6, png.read_bytes())               # (a stale one from an earlier file is ignored)
+

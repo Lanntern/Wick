@@ -207,8 +207,14 @@ def test_repeated_frames_found_when_gpu_decoding_crashes(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(args, -6, "", "Assertion failed")
         return real_run(args, *a, **k)
 
+    from wick import probe
+
+    monkeypatch.setattr(probe, "_hw_decode_ok", True)       # (an earlier test may have found GPU decoding failing)
     monkeypatch.setattr(tools, "run", run)
     assert detect_cadence(tmp_path / "padded.mp4", probe_video(tmp_path / "padded.mp4")) == 5 and crashed
+    assert not probe._hw_decode_ok                          # (and later videos go straight to the processor)
+    crashed.clear()
+    assert detect_cadence(tmp_path / "padded.mp4", probe_video(tmp_path / "padded.mp4")) == 5 and not crashed
 
 
 def _cadence_report(path, info) -> str:

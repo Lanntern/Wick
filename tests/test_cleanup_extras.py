@@ -1,7 +1,10 @@
 """Camera proxy files, and Windows Installer packages no installed program lists."""
 
+import os
 import time
 from pathlib import Path
+
+import pytest
 
 from wick.cleanup import proxies, winclean
 
@@ -96,6 +99,7 @@ In use by VMs:  Old (UUID: 9a9a9a9a-0000-4000-8000-0000000000bb)
 """
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the stand-in VBoxManage is a shell script")
 def test_virtualbox_and_vmware_disks_are_found_and_compacted(tmp_path, monkeypatch):
     import os
     import stat
@@ -111,7 +115,7 @@ def test_virtualbox_and_vmware_disks_are_found_and_compacted(tmp_path, monkeypat
     listing.write_text(VBOX_HDDS.format(disk=disk, other=tmp_path / "old.vmdk"))
     tool.write_text(f"#!/bin/sh\necho \"$@\" >> {calls}\n"
                     f"if [ \"$1 $2\" = \"list hdds\" ]; then cat {listing}; fi\n"
-                    "if [ \"$1\" = modifymedium ]; then truncate -s 1024 \"$3\" 2>/dev/null || true; fi\n")
+                    "if [ \"$1\" = modifymedium ]; then printf '%01024d' 0 > \"$3\"; fi\n")       # (1 KB left)
     tool.chmod(tool.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{tool.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setattr(vdisk, "MIN_FILE", 1000)
