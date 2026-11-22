@@ -273,6 +273,7 @@ class AppSettingsTab(Page):
             card.lay.addWidget(setting_row(name, desc, state))
             if i < len(status) - 1:
                 card.lay.addWidget(separator())
+        self._add_mac_install(card)
         col.addWidget(card)
 
         # diagnostics
@@ -464,6 +465,63 @@ class AppSettingsTab(Page):
         if latest and updates.newer(latest) and source in updates.PACKAGE_MANAGERS:
             state += f" Update with: {updates.PACKAGE_MANAGERS[source][1]}"
         self.update_status.setText(f"Last checked: {when}. {state}".strip())
+
+    def _add_mac_install(self, card) -> None:
+        """macOS without the encoders (Wick run from its source): install them with Homebrew, after asking."""
+        from .. import macsetup
+
+        if not macsetup.applies():
+            return
+        missing = macsetup.missing_formulae()
+        if not missing:
+            return
+        card.lay.addWidget(separator())
+        if macsetup.brew() is None:
+            note = text(macsetup.homebrew_hint(), Type.FOOTNOTE, wrap=True)
+            card.lay.addWidget(note)
+            return
+        self.brew_btn = button("Install Encoders", "primary", None,
+                               "Runs Homebrew: brew install " + " ".join(missing))
+        self.brew_btn.clicked.connect(lambda: self._install_with_brew(missing))
+        self.brew_state = text("", Type.FOOTNOTE, secondary=True, wrap=True)
+        self.brew_state.setTextFormat(Qt.PlainText)
+        card.lay.addWidget(setting_row("Install the missing encoders",
+                                       "With Homebrew (" + ", ".join(missing) + "). Takes a few minutes.",
+                                       self.brew_btn))
+        card.lay.addWidget(self.brew_state)
+
+    def _install_with_brew(self, formulae: list[str]) -> None:
+        from PySide6.QtCore import QThread, Signal
+
+        from .. import macsetup
+
+        class Install(QThread):
+            line = Signal(str)
+            done = Signal(str)            # "" when it worked, else why not
+
+            def run(self) -> None:
+                try:
+                    macsetup.install(formulae, self.line.emit)
+                    self.done.emit("")
+                except Exception as e:  # noqa: BLE001
+                    self.done.emit(str(e) or type(e).__name__)
+
+        self.brew_btn.setEnabled(False)
+        self.brew_state.setText("Installing with Homebrew…")
+        self._brew = Install(self)
+        self._brew.line.connect(lambda line: self.brew_state.setText(line[-160:]))
+
+        def finished(error: str) -> None:
+            if error:
+                self.brew_state.setText("Homebrew couldn't install them:\n" + error)
+                self.brew_btn.setEnabled(True)
+                return
+            self.brew_state.setText("Installed. Wick uses them from now on.")
+            self.brew_btn.hide()
+            self.win.probe.start() if not self.win.probe.isRunning() else None   # (graphics encoders, again)
+
+        self._brew.done.connect(finished)
+        self._brew.start()
 
     def _open_logs(self) -> None:
         from ..log import log_dir, log_file

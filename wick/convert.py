@@ -783,11 +783,12 @@ def video_args(src: Path, dst: Path, info: VideoInfo, target: str, s: Settings) 
             "-i", str(src), "-map", f"0:{info.main_video_index}", "-map", "0:a?"]
     args += metadata_args(s.metadata, info)
     if codec == "h264":
-        # On the GPU when one can (NVIDIA, Intel or AMD, in that order), else x264 on the CPU.
+        # On the GPU when one can (NVIDIA, Intel, AMD or a Mac's media engine, in that order), else x264 on the CPU.
         gpu_args = {"h264_nvenc": ["-preset", "p6", "-rc", "vbr", "-cq", "21", "-b:v", "0", "-pix_fmt", "yuv420p"],
                     "h264_qsv": ["-preset", "slower", "-global_quality", "21", "-pix_fmt", "nv12"],
                     "h264_amf": ["-quality", "quality", "-rc", "cqp", "-qp_i", "21", "-qp_p", "21", "-qp_b", "23",
-                                 "-pix_fmt", "nv12"]}
+                                 "-pix_fmt", "nv12"],
+                    "h264_videotoolbox": ["-q:v", "68", "-allow_sw", "0", "-realtime", "0", "-pix_fmt", "nv12"]}
         gpu = next((e for e in gpu_args if s.video_encoder != "cpu" and encoder_works(e)), None)
         if gpu:
             args += ["-c:v", gpu, *gpu_args[gpu]]

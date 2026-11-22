@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from dataclasses import dataclass, field
 from collections.abc import Callable
@@ -16,13 +17,16 @@ from .plan import Plan
 from .probe import StreamInfo, VideoInfo, probe_video
 from .settings import Settings
 
-# GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF). Each is used only if a short
-# test encode with its real settings works on this computer (encoder_works); otherwise the next, then the CPU.
-GPU_ENCODERS = {"av1": ("av1_nvenc", "av1_qsv", "av1_amf"), "hevc": ("hevc_nvenc", "hevc_qsv", "hevc_amf")}
+# GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF), Apple (VideoToolbox: Macs have
+# no AV1 encoder). Each is used only if a short test encode with its real settings works on this computer
+# (encoder_works); otherwise the next, then the CPU.
+GPU_ENCODERS = {"av1": ("av1_nvenc", "av1_qsv", "av1_amf"),
+                "hevc": ("hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox")}
 CPU_ENCODERS = {"av1": "libsvtav1", "hevc": "libx265"}
 
 # Constant-quality values per encoder for high / balanced / small. NVENC: CQ; Quick Sync: ICQ (1-51); AMF: a
-# constant QP (HEVC 0-51; AV1 0-255, so about four times the others' numbers); CPU: CRF.
+# constant QP (HEVC 0-51; AV1 0-255, so about four times the others' numbers); VideoToolbox: quality 1-100
+# (higher is better); CPU: CRF.
 _QUALITY = {
     "av1_nvenc": {"high": 26, "balanced": 32, "small": 38},
     "hevc_nvenc": {"high": 22, "balanced": 27, "small": 32},
@@ -30,18 +34,21 @@ _QUALITY = {
     "hevc_qsv": {"high": 22, "balanced": 26, "small": 30},
     "av1_amf": {"high": 100, "balanced": 124, "small": 148},
     "hevc_amf": {"high": 22, "balanced": 26, "small": 30},
+    # VideoToolbox's constant quality (Apple silicon): 1-100, higher is better.
+    "hevc_videotoolbox": {"high": 72, "balanced": 64, "small": 56},
     "libsvtav1": {"high": 26, "balanced": 32, "small": 38},
     "libx265": {"high": 20, "balanced": 24, "small": 28},
 }
 
 
 def is_gpu(encoder: str) -> bool:
-    return encoder.endswith(("_nvenc", "_qsv", "_amf"))
+    return encoder.endswith(("_nvenc", "_qsv", "_amf", "_videotoolbox"))
 
 
 def quality_label(encoder: str) -> str:
     """How each encoder names its quality number ("CRF 24", "CQ 27"...)."""
-    return {"_nvenc": "CQ", "_qsv": "ICQ", "_amf": "QP"}.get(encoder[encoder.rfind("_"):], "CRF")
+    return {"_nvenc": "CQ", "_qsv": "ICQ", "_amf": "QP", "_videotoolbox": "quality"}.get(
+        encoder[encoder.rfind("_"):], "CRF")
 
 
 NVENC_BASIC = ("-preset", "p6", "-tune", "hq")
@@ -180,6 +187,9 @@ def _gpu_quality_args(encoder: str, q: int, tuned: bool = True, pixels: int = 0)
         return [*tuning, "-rc", "vbr", "-cq", str(q), "-b:v", "0", "-spatial-aq", "1"]
     if encoder.endswith("_qsv"):
         return ["-preset", "slower", "-global_quality", str(q), *(gpu_extras(encoder) if tuned else ())]
+    if encoder.endswith("_videotoolbox"):
+        # Constant quality, hardware only (a software fallback would be slower than x265), B-frames on.
+        return ["-q:v", str(q), "-allow_sw", "0", "-realtime", "0", "-prio_speed", "0"]
     level = amf_qvbr_level(encoder, q) if tuned else None
     if level is not None:
         return _qvbr(level, amf_extras(encoder) or ())
@@ -193,6 +203,8 @@ def _gpu_rate_args(encoder: str, kbps: int, pixels: int = 0) -> list[str]:
         return [*_nvenc_args(encoder, pixels), "-rc", "vbr", "-multipass", "fullres", *rate, "-spatial-aq", "1"]
     if encoder.endswith("_qsv"):
         return ["-preset", "slower", *rate]
+    if encoder.endswith("_videotoolbox"):
+        return ["-b:v", f"{kbps}k", "-allow_sw", "0", "-realtime", "0", "-prio_speed", "0"]
     return ["-quality", "quality", "-rc", "vbr_peak", *rate]
 
 # Audio codecs that can be copied into MP4 as-is; anything else becomes AAC.
@@ -215,12 +227,14 @@ GRAIN_STEPS = ((1.6, 0), (2.5, 6), (3.5, 10), (5.0, 14), (float("inf"), 18))
 BANDING_GRAIN = 4       # "banding": a light grain on clean videos, nothing removed first (not one of GRAIN_STEPS)
 GRAIN_SAMPLES = 6
 CRF_MAX = {"av1_nvenc": 63, "libsvtav1": 63, "hevc_nvenc": 51, "libx265": 51, "av1_qsv": 51, "hevc_qsv": 51,
-           "av1_amf": 255, "hevc_amf": 51}
+           "av1_amf": 255, "hevc_amf": 51, "hevc_videotoolbox": 100}
 
 
 def encoder_quality(s: Settings, encoder: str) -> int:
     """The constant-quality value for ``encoder`` (Custom: the user's own, within the encoder's range)."""
     if s.video_quality == "custom":
+        if encoder.endswith("_videotoolbox"):     # (its scale runs the other way: CRF 24 is about quality 64)
+            return max(1, min(100, round(112 - 2 * s.video_crf)))
         value = s.video_crf * 4 if encoder == "av1_amf" else s.video_crf    # (AMF's AV1 scale is 0-255)
         return max(1, min(CRF_MAX.get(encoder, 51), value))
     return _QUALITY[encoder]["balanced" if s.video_quality == "identical" else s.video_quality]
@@ -343,6 +357,8 @@ def choose_encoder(codec: str, preference: str) -> str:
             return gpu
     if preference == "gpu":
         newer = codec == "av1"
+        if sys.platform == "darwin":
+            raise RuntimeError(f"Macs can't encode {codec.upper()} in hardware. Pick HEVC, or Auto or CPU.")
         raise RuntimeError(
             f"No GPU can encode {codec.upper()} here (NVIDIA{' RTX 40 series or newer' if newer else ''}, "
             f"Intel{' Arc or Core Ultra' if newer else ''} or AMD{' RX 7000 or newer' if newer else ''}, "
@@ -393,7 +409,13 @@ def codec_for(info: VideoInfo | None, s: Settings) -> str:
         return s.video_codec
     from .probe import is_camera_original
 
-    return "hevc" if info is not None and is_camera_original(info) else "av1"
+    if info is not None and is_camera_original(info):
+        return "hevc"
+    # A Mac has no AV1 encoder in hardware: HEVC on Apple's media engine is many times faster than AV1 on the
+    # processor, at a modestly larger size. (The processor's AV1 when "Processor" is chosen.)
+    if sys.platform == "darwin" and s.video_encoder != "cpu" and encoder_works("hevc_videotoolbox"):
+        return "hevc"
+    return "av1"
 
 
 def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
@@ -847,6 +869,8 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     else:  # libx265
         args += ["-crf", str(q), "-preset", "veryfast" if probe else s.video_effort, "-x265-params", x265]
         pix = "yuv420p10le" if ten_bit else "yuv420p"
+    if encoder.endswith("_videotoolbox") and pix == "p010le":
+        args += ["-profile:v", "main10"]        # (10-bit, HDR included: VideoToolbox needs the profile named)
     if cap and encoder != "libsvtav1":
         args += ["-maxrate", f"{cap}k", "-bufsize", f"{cap * 2}k"]
     args += [f"-pix_fmt:v:{v_out}", pix]
@@ -1104,6 +1128,7 @@ SMART_STEPS = {  # best quality first
     "hevc_qsv": [18, 21, 24, 26, 28, 30, 32, 34],
     "av1_amf": [80, 96, 108, 116, 124, 132, 140, 148, 156, 164],
     "hevc_amf": [18, 21, 24, 26, 28, 30, 32, 34],
+    "hevc_videotoolbox": [80, 76, 72, 68, 64, 60, 56, 52],
 }
 SAMPLE_SECONDS = 4.0
 

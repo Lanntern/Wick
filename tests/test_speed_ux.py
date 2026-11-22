@@ -241,20 +241,19 @@ def test_summaries_say_what_happens_where_space_comes_from_and_why_files_were_le
 
 
 def test_helper_processes_end_with_the_app():
-    """The pool's workers hold both ends of their job queue: they only stop when told to, so shutdown ends them
-    (the app exits with os._exit, which skips the pool's own atexit)."""
-    import os
+    """The pool's workers hold both ends of their job queue: they only stop when told to, so stop() ends them
+    (the app exits with os._exit, which skips the pool's own atexit). A private pool: other tests' background
+    work can't share it."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
 
     from wick import _workers, procpool
 
-    if os.environ.get("WICK_NO_PROCESSES"):
-        return
-    procpool.call(_workers.set_low_priority, False)
-    pool = procpool._pool
-    if pool is None:                                       # (helper processes unavailable here)
-        return
+    pool = ProcessPoolExecutor(max_workers=2, mp_context=multiprocessing.get_context("spawn"))
+    pool.submit(_workers.set_low_priority, False).result(timeout=120)
     workers = list(pool._processes.values())
-    procpool.shutdown()
+    assert workers
+    procpool.stop(pool)
     for p in workers:
-        p.join(60)                                         # (slow to end on a busy machine, but they do end)
+        p.join(30)
         assert not p.is_alive()

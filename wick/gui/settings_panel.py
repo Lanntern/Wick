@@ -881,11 +881,14 @@ class SettingsPanel(QWidget):
         from ..video import GPU_ENCODERS
 
         def maker(encoder: str) -> str:
-            return {"nvenc": "NVIDIA", "qsv": "Intel", "amf": "AMD"}[encoder.rsplit("_", 1)[1]]
+            return {"nvenc": "NVIDIA", "qsv": "Intel", "amf": "AMD", "videotoolbox": "Apple"}[encoder.rsplit("_", 1)[1]]
 
         av1 = next((e for e in GPU_ENCODERS["av1"] if enc.get(e)), None)
         hevc = next((e for e in GPU_ENCODERS["hevc"] if enc.get(e)), None)
-        if av1 and hevc:
+        if hevc == "hevc_videotoolbox" and not av1:
+            text = ("This Mac's media engine encodes HEVC (fast), so Automatic uses HEVC. AV1 is only on the "
+                    "processor (slow).")
+        elif av1 and hevc:
             text = f"{maker(av1)} GPU found: AV1 and HEVC encode on the GPU (fast)."
         elif av1:
             text = f"{maker(av1)} GPU found: AV1 on the GPU (fast); HEVC uses the CPU."

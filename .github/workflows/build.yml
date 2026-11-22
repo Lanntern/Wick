@@ -287,7 +287,7 @@ jobs:
           retention-days: 7
 
   # macOS (Apple silicon): the tests, then a developer build of Wick.app, signed ad hoc (no Apple certificate:
-  # right-click › Open the first time). Encoders aren't bundled: `brew install ffmpeg jpeg-xl gifsicle`.
+  # right-click › Open the first time). The encoders are inside the app (packaging/mac_tools.py).
   # Not needed by the Windows package; while macOS support is new, its failures don't block merging.
   macos:
     runs-on: macos-15
@@ -311,7 +311,7 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
-          brew install ffmpeg jpeg-xl gifsicle
+          brew install ffmpeg jpeg-xl gifsicle dylibbundler
           ffmpeg -hide_banner -encoders | grep -E "libsvtav1|libx265|videotoolbox" || true
           ls /opt/homebrew/bin | grep -E "^(cjxl|djxl|cjpegli|ssimulacra2|butteraugli_main|gifsicle|ffprobe)$" || true
       - name: Install (exact versions from requirements.txt, checksums enforced)
@@ -361,11 +361,16 @@ jobs:
             --collect-all mozjpeg_lossless_optimization --collect-all oxipng --collect-all py7zr \
             --collect-all pikepdf --collect-all rawpy --collect-submodules fontTools \
             packaging/launch.py
+          python packaging/mac_tools.py dist/Wick.app       # the encoders go inside the app
           python packaging/mac_bundle.py dist/Wick.app
           du -sh dist/Wick.app
       - name: Smoke-test the built app
         if: ${{ !cancelled() && steps.app.outcome == 'success' }}
-        run: python packaging/smoke_test.py dist/Wick.app
+        run: |
+          # Without Homebrew's copies, so only the encoders inside the app can be used.
+          brew unlink ffmpeg jpeg-xl gifsicle
+          python packaging/smoke_test.py dist/Wick.app
+          brew link ffmpeg jpeg-xl gifsicle
       - name: Zip Wick.app
         if: ${{ !cancelled() && steps.app.outcome == 'success' }}
         run: |

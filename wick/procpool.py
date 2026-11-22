@@ -51,28 +51,31 @@ def call(fn, *args):
     return fn(*args)
 
 
+def stop(pool) -> None:
+    """End ``pool`` and its processes now. They hold both ends of their own job queue, so they never notice the
+    app has ended; without this they'd outlive it when it exits with os._exit (seen on macOS: the leftover
+    processes kept a terminal's output open). A stop request is ignored when the app was started with that
+    signal ignored (children inherit it), so whatever is still there after a moment is ended outright."""
+    processes = list((getattr(pool, "_processes", None) or {}).values())
+    pool.shutdown(wait=False, cancel_futures=True)
+    for p in processes:
+        try:
+            p.terminate()
+        except Exception:  # noqa: BLE001 - already gone
+            pass
+    for p in processes:
+        try:
+            p.join(2)
+            if p.is_alive():
+                p.kill()
+                p.join(2)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def shutdown() -> None:
-    """Stop the helper processes now. They hold both ends of their own job queue, so they never notice the app
-    has ended; without this they'd outlive it when it exits with os._exit (seen on macOS: the leftover processes
-    kept a terminal's output open)."""
     global _pool
     with _lock:
         if _pool is not None:
-            processes = list((getattr(_pool, "_processes", None) or {}).values())
-            _pool.shutdown(wait=False, cancel_futures=True)
-            for p in processes:
-                try:
-                    p.terminate()
-                except Exception:  # noqa: BLE001 - already gone
-                    pass
-            # A stop request is ignored when the app was started with that signal ignored (children inherit it):
-            # whatever is still there after a moment is ended outright.
-            for p in processes:
-                try:
-                    p.join(2)
-                    if p.is_alive():
-                        p.kill()
-                        p.join(2)
-                except Exception:  # noqa: BLE001
-                    pass
+            stop(_pool)
             _pool = None
