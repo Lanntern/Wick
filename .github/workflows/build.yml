@@ -311,7 +311,7 @@ jobs:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALL_CLEANUP: "1"
         run: |
-          brew install ffmpeg jpeg-xl gifsicle dylibbundler
+          brew install ffmpeg jpeg-xl gifsicle
           ffmpeg -hide_banner -encoders | grep -E "libsvtav1|libx265|videotoolbox" || true
           ls /opt/homebrew/bin | grep -E "^(cjxl|djxl|cjpegli|ssimulacra2|butteraugli_main|gifsicle|ffprobe)$" || true
       - name: Install (exact versions from requirements.txt, checksums enforced)

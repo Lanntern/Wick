@@ -1,11 +1,12 @@
 """Put the encoders inside Wick.app, so nothing needs installing on the Mac it runs on.
 
 Takes Homebrew's builds (ffmpeg, ffprobe, cjxl, djxl, gifsicle and libjxl's extras where present), copies them
-into Wick.app/Contents/MacOS/tools (where tools.find_tool looks first), and with dylibbundler copies every library
-they load from Homebrew next to them, pointing the programs at those copies. Then checks that nothing still
-points into Homebrew's folders, signs each file ad hoc, and copies the projects' license files.
+into Wick.app/Contents/MacOS/tools (where tools.find_tool looks first), copies every library they load from
+Homebrew (and the libraries those load, all the way down) into tools/lib, and points each reference at the copy
+(install_name_tool: @rpath, with the programs' rpath @executable_path/lib and the libraries' @loader_path). Then
+checks that nothing still points into Homebrew's folders, signs each file ad hoc, and copies the license files.
 
-Usage: python packaging/mac_tools.py dist/Wick.app   (after `brew install ffmpeg jpeg-xl gifsicle dylibbundler`)
+Usage: python packaging/mac_tools.py dist/Wick.app   (after `brew install ffmpeg jpeg-xl gifsicle`)
 """
 
 from __future__ import annotations
@@ -27,7 +28,83 @@ def brew_prefix() -> Path:
 
 def linked(binary: Path) -> list[str]:
     out = subprocess.run(["otool", "-L", str(binary)], capture_output=True, text=True, check=True).stdout
-    return [line.strip().split(" (")[0] for line in out.splitlines()[1:] if line.strip()]
+    deps = [line.strip().split(" (")[0] for line in out.splitlines()[1:] if line.strip()]
+    if binary.suffix == ".dylib" and deps:
+        deps = deps[1:]                                   # (a library's first line is its own name)
+    return deps
+
+
+def rpaths(binary: Path) -> list[str]:
+    out = subprocess.run(["otool", "-l", str(binary)], capture_output=True, text=True, check=True).stdout.splitlines()
+    found = []
+    for i, line in enumerate(out):
+        if line.strip() == "cmd LC_RPATH":
+            for follow in out[i + 1:i + 4]:
+                if follow.strip().startswith("path "):
+                    found.append(follow.strip()[5:].split(" (offset")[0])
+    return found
+
+
+def resolve(dep: str, referrer: Path, origin: Path) -> Path | None:
+    """Where a reference points: absolute, or @loader_path / @executable_path / @rpath relative (the referrer's real
+    location, the program's, and the referrer's rpaths)."""
+    here = referrer.resolve().parent
+    if dep.startswith("@loader_path/"):
+        candidates = [here / dep[len("@loader_path/"):]]
+    elif dep.startswith("@executable_path/"):
+        candidates = [origin.resolve().parent / dep[len("@executable_path/"):]]
+    elif dep.startswith("@rpath/"):
+        rest = dep[len("@rpath/"):]
+        candidates = []
+        for rp in rpaths(referrer.resolve()):
+            rp = rp.replace("@loader_path", str(here)).replace("@executable_path", str(origin.resolve().parent))
+            candidates.append(Path(rp) / rest)
+    else:
+        candidates = [Path(dep)]
+    return next((c.resolve() for c in candidates if c.exists()), None)
+
+
+def system(dep: str) -> bool:
+    return dep.startswith(("/usr/lib/", "/System/"))
+
+
+def bundle_libraries(programs: list[Path], libs: Path) -> list[Path]:
+    """Copy every non-system library the programs need into ``libs`` and point all references at the copies."""
+    libs.mkdir(exist_ok=True)
+    originals: dict[str, Path] = {}             # copied name -> where it came from
+    todo = [(p, Path(SOURCES[p.name]), Path(SOURCES[p.name])) for p in programs]   # (copy, original, program)
+    seen = set()
+    while todo:
+        file, original, origin = todo.pop()
+        if file in seen:
+            continue
+        seen.add(file)
+        for dep in linked(original):
+            if system(dep):
+                continue
+            src = resolve(dep, original, origin)
+            if src is None:
+                raise SystemExit(f"{original.name}: can't find {dep}")
+            name = Path(dep).name
+            copy = libs / name
+            if name not in originals:
+                originals[name] = src
+                shutil.copy2(src, copy)
+                copy.chmod(0o755)
+                todo.append((copy, src, origin))
+            subprocess.run(["install_name_tool", "-change", dep, f"@rpath/{name}", str(file)], check=True,
+                           capture_output=True)
+    for copy in libs.glob("*.dylib"):
+        subprocess.run(["install_name_tool", "-id", f"@rpath/{copy.name}", str(copy)], check=True, capture_output=True)
+    for file in [*programs, *libs.glob("*.dylib")]:
+        for rp in rpaths(file):
+            subprocess.run(["install_name_tool", "-delete_rpath", rp, str(file)], capture_output=True)
+        own = "@executable_path/lib" if file in programs else "@loader_path"
+        subprocess.run(["install_name_tool", "-add_rpath", own, str(file)], check=True, capture_output=True)
+    return sorted(libs.glob("*.dylib"))
+
+
+SOURCES: dict[str, str] = {}                     # program name -> its file in Homebrew
 
 
 def main(app: str) -> int:
@@ -47,12 +124,9 @@ def main(app: str) -> int:
         dst = tools / name
         shutil.copy2(src.resolve(), dst)
         dst.chmod(0o755)
+        SOURCES[name] = str(src.resolve())
         copied.append(dst)
-    args = ["dylibbundler", "-of", "-b", "-cd", "-d", str(libs), "-p", "@executable_path/lib/"]
-    for exe in copied:
-        args += ["-x", str(exe)]
-    subprocess.run(args, check=True)
-    files = copied + sorted(libs.glob("*.dylib"))
+    files = copied + bundle_libraries(copied, libs)
     left = [(f.name, dep) for f in files for dep in linked(f) if dep.startswith(HOMEBREW)]
     if left:
         print("still pointing into Homebrew:", *left, sep="\n  ")

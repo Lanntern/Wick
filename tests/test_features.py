@@ -338,7 +338,7 @@ def test_camera_videos_get_hevc_by_default():
 
     phone = VideoInfo("h264", 1920, 1080, "yuv420p", 30, 10, 20_000_000, 0, tags={"com.apple.quicktime.make": "Apple"})
     download = VideoInfo("h264", 1920, 1080, "yuv420p", 30, 10, 5_000_000, 0)
-    s = Settings()
+    s = Settings(video_encoder="cpu")             # (on a Mac's media engine, Automatic is HEVC for everything)
     assert s.video_codec == "auto"
     assert codec_for(phone, s) == "hevc" and codec_for(download, s) == "av1"
     assert codec_for(phone, Settings(video_codec="av1")) == "av1"
