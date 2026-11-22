@@ -43,6 +43,13 @@ Options:
 - **Hidden previews and thumbnails** (on by default): the camera's own smaller copy after the photo and the
   EXIF thumbnail are left out. Viewers make their own.
 - **Colour profiles** that give the same colours as sRGB, but take kilobytes, become a 588-byte sRGB profile.
+- **HEIC and AVIF with an HDR gain map, a depth map or several views** (iPhone and Samsung HDR photos,
+  portrait photos, spatial and stereo photos) are left alone: re-encoding would keep only the main picture.
+- **Live Photos**: the photo is only made smaller losslessly as the same-name JPEG, and the clip keeps its .mov
+  name and its link to the photo (re-encoded as HEVC: QuickTime files can't hold AV1). A suffix would separate
+  them, so with that output choice they're left alone.
+- **SVG drawings** lose editor data, metadata, comments and excess digits, and are drawn before and after to
+  check they look the same.
 - **Motion Photos** (Google format): the photo is made smaller with identical pixels and the clip re-encoded as
   HEVC; the photo's XMP is updated to point at the new clip. Samsung's own format and HEIC Motion Photos are
   left alone.
@@ -152,6 +159,9 @@ documents are never changed.
 pixels, and an e-book's fonts (plain or scrambled the IDPF or Adobe way) are cut to the characters in the book.
 Copy-protected e-books are left alone.
 
+**ZIP files** (optional): the JPEG and PNG pictures inside are stored smaller with identical pixels; everything
+else stays byte for byte. Password-protected ZIPs and ZIPs over 2 GB are left alone.
+
 **More inside documents:**
 
 - Office files lose pictures and embedded files nothing points to any more, and BMP and TIFF pictures become
@@ -225,11 +235,13 @@ Each tool scans first and only preselects what's safe. Everything can be undone 
 | Similar Photos | Resized, re-saved or edited copies, and optionally burst shots. The best copy stays. | Recycle Bin |
 | Duplicates | Identical files | Recycle Bin, or replaced with hard links (same drive, data stored once) |
 | Archives | .zip, .7z and .tar files that were already extracted, with every file matching | Recycle Bin |
-| Compress Apps | Installed games (Steam, Epic, GOG) and folders you add | Windows' built-in transparent compression |
+| Compress Apps | Installed games (Steam, Epic, GOG), folders you add, and (optional) folders of 1 GB or more in Documents, Downloads or Desktop unchanged for 6 months that aren't mostly photos, videos or archives | Windows' built-in transparent compression |
 | Google Takeout | Google Photos exports | Merged into one folder with the correct dates and albums |
 | Caches | Browser, Discord, Spotify, Teams, Slack, Telegram, shader and Adobe caches, crash dumps, driver installers | Recycle Bin |
 | Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL, Docker, Hyper-V, VirtualBox and VMware disks | Recycle Bin; Docker data removed by Docker; disks compacted |
 | Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files, and installer packages no installed program lists any more | Removed with Windows' own tools |
+| RAW + JPEG | Photos the camera saved as both RAW and JPEG/HEIC; lists the one you choose. Never preselected | Recycle Bin |
+| Phone Backups | iPhone and iPad backups (iTunes, Apple Devices) and Samsung Smart Switch backups, with device name and date. Never preselected | Recycle Bin |
 | Camera Proxies | GoPro, DJI and Insta360 low-resolution copies and thumbnails, only when the full video is beside them | Recycle Bin |
 | Installers | Installers and disk images older than N days | Recycle Bin |
 | Apps | Installed apps, with when each was last opened; those not opened in 6 months first | The app's own uninstaller, then its leftover folders go to the Recycle Bin |

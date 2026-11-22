@@ -911,3 +911,20 @@ def test_diagnostics_include_the_last_crash_record(tmp_path, monkeypatch):
                                                  encoding="utf-8")
     text = wlog.diagnostics(include_log=False)
     assert "Last crash record" in text and "Segmentation fault" in text
+
+
+def test_an_ffmpeg_that_errors_and_hangs_is_stopped(tmp_path, monkeypatch):
+    """FFmpeg sometimes prints an error and then never exits (seen with AV1 into .mov): the run is stopped."""
+    import sys
+
+    import pytest
+
+    from wick import tools
+
+    monkeypatch.setattr(tools, "STALL_AFTER_ERROR", 1.0)
+    script = tmp_path / "hang.py"
+    script.write_text("import sys, time\nsys.stderr.write('Could not write header\\n'); sys.stderr.flush()\n"
+                      "time.sleep(60)\n")
+    with pytest.raises(tools.ToolError) as err:
+        tools.run_ffmpeg_progress([sys.executable, str(script)], 10.0)
+    assert "stopped responding" in str(err.value.stderr if hasattr(err.value, "stderr") else err.value)

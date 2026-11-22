@@ -231,6 +231,49 @@ def migrate_sources(folders: list[Path]) -> list[Path]:
     return out
 
 
+OLD_FOLDER_MONTHS = 6
+OLD_FOLDER_MIN = 1024 ** 3
+# Already compressed by their format: Windows' compression gains nothing on folders full of these.
+_PACKED = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".avif", ".jxl", ".mp4", ".mkv", ".mov", ".avi",
+           ".webm", ".mp3", ".m4a", ".aac", ".opus", ".ogg", ".flac", ".zip", ".7z", ".rar", ".gz", ".xz", ".zst",
+           ".docx", ".xlsx", ".pptx", ".pdf", ".iso", ".msi", ".cab"}
+
+
+def old_folders(roots: list[Path], cancel: threading.Event | None = None, now: float | None = None,
+                months: int = OLD_FOLDER_MONTHS, min_size: int = OLD_FOLDER_MIN) -> list[Path]:
+    """Folders right inside ``roots`` (Documents, Downloads...) that nothing in has changed for ``months`` months,
+    of at least ``min_size``, and not mostly files that are compressed already (photos, videos, archives)."""
+    import time as _time
+
+    cutoff = (now if now is not None else _time.time()) - months * 30 * 86400
+    found = []
+    for root in roots:
+        try:
+            children = [p for p in root.iterdir() if p.is_dir() and not p.is_symlink()]
+        except OSError:
+            continue
+        for folder in children:
+            if cancelled(cancel):
+                return found
+            total = packed = 0
+            newest = 0.0
+            for dirpath, _dirs, files in os.walk(folder):
+                for name in files:
+                    try:
+                        st = os.stat(os.path.join(dirpath, name), follow_symlinks=False)
+                    except OSError:
+                        continue
+                    total += st.st_size
+                    newest = max(newest, st.st_mtime)
+                    if os.path.splitext(name)[1].lower() in _PACKED:
+                        packed += st.st_size
+                if newest >= cutoff:
+                    break
+            if newest and newest < cutoff and total >= min_size and packed < total * 0.6:
+                found.append(folder)
+    return found
+
+
 def default_folders() -> list[Path]:
     return expand_sources(default_sources())
 

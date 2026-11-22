@@ -738,7 +738,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     ``fonts.covers``: MP4 cover pictures stored smaller. ``info.screen``: a screen recording (SVT-AV1's screen-content
     tools)."""
     ffmpeg = tools.require("ffmpeg")
-    mp4 = dst.suffix.lower() == ".mp4"
+    mp4 = is_mp4(dst.suffix)
     if q is None and not remux:
         q = encoder_quality(s, encoder)
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error"]
@@ -797,7 +797,8 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
             if mp4 and codec_for(info, s) == "hevc":
                 args += [f"-tag:v:{v_out}", "hvc1"]
         args += _audio_args(keep_audio, s, mp4, fit, remux=remux) + default_audio_args(info, keep_audio)
-        args += _container_args(dst, s, mapped, fonts, "copy" if remux else f"{encoder} scenes", grain)
+        args += _container_args(dst, s, mapped, fonts, "copy" if remux else f"{encoder} scenes", grain,
+                                live_photo_id(info))
         args.append(str(dst))
         return args
     args += [f"-c:v:{v_out}", encoder]
@@ -878,12 +879,18 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     if not segment:
         args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
         args += _container_args(dst, s, mapped, fonts,
-                                f"{encoder} {'size limit' if fit is not None else q}", grain)
+                                f"{encoder} {'size limit' if fit is not None else q}", grain, live_photo_id(info))
     args.append(str(dst))
     return args
 
 
 TAG = "WICK"        # container tag: the Wick version and settings that made the file (a remux or re-encode)
+LIVE_PHOTO_KEY = "com.apple.quicktime.content.identifier"    # (the same in a Live Photo's photo and clip)
+
+
+def is_mp4(ext: str) -> bool:
+    """MP4 and QuickTime (.mov): the same family of containers, with the same limits on what they hold."""
+    return ext.lower() in (".mp4", ".mov")
 
 
 def settings_tag(s: Settings, video: str, grain: int = 0, fonts=None) -> str:
@@ -903,6 +910,11 @@ def settings_tag(s: Settings, video: str, grain: int = 0, fonts=None) -> str:
     if fonts is not None or s.video_fonts:
         parts.append("fonts cut")
     return "; ".join(parts)
+
+
+def live_photo_id(info: VideoInfo) -> str:
+    """The Live Photo link in a clip's metadata ("" when it isn't the clip of a Live Photo)."""
+    return next((str(v) for k, v in info.tags.items() if k.lower() == LIVE_PHOTO_KEY), "")
 
 
 def made_by_wick(info: VideoInfo) -> str:
@@ -954,16 +966,19 @@ def screen_recording(src: Path, info: VideoInfo, cancel: threading.Event | None 
     return min(flat) > 0.6
 
 
-def _container_args(dst: Path, s: Settings, mapped: list, fonts, video: str, grain: int) -> list[str]:
+def _container_args(dst: Path, s: Settings, mapped: list, fonts, video: str, grain: int,
+                    live_id: str = "") -> list[str]:
     """Subtitles for MP4, the subtitle fonts, and the settings tag."""
     from . import subfonts
 
-    mp4 = dst.suffix.lower() == ".mp4"
+    mp4 = is_mp4(dst.suffix)
     args: list[str] = []
     if mp4 and any(st.kind == "subtitle" for st in mapped):
         args += ["-c:s", "mov_text"]
     if fonts is not None and dst.suffix.lower() == ".mkv":
         args += subfonts.args(fonts, sum(1 for st in mapped if st.kind == "attachment"))
+    if live_id:
+        args += ["-metadata", f"{LIVE_PHOTO_KEY}={live_id}"]   # (whatever the metadata choice: it links the pair)
     covers = mp4 and any(st.attached_pic for st in mapped)
     if not covers:      # (in MP4, custom tags need use_metadata_tags, which drops cover pictures: covers win)
         args += ["-metadata", f"{TAG}={settings_tag(s, video, grain, fonts)}"]
@@ -1310,7 +1325,7 @@ def convert_video(
 
     if plan.route != "video_remux" or s.video_drop_silent or s.video_dup_audio:
         steps.report("Listening to the soundtracks")
-        analyse_audio(src, info, s, plan.target_ext.lower() == ".mp4")
+        analyse_audio(src, info, s, is_mp4(plan.target_ext))
     with tempfile.TemporaryDirectory(prefix="wick-fonts-") as folder:
         fonts = _font_plan(src, info, s, plan.target_ext, Path(folder))
         return _convert(src, info, plan, s, fonts, on_progress, cancel)
@@ -1320,7 +1335,7 @@ def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
     """The subtitle fonts' plan (subfonts.FontPlan), or None: nothing to change, or it couldn't be worked out."""
     from . import subfonts
 
-    if ext.lower() == ".mp4":
+    if is_mp4(ext):
         try:
             return subfonts.mp4_covers(src, info, folder)
         except tools.Cancelled:
@@ -1349,7 +1364,7 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
     keep_audio, _subs, dropped = select_tracks(info, s)
     if plan.route == "video_remux":   # efficient already: tracks, fonts and lossless audio packing only
         if not (dropped or fonts is not None or info.container == "mpegts"
-                or _audio_args(keep_audio, s, out.suffix == ".mp4", None, remux=True)):
+                or _audio_args(keep_audio, s, is_mp4(out.suffix), None, remux=True)):
             raise NotWorthIt("Nothing to change without re-encoding the picture; original kept")
         try:
             steps.report("Copying the video without the tracks in other languages" if dropped
@@ -1357,10 +1372,10 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
             tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
                                       on_progress, cancel)
             steps.report("Checking the result")
-            verify_video(info, out, info.codec, dst_is_mp4=out.suffix == ".mp4", audio_tracks=len(keep_audio),
+            verify_video(info, out, info.codec, dst_is_mp4=is_mp4(out.suffix), audio_tracks=len(keep_audio),
                          src_path=src, copied=True)
             done = ["picture untouched", "rewrapped from a TV recording" if info.container == "mpegts" else "",
-                    tracks_note(info, s), _audio_note(keep_audio, s, out.suffix == ".mp4", True)]
+                    tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix), True)]
             if fonts is not None:
                 done.append(fonts.note())
             plan.outcome = ", ".join(x for x in done if x)
@@ -1369,6 +1384,8 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
             remove_quietly(out)
             raise
     codec = codec_for(info, s)
+    if codec == "av1" and out.suffix.lower() == ".mov":
+        codec = "hevc"                     # (QuickTime files can't hold AV1: a Live Photo's clip stays a .mov)
     encoder = choose_encoder(codec, s.video_encoder)
     if s.video_crop_bars:
         import dataclasses
@@ -1411,14 +1428,14 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
 
     def finish(used: str) -> tuple[Path, str]:
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=out.suffix == ".mp4",
+        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix),
                      expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
         steps.report("Measuring how close it looks to the original")
         score = measure(src, info, out, s, cancel, grain if used == "libsvtav1" else 0)
         if score is not None:
             check_quality_budget(score, info, s, used)
             notes.append(f"{score} ({score.verdict()})")
-        notes.extend((tracks_note(info, s), _audio_note(keep_audio, s, out.suffix == ".mp4")))
+        notes.extend((tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix))))
         if info.crop:
             notes.append(f"black bars removed ({info.crop[0]}×{info.crop[1]})")
         if fonts is not None:
@@ -1518,7 +1535,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
                                                   f"(it made {human(got)})")
             video_kbps = max(30, int(video_kbps * limit / got * 0.93))     # overshot: aim lower
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=out.suffix == ".mp4", expected_size=size,
+        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix), expected_size=size,
                      audio_tracks=audio_tracks, src_path=src)
         plan.outcome = f"{video_kbps:,} kbps, {size[0]}×{size[1]} to fit under {human(limit)}"
         return out, encoder
@@ -1536,6 +1553,8 @@ def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
         raise VerificationFailed("Output video can't be read")
     if got.hdr == "Dolby Vision" and not copied:
         raise VerificationFailed("The Dolby Vision layer came along without its picture")
+    if live_photo_id(src) and live_photo_id(got) != live_photo_id(src):
+        raise VerificationFailed("The clip would lose its link to its Live Photo")
     want_codec = {"av1": "av1", "hevc": "hevc", "h264": "h264", "vp9": "vp9"}.get(codec, codec)
     if got.codec != want_codec:
         raise VerificationFailed(f"Output codec is {got.codec}, expected {want_codec}")

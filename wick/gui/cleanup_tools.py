@@ -203,6 +203,13 @@ def _appcompress_options(sec: ToolSection):
     tray.setToolTip('Wick stays running in the notification area. Use Quit in the tray menu to stop watching.')
     tray.toggled.connect(lambda on: sec.qs.setValue('appcompress/tray', on))
     sec.app_algorithm, sec.app_skip = algorithm, skip
+    old = QCheckBox('Also suggest folders unchanged for 6 months')
+    old.setChecked(cast(bool, sec.qs.value('appcompress/old_folders', False, bool)))
+    old.setToolTip('Looks in Documents, Downloads and Desktop for folders of 1 GB or more that nothing has changed '
+                   'in for 6 months, and that aren\'t mostly photos, videos or archives (those are compressed '
+                   'already). Their files open as usual; Windows decompresses them as they\'re read.')
+    old.toggled.connect(lambda on: sec.qs.setValue('appcompress/old_folders', on))
+    sec.app_old = old
     samples = QCheckBox('Test temporary samples for estimates (slower)')
     samples.setChecked(cast(bool, sec.qs.value('appcompress/sample', False, bool)))
     samples.setToolTip('Reads small portions of up to 8 files and compresses temporary copies using the chosen '
@@ -280,7 +287,7 @@ def _appcompress_options(sec: ToolSection):
 
     community.clicked.connect(show_results)
     return [('Algorithm', group), ('Skip file types', skip), ('', own_button), ('', community), ('', samples),
-            ('', watch), ('', idle), ('', tray)]
+            ('', old), ('', watch), ('', idle), ('', tray)]
 
 
 def _takeout_options(sec: ToolSection):
@@ -587,7 +594,10 @@ def tools() -> list[Tool]:
              "Compresses games and apps on NTFS drives. They keep working as usual, and Windows decompresses files "
              "as they're read.",
              appcompress.default_sources,
-             lambda s, p, c: appcompress.find_compressible(appcompress.expand_sources(s.folders), p, c, **s._app_scan_options),
+             lambda s, p, c: appcompress.find_compressible(
+                 appcompress.expand_sources(s.folders) + (appcompress.old_folders(
+                     _existing("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
+                 p, c, **s._app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
              available=lambda: "" if appcompress.supported() else "Available on Windows (NTFS drives) only."),

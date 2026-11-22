@@ -60,7 +60,7 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
     if s.output_mode == "folder" and not s.output_dir.strip():
         return _skip("Choose an output folder")
     if entry.live_pair:
-        return _skip("Part of a Live Photo, so the photo and its video stay together")
+        return _plan_live(entry, s)
     if entry.image is not None and entry.image.motion:
         return _plan_motion(entry, s)
     if entry.kind == VIDEO:
@@ -83,6 +83,34 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
         return _skip(f"No {BIN_NAME} on this drive (USB/network). Choose another output option, "
                      "or allow permanent deletion")
     return p
+
+
+def _plan_live(e: FileEntry, s: Settings) -> Plan:
+    """Half of a Live Photo (a photo and a clip with the same name, linked by an ID in both). The photo is only
+    made smaller losslessly as the same JPEG; the clip keeps its .mov name and the link. Anything that would
+    rename either half (a suffix) or change the photo's format is skipped, so the two stay together."""
+    import dataclasses
+
+    keep = "Part of a Live Photo, so the photo and its video stay together"
+    if s.output_mode == "suffix":
+        return _skip(keep + " (a suffix would separate them)")
+    if e.kind == JPEG:
+        p = _plan_image(e, dataclasses.replace(s, image_format="keep", jpeg_mode="lossless", resize_mode="none",
+                                                 fit_under_kb=0))
+        if not p.convert or p.route != "jpeg_opt":
+            return p if not p.convert else _skip(keep)
+        p.reason += "; Live Photo: stays a JPEG with the same name"
+        return p
+    if e.kind == VIDEO:
+        p = _plan_video(e, s)
+        if not p.convert or p.route not in ("video", "video_remux"):
+            return p if not p.convert else _skip(keep)
+        p.target_ext = e.path.suffix.lower()
+        if p.target_ext == ".mov":                 # (QuickTime files can't hold AV1)
+            p.reason = p.reason.replace("→ AV1", "→ HEVC")
+        p.reason += "; Live Photo: keeps its name and its link to the photo"
+        return p
+    return _skip(keep)
 
 
 def _plan_svg(e: FileEntry, s: Settings) -> Plan:
@@ -369,7 +397,7 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         made = made_by_wick(v)
         fonts = subfonts.font_bytes(v) if s.video_fonts and ext == ".mkv" and "fonts cut" not in made else 0
         fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
-        pcm = [a for a in kept_audio if packs_as_flac(a, ext == ".mp4")]
+        pcm = [a for a in kept_audio if packs_as_flac(a, ext in (".mp4", ".mov"))]
         stereo = [a for a in kept_audio if s.video_stereo and a.channels > 2]
         broadcast = v.container == "mpegts" and ext == ".mkv"        # (TV recordings: padding, teletext...)
         if not (dropped or fonts or pcm or stereo or broadcast):

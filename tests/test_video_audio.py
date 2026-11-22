@@ -192,3 +192,39 @@ def test_dolby_vision_with_a_base_layer_is_planned_and_others_skipped(monkeypatc
     p = plan(dv(8, 4))
     assert p.convert and "HLG kept, Dolby Vision layer left out" in p.reason
     assert not plan(dv(5, 0)).convert and not plan(dv(8, 4), video_dolby_vision=False).convert
+
+
+@needs_ffmpeg
+def test_a_live_photo_clip_keeps_its_name_and_link(tmp_path):
+    from PIL import Image
+
+    from wick.scanner import scan
+
+    clip, photo = tmp_path / "IMG_0001.MOV", tmp_path / "IMG_0001.JPG"
+    ffmpeg("-f", "lavfi", "-i", "testsrc=s=320x240:d=2", "-f", "lavfi", "-i", "sine=d=2", "-pix_fmt", "yuv420p",
+           "-c:v", "libx264", "-crf", "12", "-c:a", "aac", "-movflags", "use_metadata_tags",
+           "-metadata", "com.apple.quicktime.content.identifier=6F1A-LIVE", str(clip))
+    Image.new("RGB", (64, 48), (90, 120, 150)).save(photo, quality=95)
+    s = Settings(**FAST)
+    entries = {e.path.name: e for e in scan([tmp_path], s).entries}
+    assert entries["IMG_0001.MOV"].live_pair and entries["IMG_0001.JPG"].live_pair
+    info = entries["IMG_0001.MOV"].video
+    assert video.live_photo_id(info) == "6F1A-LIVE"
+    import dataclasses
+
+    from wick.plan import plan_entry
+
+    entry = dataclasses.replace(entries["IMG_0001.MOV"], picked=True)
+    plan = plan_entry(entry, s)
+    assert plan.convert and plan.target_ext == ".mov" and "→ HEVC" in plan.reason and "Live Photo" in plan.reason
+    out, _used = video.convert_video(clip, info, plan, s)
+    try:
+        back = probe_video(out)
+        # (HEVC: QuickTime files can't hold AV1, and the clip has to stay a .mov to stay paired)
+        assert out.suffix == ".mov" and back.codec == "hevc" and video.live_photo_id(back) == "6F1A-LIVE"
+    finally:
+        out.unlink(missing_ok=True)
+    suffixed = plan_entry(entry, Settings(**FAST, output_mode="suffix"))
+    assert not suffixed.convert and "separate" in suffixed.reason
+    photo_plan = plan_entry(dataclasses.replace(entries["IMG_0001.JPG"], picked=True), Settings(image_format="jxl"))
+    assert photo_plan.route == "jpeg_opt" and "same name" in photo_plan.reason

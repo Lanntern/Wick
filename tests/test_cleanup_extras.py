@@ -133,3 +133,28 @@ def test_virtualbox_and_vmware_disks_are_found_and_compacted(tmp_path, monkeypat
     assert results["vbox"][0] and results["vbox"][2] == 4096 - 1024
     assert f"modifymedium disk {disk} --compact" in calls.read_text()
     assert not results["vmware"][0] and "shut it down" in results["vmware"][1]
+
+
+def test_old_folders_are_suggested_for_windows_compression(tmp_path):
+    import os
+    import time
+
+    from wick.cleanup import appcompress
+
+    now = time.time()
+    year_ago = now - 365 * 86400
+
+    def folder(name, files, mtime):
+        f = tmp_path / "Documents" / name
+        f.mkdir(parents=True)
+        for fname, size in files:
+            (f / fname).write_bytes(b"\0" * size)
+            os.utime(f / fname, (mtime, mtime))
+        return f
+
+    folder("old project", [("data.csv", 3000), ("notes.txt", 2000)], year_ago)
+    folder("recent project", [("data.csv", 5000)], now)
+    folder("old photos", [("a.jpg", 4000), ("b.mp4", 4000), ("x.txt", 100)], year_ago)
+    folder("small", [("a.txt", 10)], year_ago)
+    found = appcompress.old_folders([tmp_path / "Documents"], now=now, min_size=1000)
+    assert [p.name for p in found] == ["old project"]
