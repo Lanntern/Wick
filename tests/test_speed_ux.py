@@ -313,3 +313,34 @@ def test_app_libraries_and_icloud_only_files_are_left_alone(tmp_path):
         st_file_attributes = 0
     assert cloud_only(St()) and protected.dataless(St())
     assert not cloud_only(os.stat(tmp_path / "loose.png"))
+
+
+def test_shortcuts_are_written_the_mac_way_on_a_mac(monkeypatch):
+    from wick.gui import widgets
+
+    monkeypatch.setattr(widgets.sys, "platform", "darwin")
+    assert widgets.keys("Options (Ctrl+I)") == "Options (⌘I)"
+    assert widgets.keys("Ctrl+Shift+O, Ctrl+Return, Ctrl+, and Ctrl+A / Ctrl+Shift+A") == \
+        "⇧⌘O, ⌘↩, ⌘, and ⌘A / ⇧⌘A"
+    assert widgets.keys("F5 or Ctrl+R") == "F5 or ⌘R"
+    monkeypatch.setattr(widgets.sys, "platform", "win32")
+    assert widgets.keys("Options (Ctrl+I)") == "Options (Ctrl+I)"
+
+
+def test_the_dock_badge_says_how_far_paused_or_failed():
+    from types import SimpleNamespace
+
+    from wick.gui.taskbar import Taskbar
+
+    tb = Taskbar.__new__(Taskbar)
+    tb.qs = SimpleNamespace(value=lambda key, default, kind: True)
+    tb._jobs = {}
+    assert tb.badge() == ""
+    tb._jobs = {1: (None, "normal", 0.42)}
+    assert tb.badge() == "42%"
+    tb._jobs[2] = (None, "paused", 0.1)
+    assert tb.badge() == "‖"
+    tb._jobs[3] = (None, "error", 0.0)
+    assert tb.badge() == "!"
+    tb._jobs = {1: (None, "indeterminate", 0.0)}
+    assert tb.badge() == "…"

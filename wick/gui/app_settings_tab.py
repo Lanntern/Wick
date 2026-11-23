@@ -155,14 +155,24 @@ class AppSettingsTab(Page):
         self.autostart = ToggleSwitch("Start at sign-in")
         self.autostart.setChecked(integration.autostart_enabled())
         self.autostart.toggled.connect(self._autostart_toggled)
-        card.lay.addWidget(setting_row("Start at sign-in", "Wick opens in the tray, so watched folders keep working.",
+        card.lay.addWidget(setting_row("Start at sign-in", f"Wick opens in the {integration.TRAY}, so watched folders "
+                                                           "keep working.",
                                        self.autostart))
         card.lay.addWidget(separator())
-        self.close_to_tray = ToggleSwitch("Keep running in the tray")
+        self.close_to_tray = ToggleSwitch(f"Keep running in the {integration.TRAY}")
         self.close_to_tray.setChecked(self.qs.value("close_to_tray", True, bool))
         self.close_to_tray.toggled.connect(lambda on: self.qs.setValue("close_to_tray", on))
-        card.lay.addWidget(setting_row("Keep running in the tray", "Closing the window doesn't stop watched folders.",
+        card.lay.addWidget(setting_row(f"Keep running in the {integration.TRAY}",
+                                       "Closing the window doesn't stop watched folders.",
                                        self.close_to_tray))
+        if integration.IS_MAC:
+            card.lay.addWidget(separator())
+            self.taskbar_progress = ToggleSwitch("Progress on the Dock icon")
+            self.taskbar_progress.setChecked(self.qs.value("taskbar/progress", True, bool))
+            self.taskbar_progress.toggled.connect(lambda on: self._taskbar_setting("taskbar/progress", on))
+            card.lay.addWidget(setting_row("Progress on the Dock icon", "How far a job is, ‖ when paused and ! if "
+                                                                        "something failed. Pause and Stop are in the "
+                                                                        "icon's menu.", self.taskbar_progress))
         if integration.IS_WINDOWS:
             card.lay.addWidget(separator())
             self.taskbar_progress = ToggleSwitch("Progress on the taskbar")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -127,8 +128,12 @@ def app_icon() -> QIcon:
 
 
 def native(seq: str) -> str:
-    return QKeySequence(seq).toString(QKeySequence.NativeText) if len(seq) > 1 and "/" not in seq and " " not in seq \
-        else seq
+    """A shortcut as this system writes it (⌘O on a Mac); also lists such as "Ctrl+A / Ctrl+Shift+A"."""
+    from .widgets import keys
+
+    if sys.platform != "darwin" and len(seq) > 1 and "/" not in seq and " " not in seq:
+        return QKeySequence(seq).toString(QKeySequence.NativeText)
+    return keys(seq)
 
 
 class ShortcutsDialog(QDialog):
@@ -357,11 +362,21 @@ class MainWindow(QMainWindow):
         page.setFocus(Qt.ShortcutFocusReason)
         page.focusNextChild()
 
+    # On a Mac these live in the menu bar (_setup_mac_menus): a key can't be both a menu item and a window shortcut.
+    MAC_MENU_KEYS = {"Ctrl+O", "Ctrl+Shift+O", "Ctrl+,", "Ctrl+K", "Ctrl+Q", "Ctrl+/",
+                     *(f"Ctrl+{n}" for n in range(1, 8))}
+
     def _setup_shortcuts(self) -> None:
         c = self.compress
         page_ctx = Qt.WidgetWithChildrenShortcut
 
-        add = self._shortcut
+        def add(seq, slot, parent=None, ctx=Qt.WindowShortcut):
+            if sys.platform == "darwin" and parent is None and seq in self.MAC_MENU_KEYS:
+                return None
+            return self._shortcut(seq, slot, parent, ctx)
+
+        if sys.platform == "darwin":
+            self._setup_mac_menus()
 
         add("Ctrl+O", lambda: self._add_files(folder=False))
         add("Ctrl+Shift+O", lambda: self._add_files(folder=True))
@@ -395,6 +410,55 @@ class MainWindow(QMainWindow):
         add("Ctrl+/", self.show_shortcuts)
         add("Ctrl+K", self.show_command_bar)
         add("Ctrl+Q", self.quit)
+
+    def _setup_mac_menus(self) -> None:
+        """The menu bar a Mac app has: About, Settings… and Quit in the app menu (macOS moves them there by their
+        roles), then File, Edit, Go, Window and Help."""
+        from PySide6.QtWidgets import QApplication
+
+        bar = self.menuBar()
+
+        def act(menu, label, slot, seq=None, role=None):
+            a = menu.addAction(label)
+            a.triggered.connect(lambda _=False: slot())
+            if seq:
+                a.setShortcut(QKeySequence(seq))
+            if role is not None:
+                a.setMenuRole(role)
+            return a
+
+        file = bar.addMenu("File")
+        act(file, "Add Files…", lambda: self._add_files(folder=False), "Ctrl+O")
+        act(file, "Add Folder…", lambda: self._add_files(folder=True), "Ctrl+Shift+O")
+        file.addSeparator()
+        act(file, "Close Window", self.close, "Ctrl+W")
+        act(file, f"About {APP_NAME}", self.show_about, role=QAction.AboutRole)
+        act(file, "Settings…", lambda: (self.go_to(self.app_settings), self.focus_page()), "Ctrl+,",
+            QAction.PreferencesRole)
+        act(file, f"Quit {APP_NAME}", self.quit, "Ctrl+Q", QAction.QuitRole)
+
+        edit = bar.addMenu("Edit")             # (for text fields: forwarded to whatever has the focus)
+        for label, method, seq in (("Cut", "cut", "Ctrl+X"), ("Copy", "copy", "Ctrl+C"), ("Paste", "paste", "Ctrl+V")):
+            act(edit, label, lambda m=method: getattr(QApplication.focusWidget(), m, lambda: None)(), seq)
+
+        go = bar.addMenu("Go")
+        for n, name in enumerate(("Home", "Compress", "Convert", "Metadata", "Clean Up", "Watch Folders", "History"), 1):
+            act(go, name, lambda i=n - 1: (self._go(i), self.focus_page()), f"Ctrl+{n}")
+        go.addSeparator()
+        act(go, "Go to Anything…", self.show_command_bar, "Ctrl+K")
+
+        window = bar.addMenu("Window")
+        act(window, "Minimize", self.showMinimized, "Ctrl+M")
+        act(window, "Zoom", lambda: self.showNormal() if self.isMaximized() else self.showMaximized())
+        window.addSeparator()
+        act(window, "Bring All to Front", lambda: (self.show_window(), self.raise_()))
+
+        help_menu = bar.addMenu("Help")
+        act(help_menu, "Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
+        act(help_menu, f"{APP_NAME} on macOS",
+            lambda: __import__("webbrowser").open("https://github.com/Lanntern/Wick/blob/main/docs/macos.md"))
+        act(help_menu, "Report a Problem…", lambda: __import__("wick.gui.dialogs", fromlist=["x"]).report_problem(self))
+        self._mac_menus = bar
 
     def _shortcut(self, seq, slot, parent=None, ctx=Qt.WindowShortcut):
         sc = QShortcut(QKeySequence(seq), parent or self)
@@ -1235,6 +1299,9 @@ class MainWindow(QMainWindow):
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(
             lambda reason: self.show_window() if reason == QSystemTrayIcon.Trigger else None)
+        # A notification clicked: open where it happened (Compress for a finished job, and so on).
+        self.tray.messageClicked.connect(
+            lambda: self.open_target(getattr(self, "_last_launch", "") or "home"))
         self._tray_menu = menu
 
     def _update_tray(self, watching: bool) -> None:
@@ -1257,6 +1324,11 @@ class MainWindow(QMainWindow):
                 return
         if self.tray is None:
             return
+        self._last_launch = launch or (actions[0][1] if actions else "")
+        if sys.platform == "darwin":
+            # Notification Center: shown whether or not the menu bar icon is (it appears for the moment it takes).
+            # Clicking opens Wick where it happened; Undo and Show Files are on its result there.
+            force = True
         if not self.tray.isVisible() and force:
             self.tray.setVisible(True)
             QTimer.singleShot(15_000, lambda: self._update_tray(self.watch.watching))

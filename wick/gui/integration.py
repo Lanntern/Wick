@@ -15,6 +15,7 @@ from .. import APP_NAME
 
 IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
+TRAY = "menu bar" if IS_MAC else "tray"     # (where the small icon lives: the Mac's menu bar, Windows' tray)
 HAS_MENU = not IS_MAC          # (macOS: Finder's Open With comes from the app bundle; no per-user menu to add)
 _MENU_KEYS = (r"Software\Classes\*\shell\Wick", r"Software\Classes\Directory\shell\Wick")
 # "Convert with Wick": one submenu per kind of file (Windows' perceived types), with the usual formats.

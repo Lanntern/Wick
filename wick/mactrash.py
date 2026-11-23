@@ -11,7 +11,6 @@ NSFileManager is reached through the Objective-C runtime with ctypes: nothing ex
 from __future__ import annotations
 
 import ctypes
-import ctypes.util
 import json
 import os
 import threading
@@ -19,63 +18,24 @@ import time
 from pathlib import Path
 
 _lock = threading.Lock()
-_objc = None
-
-
-def _runtime():
-    global _objc
-    if _objc is None:
-        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc") or "/usr/lib/libobjc.A.dylib")
-        ctypes.cdll.LoadLibrary("/System/Library/Frameworks/Foundation.framework/Foundation")
-        objc.objc_getClass.restype = ctypes.c_void_p
-        objc.objc_getClass.argtypes = [ctypes.c_char_p]
-        objc.sel_registerName.restype = ctypes.c_void_p
-        objc.sel_registerName.argtypes = [ctypes.c_char_p]
-        objc.objc_autoreleasePoolPush.restype = ctypes.c_void_p
-        objc.objc_autoreleasePoolPop.argtypes = [ctypes.c_void_p]
-        _objc = objc
-    return _objc
-
-
-def _send(restype, *argtypes):
-    """objc_msgSend with exact argument types (needed on Apple silicon, where it isn't variadic)."""
-    objc = _runtime()
-    addr = ctypes.cast(objc.objc_msgSend, ctypes.c_void_p).value
-    return ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(addr)
-
-
-def _sel(name: str):
-    return _runtime().sel_registerName(name.encode())
-
-
-def _cls(name: str):
-    return _runtime().objc_getClass(name.encode())
 
 
 def trash_item(path: Path) -> Path:
     """Move ``path`` to the Trash; returns where it is now. Raises OSError if macOS refused."""
-    objc = _runtime()
-    pool = objc.objc_autoreleasePoolPush()
-    try:
-        string = _send(ctypes.c_void_p, ctypes.c_char_p)(_cls("NSString"), _sel("stringWithUTF8String:"),
-                                                          os.fsencode(os.path.abspath(path)))
-        url = _send(ctypes.c_void_p, ctypes.c_void_p)(_cls("NSURL"), _sel("fileURLWithPath:"), string)
-        manager = _send(ctypes.c_void_p)(_cls("NSFileManager"), _sel("defaultManager"))
+    from .macobjc import Pool, cls, nsstring_path, sel, send, text_of
+
+    with Pool():
+        url = send(ctypes.c_void_p, ctypes.c_void_p)(cls("NSURL"), sel("fileURLWithPath:"), nsstring_path(path))
+        manager = send(ctypes.c_void_p)(cls("NSFileManager"), sel("defaultManager"))
         result = ctypes.c_void_p()
         error = ctypes.c_void_p()
-        ok = _send(ctypes.c_bool, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p))(
-            manager, _sel("trashItemAtURL:resultingItemURL:error:"), url, ctypes.byref(result), ctypes.byref(error))
+        ok = send(ctypes.c_bool, ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_void_p))(
+            manager, sel("trashItemAtURL:resultingItemURL:error:"), url, ctypes.byref(result), ctypes.byref(error))
         if not ok or not result.value:
-            why = ""
-            if error.value:
-                text = _send(ctypes.c_void_p)(error.value, _sel("localizedDescription"))
-                why = (_send(ctypes.c_char_p)(text, _sel("UTF8String")) or b"").decode("utf-8", "replace")
+            why = text_of(send(ctypes.c_void_p)(error.value, sel("localizedDescription"))) if error.value else ""
             raise OSError(f"macOS couldn't move it to the Trash{': ' + why if why else ''}")
-        where = _send(ctypes.c_void_p)(result.value, _sel("path"))
-        out = _send(ctypes.c_char_p)(where, _sel("UTF8String"))
-        return Path(os.fsdecode(out))
-    finally:
-        objc.objc_autoreleasePoolPop(pool)
+        where = send(ctypes.c_void_p)(result.value, sel("path"))
+        return Path(os.fsdecode(send(ctypes.c_char_p)(where, sel("UTF8String"))))
 
 
 # ---------------------------------------------------------------- what Wick put in the Trash

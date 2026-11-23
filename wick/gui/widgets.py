@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+import sys
+
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
@@ -149,6 +152,31 @@ class ElidedLabel(QLabel):
         super().setToolTip(self._tip or (self._full if shown != self._full else ""))
 
 
+_KEY_COMBO = re.compile(r"\b(?:(?:Ctrl|Shift|Alt|Meta)\+)+(?:Return|Enter|Tab|Space|Esc|Delete|Insert|Backspace|"
+                        r"F\d{1,2}|[A-Za-z0-9,/=.\-])(?![A-Za-z])")
+
+
+_MAC_MODIFIERS = (("Meta", "⌃"), ("Alt", "⌥"), ("Shift", "⇧"), ("Ctrl", "⌘"))     # (Apple's order)
+_MAC_KEYS = {"Return": "↩", "Enter": "⌤", "Tab": "⇥", "Space": "Space", "Esc": "⎋", "Delete": "⌦",
+             "Backspace": "⌫", "Insert": "Insert"}
+
+
+def mac_keys(combo: str) -> str:
+    """"Ctrl+Shift+O" as a Mac writes it: "⇧⌘O" (Qt's Ctrl is the Command key there)."""
+    parts = combo.split("+")
+    key = parts[-1] or "+"
+    mods = set(parts[:-1])
+    return "".join(sym for name, sym in _MAC_MODIFIERS if name in mods) + _MAC_KEYS.get(key, key.upper())
+
+
+def keys(text: str) -> str:
+    """Shortcuts in ``text`` as this system writes them: "Ctrl+Shift+O" stays on Windows and Linux and becomes
+    "⇧⌘O" on a Mac, where the shortcuts themselves already work with the Command key."""
+    if sys.platform != "darwin" or "+" not in text:
+        return text
+    return _KEY_COMBO.sub(lambda m: mac_keys(m.group(0)), text)
+
+
 def button(label: str, kind: str = "", icon_name: str | None = None, tip: str = "",
            shortcut_hint: str = "") -> QPushButton:
     b = QPushButton(label)
@@ -159,7 +187,7 @@ def button(label: str, kind: str = "", icon_name: str | None = None, tip: str = 
         b.setIcon(icon(icon_name, color, Size.ICON_S))
         b.setIconSize(QSize(Size.ICON_S, Size.ICON_S))
         b.setProperty("iconName", icon_name)
-    full_tip = tip + (f"  ({shortcut_hint})" if shortcut_hint else "")
+    full_tip = keys(tip + (f"  ({shortcut_hint})" if shortcut_hint else ""))
     if full_tip:
         b.setToolTip(full_tip.strip())
     b.setAccessibleName(label.replace("…", "").replace("&", "") or tip)

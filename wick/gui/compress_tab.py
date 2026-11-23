@@ -31,7 +31,7 @@ from .filelist import ListPlaceholder, click_to_check, file_menu, keyboard_list,
 from .style import Size, Space, Type, safe_filter, text_scale
 from .jobstatus import JobStatus, PauseControl, ResumeBanner
 from .header import Header
-from .widgets import (CARD_INSET, Card, DropZone, Page, StatTile, StatusDelegate, available_width, button,
+from .widgets import (CARD_INSET, Card, DropZone, Page, StatTile, StatusDelegate, available_width, button, keys,
                       hbox, page_top, set_compact, text)
 from .workers import JobThread, ScanThread
 
@@ -105,7 +105,7 @@ class CompressTab(QWidget):
         self.settings_line = text("", Type.FOOTNOTE, secondary=True, wrap=True)
         self.settings_line.setTextFormat(Qt.PlainText)
         self.settings_line.setAccessibleName("What will be done")
-        self.settings_line.setToolTip("Change this in Options (Ctrl+I)")
+        self.settings_line.setToolTip(keys("Change this in Options (Ctrl+I)"))
         summary_box = QVBoxLayout()
         summary_box.setSpacing(2)
         summary_box.addWidget(self.breakdown)
