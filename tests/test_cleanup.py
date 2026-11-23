@@ -1,6 +1,7 @@
 """Clean-up tools: scanning finds the right things; actions and undo round-trip."""
 
 import os
+import sys
 import tarfile
 import time
 import zipfile
@@ -37,7 +38,12 @@ def test_duplicates_hardlink_and_undo(tmp_path):
 
     outcomes, run_id = actions.apply(res.items, actions.HARDLINK, "duplicates", tmp_path)
     assert outcomes[0].ok, outcomes[0].message
-    assert os.stat(b).st_ino == os.stat(a).st_ino and b.read_bytes() == payload
+    from wick.fileops import supports_block_clone
+
+    if supports_block_clone(b):            # (APFS, ReFS: a clone, stored once but still its own file)
+        assert "clone" in outcomes[0].message and b.read_bytes() == payload
+    else:
+        assert os.stat(b).st_ino == os.stat(a).st_ino and b.read_bytes() == payload
     ok, failed = undo_run(run_id)
     assert (ok, failed) == (1, 0)
     assert os.stat(b).st_ino != os.stat(a).st_ino and b.read_bytes() == payload
@@ -881,7 +887,7 @@ def test_block_clone_on_refs():
     from wick import fileops
 
     root = os.environ.get("WICK_REFS_DIR")
-    if os.name != "nt":
+    if os.name != "nt" and sys.platform != "darwin":       # (APFS can clone: its own test in test_cleanup_extras)
         assert not fileops.supports_block_clone(Path("."))
     if os.name != "nt" or not root:
         pytest.skip("needs a ReFS drive (WICK_REFS_DIR)")
