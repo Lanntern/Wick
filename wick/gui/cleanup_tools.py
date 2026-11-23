@@ -287,6 +287,8 @@ def _appcompress_options(sec: ToolSection):
         sec._game_results.raise_()
 
     community.clicked.connect(show_results)
+    if sys.platform == "darwin":        # (APFS has one compression, and the community results are Windows games')
+        return [('Skip file types', skip), ('', samples), ('', old), ('', watch), ('', idle), ('', tray)]
     return [('Algorithm', group), ('Skip file types', skip), ('', own_button), ('', community), ('', samples),
             ('', old), ('', watch), ('', idle), ('', tray)]
 
@@ -593,8 +595,10 @@ def tools() -> list[Tool]:
                   f"the {BIN_NAME}.",
              available=lambda: "" if winclean.supported() else "Available on Windows only."),
         Tool("appcompress", "Compress Apps",
-             "Compresses games and apps on NTFS drives. They keep working as usual, and Windows decompresses files "
-             "as they're read.",
+             ("Compresses apps and games with APFS's own compression. They keep working as usual, and macOS "
+              "decompresses files as they're read." if sys.platform == "darwin" else
+              "Compresses games and apps on NTFS drives. They keep working as usual, and Windows decompresses files "
+              "as they're read."),
              appcompress.default_sources,
              lambda s, p, c: appcompress.find_compressible(
                  appcompress.expand_sources(s.folders) + (appcompress.old_folders(
@@ -602,7 +606,8 @@ def tools() -> list[Tool]:
                  p, c, **s._app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
-             available=lambda: "" if appcompress.supported() else "Available on Windows (NTFS drives) only."),
+             available=lambda: "" if appcompress.supported() else
+             "Available on Windows (NTFS drives) and Macs (APFS drives)."),
         Tool("takeout", "Google Takeout",
              "Turns a Google Photos Takeout into one folder of photos and videos, each with the date it was taken. "
              "Google stores those dates in separate files, so without this every photo shows the export date. If "

@@ -131,7 +131,8 @@ def steam_libraries() -> list[Path]:
         except OSError:
             pass
     else:
-        roots = [Path.home() / ".steam/steam", Path.home() / ".local/share/Steam"]
+        roots = [Path.home() / ".steam/steam", Path.home() / ".local/share/Steam",
+                 Path.home() / "Library" / "Application Support" / "Steam"]          # (macOS)
     libs: list[Path] = []
     for r in roots:
         vdf = r / "steamapps" / "libraryfolders.vdf"

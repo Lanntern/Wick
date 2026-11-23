@@ -344,3 +344,31 @@ def test_the_dock_badge_says_how_far_paused_or_failed():
     assert tb.badge() == "!"
     tb._jobs = {1: (None, "indeterminate", 0.0)}
     assert tb.badge() == "…"
+
+
+def test_spotlights_answer_goes_through_the_usual_rules(tmp_path):
+    """Spotlight answers with paths; folders are filled in so the scanner skips hidden folders, app libraries and
+    program folders as on a disk walk."""
+    from PIL import Image
+
+    from wick import spotlight
+    from wick.everything import to_listing
+    from wick.scanner import ScanResult, walk_listing
+
+    files = []
+    for rel in ("Pictures/a.png", "Pictures/2024/b.png", ".hidden/c.png", "Photos Library.photoslibrary/d.png",
+                "Game/e.png", "Game/engine.dylib"):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if p.suffix == ".png":
+            Image.new("RGB", (32, 32)).save(p)
+        else:
+            p.write_bytes(b"\0" * 10)
+        files.append(str(p))
+    assert 'kMDItemFSName == "*.png"c' in spotlight.query([".png", ".jpg"])
+    listing = to_listing(tmp_path, spotlight.items_for(tmp_path, files))
+    result = ScanResult(roots=[tmp_path])
+    walk_listing(result, tmp_path, listing, 0, Settings(min_image_kb=0), set())
+    assert sorted(e.path.name for e in result.entries) == ["a.png", "b.png"]
+    assert any(p.name == "Photos Library.photoslibrary" for p in result.skipped_libraries)
+    assert any(p.name == "Game" for p in result.skipped_program_dirs)

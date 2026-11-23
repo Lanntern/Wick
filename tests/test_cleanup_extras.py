@@ -1,6 +1,7 @@
 """Camera proxy files, and Windows Installer packages no installed program lists."""
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -173,3 +174,59 @@ def test_mac_processes_are_read_from_ps_and_lsof():
         "p101\nfcwd\nn/Users/me/site\np202\nfcwd\nn/Users/me/site\n")}
     assert procs[101].name == "zsh" and procs[101].cwd == "/Users/me/site"
     assert procs[202].ppid == 101 and "node_modules/.bin/vite" in procs[202].cmdline
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="APFS compression is macOS's")
+def test_apfs_compression_keeps_files_the_same_and_undoes(tmp_path):
+    from wick.cleanup import apfs
+
+    app = tmp_path / "Game.app" / "Contents" / "Resources"
+    app.mkdir(parents=True)
+    data = b"level data " * 50_000
+    f = app / "levels.dat"
+    f.write_bytes(data)
+    before = f.stat().st_blocks
+    assert apfs.run(tmp_path / "Game.app", [f]) == 0
+    assert f.read_bytes() == data and apfs.is_compressed(f.stat()) and f.stat().st_blocks < before
+    assert apfs.run(tmp_path / "Game.app", [f], undo=True) == 0
+    assert f.read_bytes() == data and not apfs.is_compressed(f.stat())
+
+
+def test_apfs_refuses_system_and_whole_folders():
+    from pathlib import Path as P
+
+    from wick.cleanup import apfs
+
+    for bad in (P("/"), P("/System/Library"), P("/Applications"), P("/usr/local/bin")):
+        with pytest.raises(ValueError):
+            apfs.check_folder(bad)
+    apfs.check_folder(P("/Applications/Some.app"))
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="clonefile is APFS's")
+def test_apfs_clones_are_separate_files_sharing_storage(tmp_path):
+    from wick.fileops import clone_file, supports_block_clone
+
+    src = tmp_path / "a.bin"
+    src.write_bytes(b"x" * 300_000)
+    if not supports_block_clone(src):
+        pytest.skip("not on APFS")
+    dst = tmp_path / "b.bin"
+    clone_file(src, dst)
+    assert dst.read_bytes() == src.read_bytes()
+    dst.write_bytes(b"changed")                       # (a clone, not a link: the original stays as it was)
+    assert src.read_bytes() == b"x" * 300_000
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Quick Look is macOS's")
+def test_quick_look_makes_thumbnails(tmp_path):
+    from PIL import Image
+
+    from wick.gui import macthumbs
+
+    p = tmp_path / "photo.png"
+    Image.new("RGB", (800, 600), (200, 30, 30)).save(p)
+    png = macthumbs.thumbnail(p, 128)
+    if png is None:
+        pytest.skip("Quick Look made no thumbnail on this machine")
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"

@@ -210,7 +210,7 @@ def to_listing(root: Path, items, marker_exts: Iterable[str] = (".dll", ".so", "
     out.roots[0] = 0
     out.dirs[0] = (-1, 0, False, root.name or str(root))
     ids = {root_key: 0}
-    folders = sorted((name for name, is_dir, *_ in items if is_dir), key=lambda n: n.count("\\"))
+    folders = sorted((name for name, is_dir, *_ in items if is_dir), key=lambda n: n.count(os.sep))
     attrs_of = {os.path.normcase(n): a for n, d, _s, _m, a in items if d}
     for name in folders:
         key = os.path.normcase(name)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -83,6 +84,11 @@ PARTS_PREFIX = ".wick-parts-"   # a video being encoded scene by scene (chunked.
 def _is_hidden(entry: os.DirEntry) -> bool:
     if entry.name.startswith("."):
         return True
+    if sys.platform == "darwin":            # (Finder's hidden flag: ~/Library, where apps keep their data, has it)
+        try:
+            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
+        except OSError:
+            return False
     if os.name == "nt":
         try:
             attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
@@ -223,12 +229,16 @@ def _is_drive_root(p: Path) -> bool:
     return os.name == "nt" and p.anchor != "" and Path(p.anchor) == p
 
 
+def _mac_volume_root(p: Path) -> bool:
+    return sys.platform == "darwin" and (str(p) == "/" or (p.parent == Path("/Volumes")))
+
+
 def _big_scope(root: Path) -> bool:
     """Worth asking Everything: a whole drive or your whole user folder (where it saves minutes). A smaller
     folder is read directly: quick anyway, and certain to include a file saved a moment ago (Everything's
     index can trail the disk by a moment)."""
     try:
-        return _is_drive_root(root) or os.path.normcase(os.path.abspath(root)) == \
+        return _is_drive_root(root) or _mac_volume_root(root) or os.path.normcase(os.path.abspath(root)) == \
             os.path.normcase(os.path.abspath(Path.home()))
     except OSError:
         return False
@@ -238,6 +248,13 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
     """Windows: the list of files without asking the disk about every one. From Everything when it's running
     (any folder, instant), else for a whole drive from its NTFS file table (Windows asks for administrator
     permission). None: scan the usual way."""
+    if sys.platform == "darwin" and _big_scope(root):
+        from . import spotlight
+
+        try:
+            return spotlight.listing_for(root, _LISTED_EXTS, progress)
+        except Exception:  # noqa: BLE001 - Spotlight's answer is a bonus: any problem, the usual way
+            return None
     if os.name == "nt" and _big_scope(root):
         from . import everything
 

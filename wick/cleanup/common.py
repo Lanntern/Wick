@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from contextlib import contextmanager
 from collections.abc import Callable, Iterator
@@ -115,6 +116,11 @@ def cloud_only(st: os.stat_result) -> bool:
 def is_hidden(entry: os.DirEntry) -> bool:
     if entry.name.startswith("."):
         return True
+    if sys.platform == "darwin":            # (Finder's hidden flag, as on ~/Library)
+        try:
+            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
+        except OSError:
+            return False
     if os.name == "nt":
         try:
             attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]

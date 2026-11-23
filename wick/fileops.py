@@ -275,7 +275,11 @@ _FILE_SUPPORTS_BLOCK_REFCOUNTING = 0x08000000
 
 
 def supports_block_clone(path: Path) -> bool:
-    """Windows: is ``path`` on a volume that can share data between files (ReFS, e.g. a Dev Drive)?"""
+    """Is ``path`` on a volume that can share data between files: ReFS (e.g. a Dev Drive) on Windows, APFS on a Mac?"""
+    if sys.platform == "darwin":
+        from .drives import _mac_mount_fs
+
+        return _mac_mount_fs(path) == "apfs"
     if not _IS_WINDOWS:
         return False
     try:
@@ -296,8 +300,17 @@ def supports_block_clone(path: Path) -> bool:
 
 def clone_file(src: Path, dst: Path) -> None:
     """Make ``dst`` (new) a block clone of ``src``: an independent file whose data is stored only once, until either
-    is changed (ReFS copy-on-write). Raises OSError where that isn't possible; ``dst`` is removed then."""
+    is changed (ReFS or APFS copy-on-write). Raises OSError where that isn't possible; ``dst`` is removed then."""
     import ctypes
+
+    if sys.platform == "darwin":            # clonefile(2): APFS shares the blocks; metadata comes along too
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.clonefile.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint32]
+        if libc.clonefile(os.fsencode(src), os.fsencode(dst), 0) != 0:
+            err = ctypes.get_errno()
+            remove_quietly(dst)
+            raise OSError(err, os.strerror(err), str(dst))
+        return
     from ctypes import wintypes
 
     class DuplicateExtents(ctypes.Structure):

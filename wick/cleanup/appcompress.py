@@ -1,12 +1,14 @@
-"""Transparent WOF compression for programs and games, via Windows' compact.exe.
+"""Transparent compression for programs and games: Windows' compact.exe (WOF, on NTFS), or on a Mac APFS's own
+compression (apfs.py).
 
-Files stay where they are and keep working; Windows decompresses them on the fly.
-Undo runs ``compact /u``. Windows-only (needs NTFS).
+Files stay where they are and keep working; the system decompresses them as they're read.
+Undo runs ``compact /u`` (Windows) or decompresses each file (Mac).
 """
 
 from __future__ import annotations
 
 import os
+import sys
 import subprocess
 import threading
 import tempfile
@@ -20,6 +22,7 @@ from .caches import steam_libraries
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
 IS_WINDOWS = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
 ESTIMATED_RATIO = 0.62   # typical size after LZX for programs/games (shown as an estimate)
 ALGORITHMS = {
     "xpress4k": ("XPRESS4K", "Fastest reads; smaller savings. Prefer for loading-sensitive games.", 0.80),
@@ -33,10 +36,18 @@ _NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 def supported() -> bool:
+    if IS_MAC:
+        from . import apfs
+
+        return apfs.supported()
     return IS_WINDOWS
 
 
 def idle_seconds() -> float:
+    if IS_MAC:
+        from . import apfs
+
+        return apfs.idle_seconds()
     if not IS_WINDOWS:
         return 0
     import ctypes
@@ -83,6 +94,10 @@ def compression_records(include_undone: bool = False) -> dict:
 
 
 def volume_type(folder: Path) -> str:
+    if IS_MAC:
+        from . import apfs
+
+        return {"apfs": "APFS", "hfs": "HFS+"}.get(apfs.volume_type(folder), "Unknown")
     if not IS_WINDOWS:
         return ""
     import ctypes
@@ -181,6 +196,8 @@ def source_label(path: Path) -> str:
 
 
 def _library_contents(path: Path) -> Path | None:
+    if IS_MAC and path in (Path("/Applications"), Path.home() / "Applications"):
+        return path                     # (each app in it is one candidate)
     if (path / "steamapps" / "common").is_dir():
         return path / "steamapps" / "common"
     if source_label(path) != str(path):
@@ -207,6 +224,9 @@ def expand_sources(sources: list[Path]) -> list[Path]:
 def default_sources() -> list[Path]:
     out = [lib / "steamapps" / "common" for lib in steam_libraries()
            if (lib / "steamapps" / "common").is_dir()]
+    if IS_MAC:          # apps you installed yourself (dragged in: yours to change), and Steam's games for macOS
+        home_apps = Path.home() / "Applications"
+        out += [p for p in (Path("/Applications"), home_apps) if p.is_dir()]
     if IS_WINDOWS:
         for env in ("ProgramFiles", "ProgramFiles(x86)"):
             base = os.environ.get(env)
@@ -406,8 +426,8 @@ def sample_ratio(folder: Path, algorithm_name: str, skip_extensions=(), cancel=N
         raise ValueError("No suitable files to sample")
     with tempfile.TemporaryDirectory(prefix="wick-compression-sample-") as directory:
         temporary = Path(directory)
-        if volume_type(temporary) != "NTFS":
-            raise ValueError("Temporary samples need an NTFS volume")
+        if volume_type(temporary) not in ("NTFS", "APFS", "HFS+"):
+            raise ValueError("Temporary samples need an NTFS or APFS volume")
         if shutil.disk_usage(temporary).free < 64 * 1024 * 1024:
             raise ValueError("Not enough temporary disk space for a sample")
         count = 0
@@ -463,6 +483,13 @@ def run_compact(folder: Path, undo: bool = False, on_line: Callable[[str], None]
     folder = folder.resolve()
     if not folder.is_dir():
         raise ValueError('Choose an existing game/app folder')
+    if IS_MAC:              # APFS compression, file by file (no algorithms to choose, no administrator step)
+        from . import apfs
+
+        if volume_type(folder) not in ("APFS", "HFS+"):
+            raise ValueError('App/game compression needs an APFS (or Mac OS Extended) volume')
+        files = _compact_files(folder, set() if undo else exclusions(skip_extensions), cancel, changed_since)
+        return apfs.run(folder, files, undo, on_line, cancel)
     protected = [Path(v).resolve() for k in ('SystemRoot', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData')
                  if (v := os.environ.get(k))]
     if folder.parent == folder or folder in protected:
