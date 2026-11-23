@@ -280,3 +280,36 @@ def test_helper_processes_end_with_the_app():
     assert pool.shut == (False, True)
     assert not polite.alive and "kill" not in polite.calls
     assert not stubborn.alive and stubborn.calls[:1] == ["terminate"] and "kill" in stubborn.calls
+
+
+def test_app_libraries_and_icloud_only_files_are_left_alone(tmp_path):
+    """Photos and other apps' libraries are never looked inside (changing them breaks the app), even when chosen
+    directly; files iCloud keeps only online are never read (that would download them)."""
+    import os
+
+    from PIL import Image
+
+    from wick import protected
+    from wick.cleanup.common import cloud_only, walk_files
+    from wick.scanner import scan
+
+    lib = tmp_path / "Photos Library.photoslibrary" / "originals" / "A"
+    lib.mkdir(parents=True)
+    Image.new("RGB", (64, 64)).save(lib / "IMG_0001.png")
+    Image.new("RGB", (64, 64)).save(tmp_path / "loose.png")
+    (tmp_path / "Wick.app" / "Contents").mkdir(parents=True)
+    Image.new("RGB", (64, 64)).save(tmp_path / "Wick.app" / "Contents" / "icon.png")
+    result = scan([tmp_path], Settings(min_image_kb=0))
+    assert [e.path.name for e in result.entries] == ["loose.png"]
+    assert {p.name for p in result.skipped_libraries} == {"Photos Library.photoslibrary", "Wick.app"}
+    direct = scan([lib / "IMG_0001.png"], Settings(min_image_kb=0), picked=True)
+    assert not direct.entries and direct.skipped_libraries[0].name == "Photos Library.photoslibrary"
+    assert [p.name for p, _ in walk_files([tmp_path])] == ["loose.png"]
+    assert {p.name for p, _ in walk_files([tmp_path / "Wick.app"], into_packages=True)} == {"icon.png"}
+    assert "Photos" in protected.describe(tmp_path / "Photos Library.photoslibrary")
+
+    class St:                                                 # (a stat result with macOS's dataless flag)
+        st_flags = protected.SF_DATALESS
+        st_file_attributes = 0
+    assert cloud_only(St()) and protected.dataless(St())
+    assert not cloud_only(os.stat(tmp_path / "loose.png"))

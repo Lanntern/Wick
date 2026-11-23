@@ -407,6 +407,10 @@ class Server:
                                     for e, p in biggest]
         if result.skipped_program_dirs:
             out["program_folders_skipped"] = len(result.skipped_program_dirs)
+        if result.skipped_libraries:
+            from .protected import describe
+
+            out["app_libraries_left_alone"] = [describe(p) for p in result.skipped_libraries[:10]]
         if result.cloud_only_files:
             out["cloud_only_files_skipped"] = result.cloud_only_files
         return out

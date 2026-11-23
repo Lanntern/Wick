@@ -494,8 +494,15 @@ class CompressTab(QWidget):
                  "document" if e.kind == DOCUMENT else "image" for e in result.entries}
         self.panel.set_file_kinds(kinds or None)  # only the options that matter for these files
         self.skipped_dirs = result.skipped_program_dirs
+        self.skipped_libraries = result.skipped_libraries
         self.cloud_only = result.cloud_only_files
         entries = [e for e in result.entries if os.path.normcase(str(e.path)) not in self.removed]
+        if not entries and result.skipped_libraries:     # (only an app's library was given: say why nothing's here)
+            from ..protected import describe
+            from .dialogs import inform
+
+            inform(self, "Wick leaves app libraries alone", "\n".join(describe(p) for p in result.skipped_libraries[:5])
+                   + ".\n\nChanging files inside one behind the app's back can break the library.")
         self.model.finish_listed(entries, self.panel.settings())
         self._scan_settings = None
         self.update_summary()
@@ -603,6 +610,13 @@ class CompressTab(QWidget):
             extra: list = []
             if self.skipped_dirs:
                 extra.append(f"{len(self.skipped_dirs)} program/game folder(s) skipped")
+            libraries = getattr(self, "skipped_libraries", [])
+            if libraries:
+                from ..protected import describe
+
+                names = ", ".join(p.name for p in libraries[:2]) + (" and more" if len(libraries) > 2 else "")
+                extra.append(f"left alone: {names} (app libraries)")
+                self.page.subtitle.setToolTip("\n".join(describe(p) for p in libraries[:10]))
             if self.cloud_only:
                 extra.append(f"{self.cloud_only} cloud-only file(s) skipped")
             pending = self.model.pending_count()

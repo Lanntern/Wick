@@ -194,6 +194,11 @@ def cmd_scan(a: argparse.Namespace) -> int:
           f"(save ~{human(total - est)})")
     if result.skipped_program_dirs:
         print(f"Skipped {len(result.skipped_program_dirs)} program/game folder(s).")
+    if result.skipped_libraries:
+        from .protected import describe
+
+        for library in result.skipped_libraries[:5]:
+            print(f"Left alone: {describe(library)}.")
     if result.cloud_only_files:
         print(f"Skipped {result.cloud_only_files} cloud-only file(s) (OneDrive etc.).")
     return 0

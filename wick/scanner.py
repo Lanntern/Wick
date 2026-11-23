@@ -16,6 +16,7 @@ from .formats import (
     ImageInfo, classify, read_image_info, sniff,
 )
 from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
+from .protected import dataless, inside_library, is_library
 from .settings import Settings
 
 # Folder names that are never scanned (case-insensitive). These hold OS,
@@ -62,6 +63,7 @@ class ScanResult:
     roots: list[Path]
     entries: list[FileEntry] = field(default_factory=list)
     skipped_program_dirs: list[Path] = field(default_factory=list)
+    skipped_libraries: list[Path] = field(default_factory=list)    # Photos and other apps' libraries
     unreadable_dirs: list[Path] = field(default_factory=list)
     cloud_only_files: int = 0
     jxl_files: int = 0          # JPEG XL files seen (already efficient; not listed as entries)
@@ -91,7 +93,9 @@ def _is_hidden(entry: os.DirEntry) -> bool:
 
 
 def _cloud_only(st: os.stat_result) -> bool:
-    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS)
+    """Only in the cloud (OneDrive on Windows, iCloud Drive's optimised storage on a Mac): reading it would
+    download it."""
+    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS) or dataless(st)
 
 
 def scan(
@@ -117,6 +121,11 @@ def scan(
     seen: set[str] = set()
 
     for root in roots:
+        library = inside_library(root)
+        if library is not None:             # (even when chosen directly: changing it would break the app's library)
+            if library not in result.skipped_libraries:
+                result.skipped_libraries.append(library)
+            continue
         if root.is_file():
             _add_file(result, root, None, seen, settings, found)
             if picked and result.entries and result.entries[-1].path == root:
@@ -273,6 +282,9 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
             _p, sattrs, _m, sname = listing.dirs[sub]
             if sattrs & REPARSE or sname.lower() in EXCLUDED_DIR_NAMES or sname.startswith(PARTS_PREFIX):
                 continue
+            if is_library(sname):
+                result.skipped_libraries.append(path / sname)
+                continue
             if not settings.include_hidden and (sname.startswith(".") or sattrs & (HIDDEN | SYSTEM)):
                 continue
             subdirs.append((sname, sub))
@@ -337,6 +349,9 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     continue
                 if c.is_dir(follow_symlinks=False):
                     if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
+                        continue
+                    if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
+                        result.skipped_libraries.append(Path(c.path))
                         continue
                     if not settings.include_hidden and _is_hidden(c):
                         continue

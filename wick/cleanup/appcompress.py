@@ -381,7 +381,8 @@ def _compact_args(folder: Path, undo: bool, algorithm_name: str = DEFAULT_ALGORI
 def _compact_files(folder, skip, cancel, changed_since=0):
     from .common import walk_files
 
-    for path, st in walk_files([folder], skip_program_folders=False, include_hidden=True, cancel=cancel):
+    for path, st in walk_files([folder], skip_program_folders=False, include_hidden=True, cancel=cancel,
+                               into_packages=True):
         if path.suffix.lower() in skip:
             continue
         if changed_since and size_on_disk(path) < st.st_size * 0.95:
