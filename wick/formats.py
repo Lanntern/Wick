@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 import struct
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import BinaryIO
 
 JPEG = "jpeg"
 PNG = "png"
@@ -133,10 +136,22 @@ class PngInfo:
     animated: bool
 
 
-def read_png_info(path: Path) -> PngInfo | None:
+@contextmanager
+def _reading(path: Path, f: BinaryIO | None = None) -> Iterator[BinaryIO]:
+    """``f`` from its start when the caller already has the file open (one open per file while scanning: each one is
+    a round trip on a network drive), else the file opened here."""
+    if f is not None:
+        f.seek(0)
+        yield f
+    else:
+        with open(path, "rb") as opened:
+            yield opened
+
+
+def read_png_info(path: Path, f: BinaryIO | None = None) -> PngInfo | None:
     """Parse IHDR and look for an acTL chunk (APNG) before the first IDAT."""
     try:
-        with open(path, "rb") as f:
+        with _reading(path, f) as f:
             if f.read(8) != b"\x89PNG\r\n\x1a\n":
                 return None
             width = height = depth = ctype = None
@@ -164,11 +179,11 @@ def read_png_info(path: Path) -> PngInfo | None:
         return None
 
 
-def webp_is_lossless(path: Path) -> bool | None:
+def webp_is_lossless(path: Path, f: BinaryIO | None = None) -> bool | None:
     """True for VP8L (lossless) WebP, False for VP8 (lossy), None if unknown/animated."""
     try:
-        with open(path, "rb") as f:
-            head = f.read(64)
+        with _reading(path, f) as g:
+            head = g.read(64)
     except OSError:
         return None
     if head[:4] != b"RIFF" or head[8:12] != b"WEBP":
@@ -181,7 +196,7 @@ def webp_is_lossless(path: Path) -> bool | None:
     if first == b"VP8X":
         # Look for the image chunk after VP8X (and optional ICCP etc.).
         try:
-            with open(path, "rb") as f:
+            with _reading(path, f) as f:
                 f.seek(12)
                 for _ in range(16):
                     hdr = f.read(8)
@@ -326,13 +341,14 @@ def heif_extras(path: Path) -> str:
     return ""
 
 
-def has_embedded_video(path: Path) -> bool:
+def has_embedded_video(path: Path, f: BinaryIO | None = None, head: bytes | None = None) -> bool:
     """Motion Photos (Google, Samsung...) append a short MP4 to the JPEG/HEIC and point to it from XMP.
-    Reads only the first 256 KB and the last 64 KB."""
+    Reads only the first 256 KB (``head``, when the caller has it) and the last 64 KB."""
     try:
-        size = path.stat().st_size
-        with open(path, "rb") as f:
-            head = f.read(256 * 1024)
+        with _reading(path, f) as f:
+            size = os.fstat(f.fileno()).st_size
+            if head is None or len(head) < min(size, 256 * 1024):
+                head = f.read(256 * 1024)
             if any(m in head for m in _MOTION_HEAD):
                 return True
             f.seek(max(0, size - 64 * 1024))
@@ -342,8 +358,9 @@ def has_embedded_video(path: Path) -> bool:
         return False
 
 
-def read_image_info(path: Path, kind: str) -> ImageInfo | None:
-    """Dimensions, frame count, bit depth. Reads headers only (GIF: scans frames)."""
+def read_image_info(path: Path, kind: str, f: BinaryIO | None = None) -> ImageInfo | None:
+    """Dimensions, frame count, bit depth. Reads headers only (GIF: scans frames). ``f``: the file, if the caller
+    already has it open (it's read from the start)."""
     if kind == RAW:
         return read_raw_info(path)
     if kind == SVG:
@@ -353,19 +370,22 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
         j = read_jxl_info(path)
         return None if j is None else ImageInfo(j.width, j.height, 2 if j.animated else 1, j.bit_depth, 1, False)
     if kind == PNG:
-        p = read_png_info(path)
+        p = read_png_info(path, f)
         if p is None:
             return None
         frames = 1
         if p.animated:
-            frames = _pil_frames(path) or 2
+            frames = _pil_frames(path, f) or 2
         return ImageInfo(p.width, p.height, frames, p.bit_depth, 1, True)
     if kind == HEIC:
         register_heif()
     try:
         from PIL import Image
 
-        with Image.open(path) as im:
+        head: bytes | None = None
+        if f is not None:
+            f.seek(0)
+        with Image.open(f if f is not None else path) as im:
             frames = getattr(im, "n_frames", 1) or 1
             info = ImageInfo(im.width, im.height, frames, 8, 1, kind in LOSSLESS_SOURCE_KINDS, im.mode)
             if kind == TIFF:
@@ -376,7 +396,7 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
                 if im.mode in ("I;16", "I;16B", "I;16L", "I", "F"):
                     info.bit_depth = max(info.bit_depth, 16)
             elif kind == WEBP:
-                ll = webp_is_lossless(path)
+                ll = webp_is_lossless(path, f)
                 info.lossless_source = bool(ll)
             elif kind in (JPEG, HEIC, AVIF):
                 info.lossless_source = False
@@ -385,8 +405,9 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
 
                     info.frames = 1            # (Pillow counts the extra pictures after the photo as frames)
 
-                    with open(path, "rb") as f:
-                        info.extras = jpeg_extras(f.read(256 * 1024))
+                    with _reading(path, f) as g:
+                        head = g.read(256 * 1024)
+                    info.extras = jpeg_extras(head)
             elif kind == PSD:
                 info.frames = 1                    # (its other "frames" are the layers: the picture is the first)
             elif kind == ICO:
@@ -394,7 +415,7 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
             if kind in (HEIC, AVIF):
                 info.extras = heif_extras(path)
             if kind in (JPEG, HEIC):
-                info.motion = has_embedded_video(path)
+                info.motion = has_embedded_video(path, f, head)
             return info
     except Exception:  # noqa: BLE001 - unreadable/corrupt
         from wick.log import ignored
@@ -402,11 +423,13 @@ def read_image_info(path: Path, kind: str) -> ImageInfo | None:
         return None
 
 
-def _pil_frames(path: Path) -> int | None:
+def _pil_frames(path: Path, f: BinaryIO | None = None) -> int | None:
     try:
         from PIL import Image
 
-        with Image.open(path) as im:
+        if f is not None:
+            f.seek(0)
+        with Image.open(f if f is not None else path) as im:
             return getattr(im, "n_frames", 1)
     except Exception:  # noqa: BLE001
         from wick.log import ignored

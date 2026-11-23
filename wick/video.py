@@ -1348,6 +1348,12 @@ def convert_video(
     """Encode to a temp file next to ``src``; verify; return (temp path, encoder used)."""
     import tempfile
 
+    from .probe import NOT_MEASURED, detect_cadence
+
+    if plan.route == "video" and s.video_fix_cadence and info.cadence == NOT_MEASURED:
+        # (left until now for videos that are re-encoded whatever it finds: see scanner.probe_entries)
+        steps.report("Looking for repeated frames")
+        info.cadence = detect_cadence(src, info)
     if plan.route != "video_remux" or s.video_drop_silent or s.video_dup_audio:
         steps.report("Listening to the soundtracks")
         analyse_audio(src, info, s, is_mp4(plan.target_ext))

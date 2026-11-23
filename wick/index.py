@@ -22,6 +22,8 @@ SCHEMA = 4   # 3: videos carry their frame cadence; 4: Motion Photos, HDR, VFR, 
 _lock = threading.Lock()
 _conn: sqlite3.Connection | None = None
 _enabled = True
+_stale: set[str] = set()      # entries found again whose "last seen" date is old (see refresh_seen)
+_REFRESH_AFTER = 30 * 86400   # (rewriting it on every scan would cost a write per file)
 
 
 def set_enabled(on: bool) -> None:
@@ -69,6 +71,7 @@ def _open_db() -> sqlite3.Connection:
         p = path()
         _conn = sqlite3.connect(str(p), check_same_thread=False, timeout=10)
         _conn.execute("PRAGMA journal_mode=WAL")
+        _conn.execute("PRAGMA synchronous=NORMAL")   # (with WAL: still consistent after a crash; no flush per save)
         _conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
         row = _conn.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
         if row is None or int(row[0]) != SCHEMA:
@@ -92,7 +95,8 @@ def lookup(p: Path, size: int, mtime: float, kind: str):
         return None
     try:
         with _lock:
-            row = _db().execute("SELECT size, mtime, kind, info FROM files WHERE path=?", (_key(p),)).fetchone()
+            row = _db().execute("SELECT size, mtime, kind, info, seen FROM files WHERE path=?",
+                                (_key(p),)).fetchone()
     except sqlite3.Error as e:
         if _corrupt(e):
             with _lock:
@@ -100,6 +104,9 @@ def lookup(p: Path, size: int, mtime: float, kind: str):
         return None
     if row is None or row[0] != size or abs(row[1] - mtime) > 1e-3 or row[2] != kind:
         return None
+    if (row[4] or 0) < time.time() - _REFRESH_AFTER:
+        with _lock:
+            _stale.add(_key(p))
     try:
         data = json.loads(row[3])
     except ValueError:
@@ -130,6 +137,26 @@ def store(items: list[tuple[Path, int, float, str, Any]]) -> None:
         with _lock:
             db = _db()
             db.executemany("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?)", rows)
+            db.commit()
+    except sqlite3.Error as e:
+        if _corrupt(e):
+            with _lock:
+                _rebuild()
+
+
+def refresh_seen() -> None:
+    """Mark the entries used since the last call as seen now, so prune() keeps details of files that are still
+    being scanned (only a date older than a month is rewritten)."""
+    with _lock:
+        keys = list(_stale)
+        _stale.clear()
+    if not _enabled or not keys:
+        return
+    now = time.time()
+    try:
+        with _lock:
+            db = _db()
+            db.executemany("UPDATE files SET seen=? WHERE path=?", [(now, k) for k in keys])
             db.commit()
     except sqlite3.Error as e:
         if _corrupt(e):

@@ -4,6 +4,7 @@ import dataclasses
 import json
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -181,10 +182,10 @@ class VideoBudgetTests(unittest.TestCase):
         data = dataclasses.asdict(clip())
         data.pop("video_bit_rate")
         with patch.object(index, "_db") as db, patch.object(index, "_enabled", True):
-            db.return_value.execute.return_value.fetchone.return_value = (100, 1.0, "video", json.dumps(data))
+            db.return_value.execute.return_value.fetchone.return_value = (100, 1.0, "video", json.dumps(data), time.time())
             self.assertIsNone(index.lookup(Path("input.mp4"), 100, 1.0, "video"))
             data["video_bit_rate"] = 5_500_000
-            db.return_value.execute.return_value.fetchone.return_value = (100, 1.0, "video", json.dumps(data))
+            db.return_value.execute.return_value.fetchone.return_value = (100, 1.0, "video", json.dumps(data), time.time())
             self.assertEqual(index.lookup(Path("input.mp4"), 100, 1.0, "video").video_bit_rate, 5_500_000)
 
     def test_gpu_fallback_remeasures_smart_quality_on_cpu(self):
