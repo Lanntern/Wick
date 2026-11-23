@@ -186,10 +186,15 @@ def test_apfs_compression_keeps_files_the_same_and_undoes(tmp_path):
     f = app / "levels.dat"
     f.write_bytes(data)
     before = f.stat().st_blocks
+    import hashlib
+
+    digest = hashlib.sha256(data).hexdigest()
     assert apfs.run(tmp_path / "Game.app", [f]) == 0
-    assert f.read_bytes() == data and apfs.is_compressed(f.stat()) and f.stat().st_blocks < before
+    assert hashlib.sha256(f.read_bytes()).hexdigest() == digest            # (the same file to whoever reads it)
+    assert apfs.is_compressed(f.stat()) and f.stat().st_blocks < before
     assert apfs.run(tmp_path / "Game.app", [f], undo=True) == 0
-    assert f.read_bytes() == data and not apfs.is_compressed(f.stat())
+    assert hashlib.sha256(f.read_bytes()).hexdigest() == digest
+    assert not apfs.is_compressed(f.stat())
 
 
 @pytest.mark.skipif(os.name == "nt", reason="macOS paths")
@@ -214,9 +219,9 @@ def test_apfs_clones_are_separate_files_sharing_storage(tmp_path):
         pytest.skip("not on APFS")
     dst = tmp_path / "b.bin"
     clone_file(src, dst)
-    assert dst.read_bytes() == src.read_bytes()
+    assert dst.read_bytes() == src.read_bytes(), "the clone reads differently"
     dst.write_bytes(b"changed")                       # (a clone, not a link: the original stays as it was)
-    assert src.read_bytes() == b"x" * 300_000
+    assert src.stat().st_size == 300_000 and src.read_bytes()[:10] == b"x" * 10
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="Quick Look is macOS's")

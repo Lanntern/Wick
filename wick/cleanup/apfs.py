@@ -3,7 +3,9 @@
 APFS (and HFS+) can store a file compressed and decompress it as it's read, with nothing changing for the apps
 using it: the same mechanism macOS uses for its own system files. Each file is copied compressed beside itself
 with ``ditto --hfsCompression`` (which keeps permissions, dates, extended attributes and code signatures), checked
-to read back the same size, then swapped in with one rename. Undo copies it back with ``--nohfsCompression``.
+to read back the same size, then swapped in with one rename. Undo expands it in place with macOS's afscexpand
+(ditto keeps a compressed file compressed even with --nohfsCompression), or, where that's missing, writes a plain
+copy beside it and swaps that in.
 
 Files that are hard links, already compressed (or, for undo, not compressed), tiny, or locked are skipped; apps
 installed for every user (owned by root) can't be changed without an administrator, and say so.
@@ -57,10 +59,12 @@ def one(path: Path, undo: bool = False) -> int:
         return 0
     if is_compressed(st) != undo:              # (already as wanted)
         return 0
+    if undo:
+        return -_expand(path, st)
     tmp = path.with_name(f".{path.name}.wick-apfs")
     try:
-        proc = subprocess.run(["/usr/bin/ditto", "--nohfsCompression" if undo else "--hfsCompression",
-                               str(path), str(tmp)], capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(["/usr/bin/ditto", "--hfsCompression", str(path), str(tmp)],
+                              capture_output=True, text=True, timeout=600)
         if proc.returncode != 0:
             raise OSError(proc.stderr.strip() or f"ditto exited with {proc.returncode}")
         new = tmp.stat()
@@ -74,6 +78,36 @@ def one(path: Path, undo: bool = False) -> int:
             tmp.unlink()
         except FileNotFoundError:
             pass
+
+
+AFSCEXPAND = Path("/usr/bin/afscexpand")
+
+
+def _expand(path: Path, st: os.stat_result) -> int:
+    """Store a compressed file uncompressed again; returns the bytes it takes now beyond before."""
+    if AFSCEXPAND.exists():
+        proc = subprocess.run([str(AFSCEXPAND), str(path)], capture_output=True, text=True, timeout=600)
+        if proc.returncode != 0:
+            raise OSError(proc.stderr.strip() or f"afscexpand exited with {proc.returncode}")
+    else:
+        import shutil
+
+        tmp = path.with_name(f".{path.name}.wick-apfs")
+        try:
+            with open(path, "rb") as src, open(tmp, "wb") as dst:     # (reading gives the plain bytes)
+                shutil.copyfileobj(src, dst, 1 << 20)
+            os.chmod(tmp, st.st_mode & 0o7777)
+            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+            os.replace(tmp, path)
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+    new = path.stat()
+    if is_compressed(new) or new.st_size != st.st_size:
+        raise OSError("it didn't come back uncompressed")
+    return new.st_blocks * 512 - st.st_blocks * 512
 
 
 def run(folder: Path, files: Iterable[Path], undo: bool = False, on_line: Callable[[str], None] | None = None,
