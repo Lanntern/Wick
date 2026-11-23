@@ -1,5 +1,5 @@
-# After a release is published (by hand, from the draft the build attaches files to): point Scoop's manifest in
-# this repo at it, and send the new version to winget.
+# After a release is published (by hand, from the draft the build attaches files to): point Scoop's manifest and
+# the Homebrew cask in this repo at it, and send the new version to winget.
 name: package managers
 
 on:
@@ -30,12 +30,13 @@ jobs:
           curl -sSfL -o "$RUNNER_TEMP/SHA256SUMS.txt" \
             "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/SHA256SUMS.txt"
           python3 scripts/update_scoop.py "$TAG" "$RUNNER_TEMP/SHA256SUMS.txt"
+          python3 scripts/update_cask.py "$TAG" "$RUNNER_TEMP/SHA256SUMS.txt"     # (the Mac disk image, if any)
       - name: Commit
         run: |
-          git diff --quiet bucket/wick.json && { echo "Already up to date"; exit 0; }
+          git diff --quiet bucket/wick.json Casks/wick.rb && { echo "Already up to date"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Scoop: Wick ${TAG#v}" bucket/wick.json
+          git commit -m "Scoop and Homebrew: Wick ${TAG#v}" bucket/wick.json Casks/wick.rb
           git push origin HEAD:main
 
   winget:

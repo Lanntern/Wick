@@ -176,3 +176,20 @@ def test_package_manager_installs_are_recognised(tmp_path):
     assert updates.install_source(str(installed / "Wick.exe")) == "winget"
     assert updates.PACKAGE_MANAGERS["winget"][1] == "winget upgrade Lanntern.Wick"
     assert updates.install_source() == ""                                       # running from source
+
+
+def test_the_homebrew_cask_follows_a_release(tmp_path):
+    import shutil
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import update_cask
+
+    cask = tmp_path / "wick.rb"
+    shutil.copy(update_cask.CASK, cask)
+    digest = "ab" * 32
+    sums = f"{'cd' * 32}  Wick-windows.zip\n{digest}  Wick-macos-arm64.dmg\n"
+    assert update_cask.update("v0.3.1", sums, cask)
+    text = cask.read_text()
+    assert 'version "0.3.1"' in text and f'sha256 "{digest}"' in text and "#{version}" in text
+    assert not update_cask.update("0.3.2", f"{'cd' * 32}  Wick-windows.zip\n", cask)   # (no Mac image: unchanged)
+    assert 'version "0.3.1"' in cask.read_text()

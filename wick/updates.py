@@ -36,11 +36,13 @@ HELP = ("Wick's bundled decoders regularly get security fixes, so it checks GitH
 PACKAGE_MANAGERS: dict[str, tuple[str, str]] = {      # source -> (name, update command)
     "scoop": ("Scoop", "scoop update wick"),
     "winget": ("winget", "winget upgrade Lanntern.Wick"),
+    "homebrew": ("Homebrew", "brew upgrade --cask wick"),
 }
 
 
 def install_source(exe: str | None = None) -> str:
-    """"scoop", "winget" or "" (the installer or zip from the download page, or running from source)."""
+    """"scoop", "winget", "homebrew" or "" (the installer, zip or disk image from the download page, or running from
+    source)."""
     import sys
     from pathlib import Path
 
@@ -58,6 +60,10 @@ def install_source(exe: str | None = None) -> str:
         note = folder / "installed-by.txt"
         if note.is_file() and note.read_text(encoding="utf-8", errors="replace").strip().lower() == "winget":
             return "winget"
+        # Homebrew (macOS): the cask's record of the installed version, in Homebrew's Caskroom.
+        if sys.platform == "darwin" and any((Path(prefix) / "Caskroom" / "wick").is_dir()
+                                            for prefix in ("/opt/homebrew", "/usr/local")):
+            return "homebrew"
     except OSError:
         pass
     return ""
