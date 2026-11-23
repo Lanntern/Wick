@@ -31,6 +31,7 @@ class MetadataTab(FileJobPage):
     COLUMNS = ["Name", "Location", "Camera", "Date taken", "Other", "Status"]
     STATUS_COL = 5
     action_label = "Clean"
+    action_icon = "tag"
     tool = "metadata"
     status_words = ("Removing metadata from", "cleaned")
     confirm_title = "Remove metadata from {n} file{s}?"

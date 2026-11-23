@@ -117,6 +117,11 @@ def video_output_ext(src_ext: str, codec: str) -> str:
     return ".mkv"
 
 
+def count(n: int, word: str, plural: str = "") -> str:
+    """"1 file", "3 files" ("1 game", "2 games"; ``plural`` for irregular words)."""
+    return f"{n:,} {word if n == 1 else (plural or word + 's')}"
+
+
 def human(n: float) -> str:
     sign = "-" if n < 0 else ""
     n = abs(n)

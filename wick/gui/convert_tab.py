@@ -61,6 +61,7 @@ class ConvertTab(FileJobPage):
     COLUMNS = ["Name", "Folder", "From", "Size", "To", "Status"]
     STATUS_COL = 5
     action_label = "Convert"
+    action_icon = "convert"
     tool = "convert"
     confirm_title = "Convert {n} file{s}?"
     status_words = ("Converting", "converted")
@@ -69,7 +70,7 @@ class ConvertTab(FileJobPage):
         self.qs = window.qsettings
         self.overrides: dict[str, convert.ConvertOptions] = {}     # a file's own format and settings
         super().__init__(window, "Convert", "",
-                         "Drop images, videos, audio or documents to convert",
+                         "Drop photos, videos, music or documents to convert",
                          "Choose the formats above, then press Convert. Originals are kept unless you choose to replace them.")
 
     def build_options(self, card: Card) -> None:

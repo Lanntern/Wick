@@ -121,8 +121,8 @@ class MusicCopyCard(Card):
 
     def _show(self) -> None:
         lib, dest = self._folder("library"), self._folder("dest")
-        self.library_label.setText(str(lib) if lib else "Not chosen")
-        self.dest_label.setText(str(dest) if dest else "Not chosen")
+        self.library_label.setText(str(lib) if lib else "No folder chosen")
+        self.dest_label.setText(str(dest) if dest else "No folder chosen")
         self.sync_btn.setEnabled(bool(lib and dest) or self.busy())
         last = self.qs.value("mirror/last", "", str)
         if not self.busy():

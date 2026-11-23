@@ -395,6 +395,8 @@ class Page(QWidget):
             head.setContentsMargins(Space.XXL, 0, Space.XXL, 0)
         self.title = text(title, Type.TITLE1, bold=True, name="pageTitle")
         self.title.setAccessibleName(title)
+        # (as tall as a header button: a page with none, like Settings, has its title in the same place)
+        self.title.setMinimumHeight(Size.CONTROL)
         head.addWidget(self.title, 1, Qt.AlignVCenter)
         self.action_bar = QHBoxLayout()
         self.action_bar.setSpacing(Space.S)
@@ -543,9 +545,9 @@ class DropZone(QFrame):
         self.icon = QLabel()
         self.icon.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.icon)
-        self.title = text("Drop photos, videos, music or folders here", Type.TITLE2, bold=True, wrap=True)
+        self.title = text("Drop photos, videos, music, documents or folders here", Type.TITLE2, bold=True, wrap=True)
         self.title.setAlignment(Qt.AlignCenter)
-        self.sub = text("JPEG, PNG, GIF, WebP, HEIC, AVIF, TIFF, BMP and common video and audio formats.",
+        self.sub = text("JPEG, PNG, HEIC, AVIF and other pictures, common video and audio formats, PDFs and Office files.",
                         Type.BODY, secondary=True, wrap=True)
         self.sub.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.title)

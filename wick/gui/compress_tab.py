@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 
 from .. import pending, tools
 from ..engine import DONE
-from ..formats import AUDIO, DOCUMENT, KIND_LABEL, VIDEO, human, type_label
+from ..formats import count, AUDIO, DOCUMENT, KIND_LABEL, VIDEO, human, type_label
 from ..plan import plan_entry
 from .file_model import (
     C_CHECK, C_CREATED, C_EST, C_FOLDER, C_INFO, C_MODIFIED, C_NAME, C_SIZE, C_STATUS, C_TYPE, FileFilterProxy,
@@ -609,7 +609,7 @@ class CompressTab(QWidget):
             convertible = sum(1 for r in self.model.rows if r.plan.convert)
             extra: list = []
             if self.skipped_dirs:
-                extra.append(f"{len(self.skipped_dirs)} program/game folder(s) skipped")
+                extra.append(f"{count(len(self.skipped_dirs), 'program/game folder')} skipped")
             libraries = getattr(self, "skipped_libraries", [])
             if libraries:
                 from ..protected import describe
@@ -618,7 +618,7 @@ class CompressTab(QWidget):
                 extra.append(f"left alone: {names} (app libraries)")
                 self.page.subtitle.setToolTip("\n".join(describe(p) for p in libraries[:10]))
             if self.cloud_only:
-                extra.append(f"{self.cloud_only} cloud-only file(s) skipped")
+                extra.append(f"{count(self.cloud_only, 'cloud-only file')} skipped")
             pending = self.model.pending_count()
             self.page.subtitle.setText(
                 f"{names} · {len(self.model.rows)} file{'s' if len(self.model.rows) != 1 else ''} found, "

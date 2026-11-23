@@ -490,9 +490,9 @@ class MainWindow(QMainWindow):
             add("Ctrl+Return", lambda: tool().run_primary(), cu, page_ctx)
             add("Ctrl+Enter", lambda: tool().run_primary(), cu, page_ctx)
             add("Esc", lambda: tool().stop() if tool().busy() else None, cu, page_ctx)
-            add("Ctrl+Tab", lambda: cu.tabs.setCurrentIndex((cu.tabs.currentIndex() + 1) % cu.tabs.count()), cu,
+            add("Ctrl+Tab", lambda: cu.step(1), cu,
                 page_ctx)
-            add("Ctrl+Shift+Tab", lambda: cu.tabs.setCurrentIndex((cu.tabs.currentIndex() - 1) % cu.tabs.count()),
+            add("Ctrl+Shift+Tab", lambda: cu.step(-1),
                 cu, page_ctx)
 
     def _add_files(self, folder: bool) -> None:
@@ -561,7 +561,7 @@ class MainWindow(QMainWindow):
                 self.open_cleanup_tool(key)
             return go
 
-        out += [Command(t.tab, "Clean Up", tool(t.key), t.key) for t in tools()]
+        out += [Command(t.tab, "Clean Up", tool(t.key), t.key) for t in tools() if not t.available()]
         out += [Command("Add Files…", "Action", lambda: self._add_files(False), "open"),
                 Command("Add Folder…", "Action", lambda: self._add_files(True), "open"),
                 Command("Scan My Folders", "Action", scan_home, "home analyze"),

@@ -9,8 +9,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QSizePolicy, QStack
 from .cleanup_section import ToolSection, _Scan
 from .cleanup_tools import tools
 from .style import Space
-from .widgets import Page, button, dialog_buttons, dialog_layout, hbox, text
-from .style import Type
+from .widgets import Page, button, dialog_buttons, dialog_layout
 
 # ---------------------------------------------------------------- page
 
@@ -35,7 +34,7 @@ class CleanupTab(Page):
         self.tabs.currentChanged.connect(self._show_tool)
         self._show_tool(0)
         last = str(self.win.qsettings.value("cleanup/last_tool", "", str))        # open where it was left
-        index = next((i for i, tool in enumerate(self._tools) if tool.key == last), 0)
+        index = next((i for i, tool in enumerate(self._tools) if tool.key == last and not tool.available()), 0)
         if index:
             self.tabs.setCurrentIndex(index)
         self.tabs.currentChanged.connect(
@@ -43,17 +42,25 @@ class CleanupTab(Page):
         # Too narrow for every tab: the same choice as a drop-down (no scroll arrows, nothing cut off).
         self.picker = QComboBox()
         self.picker.setAccessibleName("Clean-up tool")
-        for tool in tools():
+        for tool in self._tools:
             self.picker.addItem(tool.tab)
+        # Tools for another system (Windows' on a Mac, and so on) aren't offered: they could never run here.
+        # They stay in the list, hidden, so a link to one still opens it with its explanation.
+        for i, tool in enumerate(self._tools):
+            if tool.available():
+                self.tabs.setTabVisible(i, False)
+                self.picker.view().setRowHidden(i, True)
+                self.picker.model().item(i).setEnabled(False)       # (skipped by the arrow keys too)
+        self.picker.setCurrentIndex(self.tabs.currentIndex())    # (the tool it was left on, restored above)
         self.picker.currentIndexChanged.connect(self.tabs.setCurrentIndex)
         self.tabs.currentChanged.connect(self.picker.setCurrentIndex)
         self.picker.hide()
         self.body.addWidget(self.tabs)
         self.body.addWidget(self.picker, 0, Qt.AlignLeft)
-        common = button("Scan Several Tools…", "", "broom", "Run several tools on the same folders in one pass")
+        common = button("Scan Several Tools…", "", "broom",
+                        "Run several tools on the same folders in one pass, then review the results in each tool")
         common.clicked.connect(self.scan_common)
-        self.body.addLayout(hbox(common, text("Choose folders or drives, then review results in each tool.",
-                                             Type.FOOTNOTE, secondary=True, wrap=True), None))
+        self.action_bar.addWidget(common)          # (a page-wide action: in the header, like other pages')
         self.body.addWidget(self.stack, 1)
 
     def section(self, index: int) -> ToolSection:
@@ -80,6 +87,16 @@ class CleanupTab(Page):
     def sections(self) -> list[ToolSection]:
         """Every tool's section (building any that haven't been shown yet)."""
         return [self.section(i) for i in range(len(self._tools))]
+
+    def step(self, delta: int) -> None:
+        """The next (or previous) tool offered here, skipping hidden ones (Ctrl+Tab)."""
+        count = self.tabs.count()
+        i = self.tabs.currentIndex()
+        for _ in range(count):
+            i = (i + delta) % count
+            if self.tabs.isTabVisible(i):
+                self.tabs.setCurrentIndex(i)
+                return
 
     def _show_tool(self, index: int) -> None:
         """Only the tool on screen counts for the page's minimum size (a stack otherwise takes the widest of

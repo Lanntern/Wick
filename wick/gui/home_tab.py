@@ -95,7 +95,7 @@ class HomeTab(Page):
         self.progress.setTextVisible(False)
         self.progress.setVisible(False)
         self.progress.setMaximumWidth(Space.XXL * 6)
-        folder_row = hbox(text("Looking in", Type.BODY, bold=True), self.folder_label, self.progress,
+        folder_row = hbox(text("Look in", Type.BODY, bold=True), self.folder_label, self.progress,
                                  add, reset, spacing=Space.M)
         folder_row.setStretchFactor(self.folder_label, 1)   # the list takes the room
         fcard.lay.addLayout(folder_row)

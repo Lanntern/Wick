@@ -46,6 +46,7 @@ class FileJobPage(Page):
     COLUMNS: list[str] = ["Name", "Folder", "Type", "Size", "Status"]
     STATUS_COL = 4
     action_label = "Run"
+    action_icon: str | None = None
     tool = "job"
     confirm_title = "Run {n} files?"
     confirm_info = ""
@@ -70,10 +71,11 @@ class FileJobPage(Page):
         self.job_thread: JobThread | None = None
         self._rescan = False
 
-        self.add_files_btn = button("Add Files…", "", "files", "", "")
-        self.add_folder_btn = button("Add Folder…", "", "folder", "")
+        # (the same buttons, icons and shortcuts as the Compress page's)
+        self.add_files_btn = button("Add Files…", "", "files", "", "Ctrl+O")
+        self.add_folder_btn = button("Add Folder…", "", "folder", "", "Ctrl+Shift+O")
         self.clear_btn = button("Clear", "", None, "Remove everything from the list")
-        self.run_btn = button(self.action_label, "primary", None, "")
+        self.run_btn = button(self.action_label, "primary", self.action_icon, "", "Ctrl+Enter")
         self.run_btn.setEnabled(False)
         for b in (self.add_files_btn, self.add_folder_btn, self.clear_btn, self.run_btn):
             self.action_bar.addWidget(b)
