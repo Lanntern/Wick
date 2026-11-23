@@ -288,8 +288,13 @@ def _appcompress_options(sec: ToolSection):
         sec._game_results.raise_()
 
     community.clicked.connect(show_results)
-    if sys.platform == "darwin":        # (APFS has one compression, and the community results are Windows games')
-        return [('Skip file types', skip), ('', samples), ('', old), ('', watch), ('', idle), ('', tray)]
+    if sys.platform == "darwin":
+        # APFS has one compression, and the community results are Windows games': hidden, but kept in the window
+        # (the scan reads the algorithm; a widget left out of the layout would be deleted under it).
+        for windows_only in (group, own_button, community):
+            windows_only.hide()
+        return [('', group), ('Skip file types', skip), ('', own_button), ('', community), ('', samples),
+                ('', old), ('', watch), ('', idle), ('', tray)]
     return [('Algorithm', group), ('Skip file types', skip), ('', own_button), ('', community), ('', samples),
             ('', old), ('', watch), ('', idle), ('', tray)]
 

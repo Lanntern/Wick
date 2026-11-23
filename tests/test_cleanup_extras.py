@@ -192,6 +192,7 @@ def test_apfs_compression_keeps_files_the_same_and_undoes(tmp_path):
     assert f.read_bytes() == data and not apfs.is_compressed(f.stat())
 
 
+@pytest.mark.skipif(os.name == "nt", reason="macOS paths")
 def test_apfs_refuses_system_and_whole_folders():
     from pathlib import Path as P
 
@@ -244,6 +245,7 @@ def test_mac_app_leftovers_only_when_no_app_matches():
         assert not macclean.is_leftover(kept, ids, names), kept
 
 
+@pytest.mark.skipif(os.name == "nt", reason="runs the workflow's shell line with bash")
 def test_finder_quick_actions_are_written_and_removed(tmp_path, monkeypatch):
     import plistlib
     import shlex

@@ -87,6 +87,13 @@ class StreamingTests(unittest.TestCase):
 
 
 class AppCompressionTests(unittest.TestCase):
+    """compact.exe's path (Windows); APFS's has its own tests in test_cleanup_extras."""
+
+    def setUp(self):
+        mac = patch.object(appcompress, "IS_MAC", False)
+        mac.start()
+        self.addCleanup(mac.stop)
+
     def test_library_sources_expand_to_games_and_preserve_explicit_folders(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

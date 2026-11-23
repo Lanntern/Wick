@@ -346,6 +346,7 @@ def test_the_dock_badge_says_how_far_paused_or_failed():
     assert tb.badge() == "…"
 
 
+@__import__("pytest").mark.skipif(__import__("os").name == "nt", reason="Spotlight's paths are macOS paths")
 def test_spotlights_answer_goes_through_the_usual_rules(tmp_path):
     """Spotlight answers with paths; folders are filled in so the scanner skips hidden folders, app libraries and
     program folders as on a disk walk."""
