@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox
 
 from ..cleanup import (
     actions, appcompress, archives, backups, broken, caches, devclean, duplicates, empties, extensions, folders,
+    macclean,
     installers, largefiles, music, pairs, proxies, similar, takeout, videos, winclean,
 )
 from ..cleanup.common import Candidate
@@ -594,6 +595,12 @@ def tools() -> list[Tool]:
              note="System items are removed with the same Windows tools Disk Cleanup uses. Your own files go to "
                   f"the {BIN_NAME}.",
              available=lambda: "" if winclean.supported() else "Available on Windows only."),
+        Tool("macclean", "Mac",
+             "What a Mac collects: Xcode's build data and old device support, caches, Mail's copies of opened "
+             "attachments, iPhone update files, old installers, and data left by apps that are gone.",
+             None, lambda s, p, c: macclean.find(p, c), [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             note="Only what's rebuilt or downloaded again by itself is selected for you.",
+             available=lambda: "" if macclean.supported() else "Available on macOS only."),
         Tool("appcompress", "Compress Apps",
              ("Compresses apps and games with APFS's own compression. They keep working as usual, and macOS "
               "decompresses files as they're read." if sys.platform == "darwin" else

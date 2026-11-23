@@ -230,3 +230,54 @@ def test_quick_look_makes_thumbnails(tmp_path):
     if png is None:
         pytest.skip("Quick Look made no thumbnail on this machine")
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_mac_app_leftovers_only_when_no_app_matches():
+    from wick.cleanup import macclean
+
+    ids = {"com.google.chrome", "com.spotify.client"}
+    names = {"google chrome", "spotify", "safari"}
+    assert macclean.is_leftover("com.oldvendor.gone", ids, names)
+    assert macclean.is_leftover("OldApp", ids, names)
+    for kept in ("com.google.Chrome", "com.spotify.client.helper", "Google", "Spotify", "com.apple.Safari",
+                 "group.com.whatever", "CrashReporter"):
+        assert not macclean.is_leftover(kept, ids, names), kept
+
+
+def test_finder_quick_actions_are_written_and_removed(tmp_path, monkeypatch):
+    import plistlib
+    import shlex
+    import subprocess
+
+    from wick.gui import quickactions
+
+    monkeypatch.setattr(quickactions.Path, "home", staticmethod(lambda: tmp_path))
+    monkeypatch.setattr(quickactions, "refresh", lambda: None)
+    record = tmp_path / "args.txt"
+    stub = tmp_path / "wick stub.sh"                          # (a space in the path: quoting matters)
+    stub.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {shlex.quote(str(record))}\n')
+    stub.chmod(0o755)
+    quickactions.install([str(stub)])
+    assert quickactions.installed()
+    convert = tmp_path / "Library" / "Services" / "Convert with Wick….workflow" / "Contents"
+    doc = plistlib.loads((convert / "document.wflow").read_bytes())
+    command = doc["actions"][0]["action"]["ActionParameters"]["COMMAND_STRING"]
+    assert command.endswith('"$@" >/dev/null 2>&1 &') and "--convert choose" in command
+    info = plistlib.loads((convert / "Info.plist").read_bytes())
+    assert info["NSServices"][0]["NSMenuItem"]["default"] == "Convert with Wick…"
+    # The shell line itself hands the files over (what Automator runs).
+    target = tmp_path / "a photo.jpg"
+    subprocess.run(["/bin/bash", "-c", command.replace(" &", ""), "bash", str(target)], check=True)
+    assert record.read_text().split("\n")[:3] == ["--convert", "choose", str(target)]
+    if sys.platform == "darwin" and Path("/usr/bin/automator").exists():
+        record.unlink()
+        flow = tmp_path / "Library" / "Services" / "Compress with Wick.workflow"
+        subprocess.run(["/usr/bin/automator", "-i", str(target), str(flow)], capture_output=True, timeout=120)
+        import time
+
+        deadline = time.time() + 20
+        while not record.exists() and time.time() < deadline:
+            time.sleep(0.2)
+        assert record.read_text().strip() == str(target)       # (Automator ran the workflow with the file)
+    quickactions.uninstall()
+    assert not quickactions.installed()

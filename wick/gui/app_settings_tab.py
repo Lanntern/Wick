@@ -137,7 +137,9 @@ class AppSettingsTab(Page):
         self.menu.setChecked(integration.context_menu_installed())
         self.menu.toggled.connect(self._menu_toggled)
         menu_desc = ("Adds Compress with Wick and Convert with Wick when you right-click files and folders."
-                     if integration.IS_WINDOWS else "Adds Wick to your file manager's Open With menu.")
+                     if integration.IS_WINDOWS else
+                     "Adds Compress with Wick and Convert with Wick to Finder's right-click menu (Quick Actions)."
+                     if integration.IS_MAC else "Adds Wick to your file manager's Open With menu.")
         menu_row = setting_row("Context menu", menu_desc, self.menu)
         card.lay.addWidget(menu_row)
         sep = separator()

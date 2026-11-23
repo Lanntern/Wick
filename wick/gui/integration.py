@@ -16,7 +16,7 @@ from .. import APP_NAME
 IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
 TRAY = "menu bar" if IS_MAC else "tray"     # (where the small icon lives: the Mac's menu bar, Windows' tray)
-HAS_MENU = not IS_MAC          # (macOS: Finder's Open With comes from the app bundle; no per-user menu to add)
+HAS_MENU = True                # (macOS: Finder Quick Actions, see quickactions.py)
 _MENU_KEYS = (r"Software\Classes\*\shell\Wick", r"Software\Classes\Directory\shell\Wick")
 # "Convert with Wick": one submenu per kind of file (Windows' perceived types), with the usual formats.
 _CONVERT_KEY = r"Software\Classes\SystemFileAssociations\{kind}\shell\WickConvert"
@@ -47,7 +47,9 @@ def _quote(parts: list[str]) -> str:
 
 def context_menu_installed() -> bool:
     if IS_MAC:
-        return False
+        from . import quickactions
+
+        return quickactions.installed()
     if IS_WINDOWS:
         import winreg
 
@@ -152,6 +154,9 @@ def install_context_menu() -> None:
         install_modern_menu()
         return
     if IS_MAC:
+        from . import quickactions
+
+        quickactions.install(launch_command())
         return
     path = _desktop_file()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +173,11 @@ def refresh_context_menu() -> None:
 
 
 def uninstall_context_menu(wait: bool = False) -> None:
+    if IS_MAC:
+        from . import quickactions
+
+        quickactions.uninstall()
+        return
     if IS_WINDOWS:
         import winreg
 
