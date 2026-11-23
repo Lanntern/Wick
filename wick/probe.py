@@ -9,6 +9,13 @@ from pathlib import Path
 from . import tools
 
 
+def _int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 @dataclass
 class StreamInfo:
     index: int
@@ -19,6 +26,20 @@ class StreamInfo:
     title: str = ""
     default: bool = False
     forced: bool = False   # forced subtitles: shown for foreign-language lines only
+    channels: int = 0          # audio: channel count (0: unknown)
+    layout: str = ""           # audio: channel layout as ffmpeg names it ("5.1(side)")
+    bit_rate: int = 0          # audio: bits/s when the file says (0: unknown)
+    bits: int = 0              # audio: bits per sample of PCM and lossless tracks (0: unknown or lossy)
+    profile: str = ""          # audio: the codec profile ("DTS-HD MA")
+    commentary: bool = False   # audio: a commentary track (by its flag or title)
+    # Found by listening (video.analyse_audio), only when it matters for what's done to the track:
+    silent: bool = False       # nothing above -60 dB from start to end
+    identical: bool = False    # stereo whose two channels carry the same signal
+    speech: bool = False       # talk (a lecture, a meeting) rather than music or a film's sound
+    duplicate: bool = False    # subtitles: the same lines and times as another track in the language
+    filename: str = ""         # attachment: its file name inside the video
+    mimetype: str = ""         # attachment: its type ("application/x-truetype-font")
+    size: int = 0              # attachment: bytes
 
 
 @dataclass
@@ -34,7 +55,8 @@ class VideoInfo:
     streams: list[StreamInfo] = field(default_factory=list)
     tags: dict = field(default_factory=dict)   # container metadata
     creation_time: str = ""
-    cadence: int = 0           # N if one frame in every N is a repeat (24 fps stored as 30: 5); 0 = none found
+    cadence: int = 0           # N if one frame in every N is a repeat (24 fps stored as 30: 5); 0 = none found;
+                               # NOT_MEASURED when repeated frames weren't looked for (the option was off)
     vfr: bool = False          # variable frame rate (phones)
     interlaced: bool = False   # fields, not frames (camcorders, TV recordings)
     hdr: str = ""              # "" (SDR), "HDR10", "HLG" or "Dolby Vision"
@@ -42,11 +64,15 @@ class VideoInfo:
     mastering: dict = field(default_factory=dict)   # HDR10 mastering display + content light levels
     crop: tuple[int, int, int, int] | None = None   # (w, h, x, y) of the picture without black bars, when removed
     video_bit_rate: int = 0    # main picture only; never use the whole-file rate as a picture budget
+    dv_profile: int = 0        # Dolby Vision profile (8: with a base layer other players show) and the base's
+    dv_compat: int = -1        # kind (1: HDR10, 2: SDR, 4: HLG, as iPhones record); -1 when not Dolby Vision
+    container: str = ""        # what ffprobe calls the file's format ("mpegts" for TV recordings)
+    screen: bool = False       # a screen recording (found before encoding: video.screen_recording)
 
     @property
     def content_fps(self) -> float:
         """The frame rate of the actual motion (repeated frames don't count)."""
-        return self.fps * (self.cadence - 1) / self.cadence if self.cadence else self.fps
+        return self.fps * (self.cadence - 1) / self.cadence if self.cadence > 0 else self.fps
 
     @property
     def is_10bit(self) -> bool:
@@ -142,6 +168,17 @@ def probe_video(path: Path) -> VideoInfo | None:
         info = StreamInfo(int(s.get("index", len(streams))), kind, s.get("codec_name", "?"), attached,
                           "" if lang in ("und", "zxx", "mis") else lang, str(tags.get("title", "")),
                           bool(disp.get("default")), bool(disp.get("forced")))
+        if kind == "audio":
+            info.channels = _int(s.get("channels"))
+            info.layout = str(s.get("channel_layout") or "")
+            # (MKV keeps a track's rate in its statistics tags, written by mkvmerge, when the stream has none)
+            info.bit_rate = _int(s.get("bit_rate")) or _int(tags.get("bps")) or _int(tags.get("bps-eng"))
+            info.bits = _int(s.get("bits_per_raw_sample")) or _int(s.get("bits_per_sample"))
+            info.profile = str(s.get("profile") or "")
+            info.commentary = bool(disp.get("comment")) or "comment" in info.title.lower()
+        elif kind == "attachment":
+            info.filename, info.mimetype = str(tags.get("filename", "")), str(tags.get("mimetype", "")).lower()
+            info.size = _int(s.get("extradata_size"))
         streams.append(info)
         if kind == "video" and not attached and main is None:
             main = s
@@ -166,7 +203,10 @@ def probe_video(path: Path) -> VideoInfo | None:
     r_fps, avg_fps = _fps(main.get("r_frame_rate")), _fps(main.get("avg_frame_rate"))
     color = {k: str(main.get(f"color_{k}")) for k in ("primaries", "transfer", "space", "range")
              if main.get(f"color_{k}") not in (None, "unknown", "reserved")}
-    side = [str(sd.get("side_data_type", "")) for sd in main.get("side_data_list", []) or []]
+    side_data = main.get("side_data_list", []) or []
+    side = [str(sd.get("side_data_type", "")) for sd in side_data]
+    dovi = next((sd for sd in side_data if "DOVI" in str(sd.get("side_data_type", ""))
+                 or "Dolby Vision" in str(sd.get("side_data_type", ""))), None)
     hdr = ""
     if any("DOVI" in t or "Dolby Vision" in t for t in side):
         hdr = "Dolby Vision"
@@ -179,7 +219,11 @@ def probe_video(path: Path) -> VideoInfo | None:
         interlaced=main.get("field_order") in ("tt", "bb", "tb", "bt"),
         hdr=hdr,
         color=color,
-        mastering=_mastering(path, int(main.get("index", 0))) if hdr == "HDR10" else {},
+        mastering=(_mastering(path, int(main.get("index", 0)))
+                   if hdr == "HDR10" or (hdr and color.get("transfer") == "smpte2084") else {}),
+        dv_profile=_int(dovi.get("dv_profile")) if dovi else 0,
+        dv_compat=_int(dovi.get("dv_bl_signal_compatibility_id")) if dovi else -1,
+        container=str(fmt.get("format_name", "")),
         codec=main.get("codec_name", "?"),
         width=int(main.get("width") or 0),
         height=int(main.get("height") or 0),
@@ -216,6 +260,10 @@ def is_camera_original(info: VideoInfo) -> bool:
     return any(info.tags.get(k) for k in _CAMERA_TAGS)
 
 
+NOT_MEASURED = -1
+_hw_decode_ok = True       # cleared once GPU decoding fails, so later videos skip straight to the processor
+
+
 def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  # noqa: C901
     """Find frames that were repeated to pad the frame rate (e.g. a 24 fps film uploaded as 30 fps).
 
@@ -231,7 +279,8 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
     d: list[float] = []
     # GPU decoding when present; then on the processor, if that failed (some ffmpeg builds crash outright when
     # a GPU library is missing, and a crashed measurement must not read as "no repeated frames").
-    for hw in (["-hwaccel", "auto"], []):
+    global _hw_decode_ok
+    for hw in ((["-hwaccel", "auto"],) if _hw_decode_ok else ()) + ([],):
         try:
             ffmpeg = tools.require("ffmpeg")
             proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", *hw,
@@ -243,7 +292,11 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
         except Exception:  # noqa: BLE001 - detection is optional
             from wick.log import ignored
             ignored("probe.detect_cadence")
+            if hw:
+                _hw_decode_ok = False
             continue
+        if hw and proc.returncode != 0:
+            _hw_decode_ok = False
         d = [float(x) for x in re.findall(r"YAVG=([0-9.]+)", proc.stdout or "")]
         if proc.returncode == 0 and len(d) >= 40:
             break
@@ -277,6 +330,8 @@ class AudioInfo:
     cover_index: int = -1      # attached picture (album art) stream, -1 if none
     cover_codec: str = ""
     tags: dict = field(default_factory=dict)
+    # Every attached picture (album art: front, back, booklet...): (stream index, codec, its tags).
+    pictures: list = field(default_factory=list)
 
 
 def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
@@ -289,6 +344,7 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
         ignored("probe.probe_audio")
         return None
     audio, cover = None, None
+    pictures = []
     for st in data.get("streams", []):
         kind = st.get("codec_type")
         if kind == "audio" and (audio is None or (st.get("disposition", {}).get("default")
@@ -296,7 +352,10 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
             audio = st
         elif kind == "video":
             if st.get("disposition", {}).get("attached_pic"):
-                cover = cover or st
+                pictures.append((int(st.get("index", 0)), str(st.get("codec_name", "")),
+                                 {str(k).lower(): str(v) for k, v in (st.get("tags") or {}).items()}))
+                front = "front" in str((st.get("tags") or {}).get("comment", "")).lower()
+                cover = st if cover is None or front else cover
             elif not allow_video:
                 return None  # a real video stream: this is a video file
     if audio is None:
@@ -337,6 +396,7 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
         cover_index=int(cover.get("index", -1)) if cover is not None else -1,
         cover_codec=cover.get("codec_name", "") if cover is not None else "",
         tags=tags,
+        pictures=pictures,
     )
 
 

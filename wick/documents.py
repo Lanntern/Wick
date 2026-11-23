@@ -22,7 +22,7 @@ from .images import NotWorthIt, VerificationFailed
 from .fileops import remove_quietly, temp_name
 
 OFFICE_EXTS = {".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
-               ".odt", ".ods", ".odp", ".odg"}
+               ".odt", ".ods", ".odp", ".odg", ".epub", ".cbz"}
 PDF_EXTS = {".pdf"}
 _PICTURE_DIRS = ("media/", "pictures/", "embeddings/")    # word/media, ppt/media, xl/media; ODF Pictures/
 _SIGNATURES = ("_xmlsignatures/", "meta-inf/documentsignatures.xml")
@@ -110,8 +110,18 @@ def _is_picture(name: str) -> bool:
     return any(d in low for d in _PICTURE_DIRS) and low.rsplit(".", 1)[-1] in ("png", "jpg", "jpeg")
 
 
+def office_extras(path: Path) -> int:
+    """Bytes in an Office file or e-book that more than picture shrinking can work on: embedded fonts, and BMP
+    and TIFF pictures (from the directory only)."""
+    from .docfonts import is_font_part
+
+    with zipfile.ZipFile(path) as z:
+        return sum(i.compress_size for i in z.infolist()
+                   if is_font_part(i.filename) or i.filename.lower().endswith((".bmp", ".tif", ".tiff", ".ttf", ".otf")))
+
+
 def office_pictures(path: Path) -> tuple[int, int, int]:
-    """(JPEG bytes, PNG bytes, everything else) inside an Office file, from its directory only."""
+    """(JPEG bytes, PNG bytes, everything else) inside an Office file or e-book, from its directory only."""
     try:
         with zipfile.ZipFile(path) as z:
             infos = z.infolist()
@@ -119,9 +129,10 @@ def office_pictures(path: Path) -> tuple[int, int, int]:
         raise Unsupported("Password-protected, or not a standard Office document") from e
     if any(i.filename.lower().startswith(_SIGNATURES) for i in infos):
         raise Unsupported("Digitally signed: any change would break the signature")
+    book = path.suffix.lower() in (".epub", ".cbz", ".zip")
     jpeg = png = other = 0
     for i in infos:
-        if _is_picture(i.filename):
+        if _picture_part(i.filename, book):
             if i.filename.lower().endswith(".png"):
                 png += i.compress_size
             else:
@@ -131,57 +142,166 @@ def office_pictures(path: Path) -> tuple[int, int, int]:
     return jpeg, png, other
 
 
-def optimize_office(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE) -> Path:
-    """A smaller copy of ``src`` next to it (verified); the caller decides whether to keep it."""
+def _office_fonts(pkg) -> int:
+    """Cut an Office file's embedded fonts to the document's characters (and mark them as subsets in Word's font
+    table). Returns how many."""
+    from . import docfonts
+
+    fonts = [n for n in pkg.names if docfonts.is_font_part(n) and n not in pkg.removed]
+    if not fonts:
+        return 0
+    xml = {n: pkg.data[n] for n in pkg.names if n.lower().endswith(".xml") and n not in pkg.removed}
+    chars, keys = docfonts.office_text(xml), docfonts.office_keys(xml)
+    used_keys, done = [], 0
+    for name in fonts:
+        try:
+            cut = docfonts.cut_office_font(pkg.data[name], chars, keys)
+        except Exception:  # noqa: BLE001 - this font stays as it is
+            from .log import ignored
+            ignored("documents._office_fonts")
+            continue
+        if cut is not None:
+            pkg.set(name, cut[0])
+            done += 1
+            if cut[1] is not None:
+                used_keys.append(cut[1])
+    if used_keys and "word/fontTable.xml" in pkg.data:
+        pkg.set("word/fontTable.xml", docfonts.mark_subsetted(pkg.data["word/fontTable.xml"], used_keys))
+    return done
+
+
+class _Zopfli:
+    """A Deflate compressor for zipfile that gathers the data and compresses it with Zopfli at the end."""
+
+    def __init__(self) -> None:
+        self.parts: list[bytes] = []
+
+    def compress(self, data: bytes) -> bytes:
+        self.parts.append(bytes(data))
+        return b""
+
+    def flush(self) -> bytes:
+        from zopfli import zopfli
+
+        return zopfli.compress(b"".join(self.parts), numiterations=8)[2:-4]   # (zlib's header and checksum off)
+
+
+_zopfli_here = __import__("threading").local()
+
+
+def _use_zopfli() -> None:
+    """Let zipfile use Zopfli for Deflate where this thread asks for it (``_zopfli_here.on``)."""
+    if getattr(zipfile, "_wick_zopfli", False):
+        return
+    original = zipfile._get_compressor            # type: ignore[attr-defined]
+
+    def get(compress_type, compresslevel=None):
+        if compress_type == zipfile.ZIP_DEFLATED and getattr(_zopfli_here, "on", False):
+            return _Zopfli()
+        return original(compress_type, compresslevel)
+
+    zipfile._get_compressor = get                 # type: ignore[attr-defined]
+    zipfile._wick_zopfli = True                   # type: ignore[attr-defined]
+
+
+def _picture_part(name: str, any_folder: bool) -> bool:
+    return _is_picture(name) or (any_folder and name.lower().endswith((".png", ".jpg", ".jpeg")))
+
+
+def optimize_office(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE, fonts: bool = True,
+                    crop: bool = False, pivots: bool = False, zopfli: bool = False) -> Path:
+    """A smaller copy of ``src`` next to it (verified); the caller decides whether to keep it. ``fonts``: cut the
+    embedded fonts; ``crop``: cut off what crops hide; ``pivots``: leave Excel's pivot caches to be rebuilt;
+    ``zopfli``: denser (slower) compression for the text parts. E-books (.epub) and comic books (.cbz) too."""
+    from . import officeslim
+
     office_pictures(src)        # raises Unsupported for signed / encrypted files
+    ext = src.suffix.lower()
+    book = ext in (".epub", ".cbz", ".zip")
     out = temp_name(src.parent, src.suffix)
-    changed: set[str] = set()
     try:
-        with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, "w") as zout:
-            for info in zin.infolist():
-                data = zin.read(info)
-                new = data
-                if _is_picture(info.filename):
-                    ext = "." + info.filename.lower().rsplit(".", 1)[-1]
-                    if reduce:
-                        new = reduce_picture(new, ext, long_edge)
-                    new = shrink_png(new) if ext == ".png" else shrink_jpeg(new)
-                    if new is not data and new != data:
-                        changed.add(info.filename)
-                zi = zipfile.ZipInfo(info.filename, info.date_time)
+        with zipfile.ZipFile(src) as zin:
+            infos = zin.infolist()
+            if any(i.flag_bits & 0x1 for i in infos):
+                raise Unsupported("Password-protected")
+            pkg = officeslim.Package([i.filename for i in infos], {i.filename: zin.read(i) for i in infos})
+        if fonts:
+            if ext == ".epub":
+                try:
+                    officeslim.epub_fonts(pkg)
+                except officeslim.Protected as e:
+                    raise Unsupported(str(e)) from e
+            elif not book:
+                _office_fonts(pkg)
+        if not book:
+            officeslim.remove_orphans(pkg)
+            officeslim.bitmaps_to_png(pkg)
+            if crop:
+                officeslim.crop_pictures(pkg, lossy_ok=reduce)
+            if pivots:
+                officeslim.drop_pivot_caches(pkg)
+        for name in pkg.names:
+            if name in pkg.removed or name in pkg.renamed or not _picture_part(name, book):
+                continue
+            data = pkg.data[name]
+            new = data
+            pext = "." + name.lower().rsplit(".", 1)[-1]
+            if reduce:
+                new = reduce_picture(new, pext, long_edge)
+            new = shrink_png(new) if pext == ".png" else shrink_jpeg(new)
+            if new is not data and new != data:
+                pkg.data[name] = new
+                pkg.changed.add(name)
+        if zopfli:
+            _use_zopfli()
+        with zipfile.ZipFile(out, "w") as zout:
+            for info in infos:
+                if info.filename in pkg.removed:
+                    continue
+                name = pkg.renamed.get(info.filename, info.filename)
+                zi = zipfile.ZipInfo(name, info.date_time)
                 zi.external_attr, zi.create_system, zi.comment = info.external_attr, info.create_system, info.comment
-                zi.compress_type = info.compress_type     # the ODF "mimetype" entry must stay stored
-                if zi.compress_type == zipfile.ZIP_DEFLATED:
-                    zout.writestr(zi, new, compresslevel=9)
-                else:
-                    zout.writestr(zi, new)
-        _verify_office(src, out, changed, lossless=not reduce)
+                zi.compress_type = info.compress_type     # the ODF and EPUB "mimetype" entry must stay stored
+                text = zopfli and not _picture_part(name, True) and zi.compress_type == zipfile.ZIP_DEFLATED
+                _zopfli_here.on = text
+                try:
+                    if zi.compress_type == zipfile.ZIP_DEFLATED:
+                        zout.writestr(zi, pkg.data[name], compresslevel=9)
+                    else:
+                        zout.writestr(zi, pkg.data[name])
+                finally:
+                    _zopfli_here.on = False
+        _verify_office(src, out, pkg, lossless=not reduce)
         return out
     except BaseException:
         remove_quietly(out)
         raise
 
 
-def _verify_office(src: Path, out: Path, changed: set[str], lossless: bool) -> None:
+def _verify_office(src: Path, out: Path, pkg, lossless: bool) -> None:
     from PIL import Image
 
     with zipfile.ZipFile(src) as a, zipfile.ZipFile(out) as b:
         if b.testzip() is not None:
             raise VerificationFailed("The rebuilt document doesn't read back correctly")
-        if [i.filename for i in a.infolist()] != [i.filename for i in b.infolist()]:
+        expected = [pkg.renamed.get(i.filename, i.filename) for i in a.infolist() if i.filename not in pkg.removed]
+        if expected != [i.filename for i in b.infolist()]:
             raise VerificationFailed("Parts of the document went missing")
-        for ia, ib in zip(a.infolist(), b.infolist(), strict=True):
-            if ia.filename not in changed:
+        kept = [i for i in a.infolist() if i.filename not in pkg.removed]
+        for ia, ib in zip(kept, b.infolist(), strict=True):
+            if ib.filename not in pkg.changed and ia.filename not in pkg.changed:
                 if ia.CRC != ib.CRC or ia.file_size != ib.file_size:
                     raise VerificationFailed(f"{ia.filename} changed")
                 continue
+            if not ib.filename.lower().endswith((".png", ".jpg", ".jpeg")):
+                continue            # (a font cut and read back when it was made, or XML pointing at changes)
             old, new = a.read(ia), b.read(ib)
             try:
                 with Image.open(io.BytesIO(new)) as im:
                     im.load()
             except Exception as e:  # noqa: BLE001
                 raise VerificationFailed(f"Picture {ia.filename} doesn't open") from e
-            if lossless and not _same_pixels(old, new):
+            if lossless and ib.filename not in pkg.cropped and not _same_pixels(old, new):
                 raise VerificationFailed(f"Picture {ia.filename} looks different")
 
 
@@ -216,7 +336,9 @@ def _pdfa_part(pdf) -> int:
         return 0
 
 
-def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE) -> Path:
+def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_EDGE, fonts: bool = True,
+                 editing: bool = False) -> Path:
+    """``fonts``: cut whole embedded fonts; ``editing``: leave out Illustrator's and Photoshop's editing data."""
     import pikepdf
 
     problem = pdf_problem(src)
@@ -247,6 +369,11 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
                         w, h = im.size
                     obj.Width, obj.Height = w, h
                 obj.write(new, filter=pikepdf.Name.DCTDecode)
+            from . import pdfslim
+
+            pdfslim.drop_thumbnails(pdf)                 # (page previews from early PDF versions: never shown)
+            if editing:
+                pdfslim.drop_editing_data(pdf)
             pikepdf.settings.set_flate_compression_level(9)
             mode = pikepdf.ObjectStreamMode.preserve if _pdfa_part(pdf) == 1 else pikepdf.ObjectStreamMode.generate
             pdf.save(out, object_stream_mode=mode, compress_streams=True, recompress_flate=True)
@@ -259,16 +386,50 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
             problems = [p for p in checker() if "error" in str(p).lower()]
             if problems:
                 raise VerificationFailed(f"The rebuilt PDF has problems: {problems[0]}")
-        return out
+        return _pdf_structure(out, pages, fonts)
     except BaseException:
         remove_quietly(out)
         raise
 
 
-def optimize(src: Path, reduce: bool = False) -> Path:
+def _pdf_structure(path: Path, pages: int, fonts: bool) -> Path:
+    """``path`` with identical streams stored once, black-and-white scans as Group 4 and (``fonts``) whole embedded
+    fonts cut to the glyphs drawn, when every page still draws exactly the same (else ``path`` as it was). Not
+    for PDF/A files or long documents (each page is drawn twice to check)."""
+    import pikepdf
+
+    from . import docfonts, pdfslim
+
+    if pages > docfonts.MAX_PAGES_TO_CHECK:
+        return path
+    smaller = temp_name(path.parent, ".pdf")
+    try:
+        with pikepdf.open(path) as pdf:
+            if _pdfa_part(pdf):
+                return path
+            changed = pdfslim.dedupe_streams(pdf)
+            changed += pdfslim.scans_to_group4(pdf)
+            if fonts:
+                changed += docfonts.cut_pdf_fonts(pdf)
+            if not changed:
+                return path
+            pdf.save(smaller, object_stream_mode=pikepdf.ObjectStreamMode.generate, compress_streams=True)
+        if smaller.stat().st_size < path.stat().st_size and docfonts.same_pages(path, smaller):
+            remove_quietly(path)
+            return smaller
+    except Exception:  # noqa: BLE001 - the fonts stay whole
+        from .log import log
+
+        log.warning("Couldn't restructure %s; it stays as it was", path.name, exc_info=True)
+    remove_quietly(smaller)
+    return path
+
+
+def optimize(src: Path, reduce: bool = False, fonts: bool = True, editing: bool = False, crop: bool = False,
+             pivots: bool = False, zopfli: bool = False) -> Path:
     if src.suffix.lower() in PDF_EXTS:
-        return optimize_pdf(src, reduce)
-    return optimize_office(src, reduce)
+        return optimize_pdf(src, reduce, fonts=fonts, editing=editing)
+    return optimize_office(src, reduce, fonts=fonts, crop=crop, pivots=pivots, zopfli=zopfli)
 
 
 __all__ = ["optimize", "optimize_office", "optimize_pdf", "office_pictures", "pdf_problem", "pdf_available",

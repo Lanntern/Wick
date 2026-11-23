@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from dataclasses import dataclass, field
 from collections.abc import Callable
@@ -13,16 +14,19 @@ from . import steps, tools
 from .fileops import remove_quietly, temp_name
 from .images import NotWorthIt, VerificationFailed
 from .plan import Plan
-from .probe import VideoInfo, probe_video
+from .probe import StreamInfo, VideoInfo, probe_video
 from .settings import Settings
 
-# GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF). Each is used only if a short
-# test encode with its real settings works on this computer (encoder_works); otherwise the next, then the CPU.
-GPU_ENCODERS = {"av1": ("av1_nvenc", "av1_qsv", "av1_amf"), "hevc": ("hevc_nvenc", "hevc_qsv", "hevc_amf")}
+# GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF), Apple (VideoToolbox: Macs have
+# no AV1 encoder). Each is used only if a short test encode with its real settings works on this computer
+# (encoder_works); otherwise the next, then the CPU.
+GPU_ENCODERS = {"av1": ("av1_nvenc", "av1_qsv", "av1_amf"),
+                "hevc": ("hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox")}
 CPU_ENCODERS = {"av1": "libsvtav1", "hevc": "libx265"}
 
 # Constant-quality values per encoder for high / balanced / small. NVENC: CQ; Quick Sync: ICQ (1-51); AMF: a
-# constant QP (HEVC 0-51; AV1 0-255, so about four times the others' numbers); CPU: CRF.
+# constant QP (HEVC 0-51; AV1 0-255, so about four times the others' numbers); VideoToolbox: quality 1-100
+# (higher is better); CPU: CRF.
 _QUALITY = {
     "av1_nvenc": {"high": 26, "balanced": 32, "small": 38},
     "hevc_nvenc": {"high": 22, "balanced": 27, "small": 32},
@@ -30,18 +34,21 @@ _QUALITY = {
     "hevc_qsv": {"high": 22, "balanced": 26, "small": 30},
     "av1_amf": {"high": 100, "balanced": 124, "small": 148},
     "hevc_amf": {"high": 22, "balanced": 26, "small": 30},
+    # VideoToolbox's constant quality (Apple silicon): 1-100, higher is better.
+    "hevc_videotoolbox": {"high": 72, "balanced": 64, "small": 56},
     "libsvtav1": {"high": 26, "balanced": 32, "small": 38},
     "libx265": {"high": 20, "balanced": 24, "small": 28},
 }
 
 
 def is_gpu(encoder: str) -> bool:
-    return encoder.endswith(("_nvenc", "_qsv", "_amf"))
+    return encoder.endswith(("_nvenc", "_qsv", "_amf", "_videotoolbox"))
 
 
 def quality_label(encoder: str) -> str:
     """How each encoder names its quality number ("CRF 24", "CQ 27"...)."""
-    return {"_nvenc": "CQ", "_qsv": "ICQ", "_amf": "QP"}.get(encoder[encoder.rfind("_"):], "CRF")
+    return {"_nvenc": "CQ", "_qsv": "ICQ", "_amf": "QP", "_videotoolbox": "quality"}.get(
+        encoder[encoder.rfind("_"):], "CRF")
 
 
 NVENC_BASIC = ("-preset", "p6", "-tune", "hq")
@@ -180,6 +187,9 @@ def _gpu_quality_args(encoder: str, q: int, tuned: bool = True, pixels: int = 0)
         return [*tuning, "-rc", "vbr", "-cq", str(q), "-b:v", "0", "-spatial-aq", "1"]
     if encoder.endswith("_qsv"):
         return ["-preset", "slower", "-global_quality", str(q), *(gpu_extras(encoder) if tuned else ())]
+    if encoder.endswith("_videotoolbox"):
+        # Constant quality, hardware only (a software fallback would be slower than x265), B-frames on.
+        return ["-q:v", str(q), "-allow_sw", "0", "-realtime", "0", "-prio_speed", "0"]
     level = amf_qvbr_level(encoder, q) if tuned else None
     if level is not None:
         return _qvbr(level, amf_extras(encoder) or ())
@@ -193,6 +203,8 @@ def _gpu_rate_args(encoder: str, kbps: int, pixels: int = 0) -> list[str]:
         return [*_nvenc_args(encoder, pixels), "-rc", "vbr", "-multipass", "fullres", *rate, "-spatial-aq", "1"]
     if encoder.endswith("_qsv"):
         return ["-preset", "slower", *rate]
+    if encoder.endswith("_videotoolbox"):
+        return ["-b:v", f"{kbps}k", "-allow_sw", "0", "-realtime", "0", "-prio_speed", "0"]
     return ["-quality", "quality", "-rc", "vbr_peak", *rate]
 
 # Audio codecs that can be copied into MP4 as-is; anything else becomes AAC.
@@ -212,14 +224,17 @@ def svt_preset(s: Settings) -> int:
 # Film grain: the noise level (standard deviation, 8-bit scale) in flat areas -> SVT-AV1 film-grain level. Below
 # the first step the video counts as clean (digital cameras, animation, screen recordings).
 GRAIN_STEPS = ((1.6, 0), (2.5, 6), (3.5, 10), (5.0, 14), (float("inf"), 18))
+BANDING_GRAIN = 4       # "banding": a light grain on clean videos, nothing removed first (not one of GRAIN_STEPS)
 GRAIN_SAMPLES = 6
 CRF_MAX = {"av1_nvenc": 63, "libsvtav1": 63, "hevc_nvenc": 51, "libx265": 51, "av1_qsv": 51, "hevc_qsv": 51,
-           "av1_amf": 255, "hevc_amf": 51}
+           "av1_amf": 255, "hevc_amf": 51, "hevc_videotoolbox": 100}
 
 
 def encoder_quality(s: Settings, encoder: str) -> int:
     """The constant-quality value for ``encoder`` (Custom: the user's own, within the encoder's range)."""
     if s.video_quality == "custom":
+        if encoder.endswith("_videotoolbox"):     # (its scale runs the other way: CRF 24 is about quality 64)
+            return max(1, min(100, round(112 - 2 * s.video_crf)))
         value = s.video_crf * 4 if encoder == "av1_amf" else s.video_crf    # (AMF's AV1 scale is 0-255)
         return max(1, min(CRF_MAX.get(encoder, 51), value))
     return _QUALITY[encoder]["balanced" if s.video_quality == "identical" else s.video_quality]
@@ -342,6 +357,8 @@ def choose_encoder(codec: str, preference: str) -> str:
             return gpu
     if preference == "gpu":
         newer = codec == "av1"
+        if sys.platform == "darwin":
+            raise RuntimeError(f"Macs can't encode {codec.upper()} in hardware. Pick HEVC, or Auto or CPU.")
         raise RuntimeError(
             f"No GPU can encode {codec.upper()} here (NVIDIA{' RTX 40 series or newer' if newer else ''}, "
             f"Intel{' Arc or Core Ultra' if newer else ''} or AMD{' RX 7000 or newer' if newer else ''}, "
@@ -392,7 +409,13 @@ def codec_for(info: VideoInfo | None, s: Settings) -> str:
         return s.video_codec
     from .probe import is_camera_original
 
-    return "hevc" if info is not None and is_camera_original(info) else "av1"
+    if info is not None and is_camera_original(info):
+        return "hevc"
+    # A Mac has no AV1 encoder in hardware: HEVC on Apple's media engine is many times faster than AV1 on the
+    # processor, at a modestly larger size. (The processor's AV1 when "Processor" is chosen.)
+    if sys.platform == "darwin" and s.video_encoder != "cpu" and encoder_works("hevc_videotoolbox"):
+        return "hevc"
+    return "av1"
 
 
 def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
@@ -405,18 +428,132 @@ def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
     from .settings import my_languages
 
     audio, subs = info.audio_streams(), info.subtitle_streams()
-    if s.video_tracks != "mine":
-        return audio, subs, []
-    codes = track_codes(my_languages(s))
-    main = next((a for a in audio if a.default), audio[0] if audio else None)
+    keep_a, keep_s = audio, subs
+    if s.video_tracks == "mine":
+        codes = track_codes(my_languages(s))
+        main = next((a for a in audio if a.default), audio[0] if audio else None)
 
-    def mine(st) -> bool:
-        return not st.language or st.language in codes
+        def mine(st) -> bool:
+            return not st.language or st.language in codes
 
-    keep_a = [a for a in audio if mine(a) or a is main]
-    keep_s = [t for t in subs if mine(t)]
+        keep_a = [a for a in audio if mine(a) or a is main]
+        keep_s = [t for t in subs if mine(t)]
+    if s.video_dup_audio:
+        copies = lower_copies(keep_a)
+        keep_a = [a for a in keep_a if a not in copies]
+    if s.video_drop_silent:
+        keep_a = [a for a in keep_a if not a.silent]
+    if s.video_dup_audio:
+        keep_s = [t for t in keep_s if not t.duplicate]
     dropped = [x for x in audio + subs if x not in keep_a and x not in keep_s]
     return keep_a, keep_s, dropped
+
+
+def is_lossless_audio(st) -> bool:
+    return (st.codec in _LOSSLESS_AUDIO or st.codec.startswith("pcm_")
+            or (st.codec == "dts" and "MA" in st.profile.upper().split()))
+
+
+def lower_copies(audio: list) -> list:
+    """Lossy soundtracks that only repeat a lossless one in the same language (a Blu-ray's TrueHD or DTS-HD MA
+    track with its AC-3 copy for older players): with no more channels than the lossless one, and neither a
+    commentary. Untagged tracks are never compared (they may be in different languages)."""
+    copies = []
+    for a in audio:
+        if not a.language or a.commentary or is_lossless_audio(a):
+            continue
+        if any(b.language == a.language and not b.commentary and is_lossless_audio(b)
+               and b.channels >= a.channels for b in audio):
+            copies.append(a)
+    return copies
+
+
+def tracks_note(info: VideoInfo, s: Settings) -> str:
+    """What happens to the audio and subtitle tracks, in words ("" when nothing is left out)."""
+    _a, _s, dropped = select_tracks(info, s)
+    if not dropped:
+        return ""
+    copies = sum(1 for a in dropped if a.kind == "audio" and a in lower_copies(info.audio_streams()))
+    copies = copies if s.video_dup_audio else 0
+    silent = sum(1 for a in dropped if a.kind == "audio" and a.silent) if s.video_drop_silent else 0
+    twins = sum(1 for t in dropped if t.kind == "subtitle" and t.duplicate) if s.video_dup_audio else 0
+    other = len(dropped) - copies - silent - twins
+    parts = []
+    if other:
+        parts.append(f"{other} track{'s' if other != 1 else ''} in other languages left out")
+    if copies:
+        parts.append(f"{copies} lower-quality cop{'ies' if copies != 1 else 'y'} of a soundtrack left out")
+    if silent:
+        parts.append(f"{silent} silent soundtrack{'s' if silent != 1 else ''} left out")
+    if twins:
+        parts.append(f"{twins} duplicate subtitle track{'s' if twins != 1 else ''} left out")
+    return ", ".join(parts)
+
+
+_TEXT_SUBTITLES = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
+
+
+def find_duplicate_subtitles(src: Path, info: VideoInfo) -> None:
+    """Mark text subtitle tracks that repeat another one in the same language (same lines at the same times,
+    styling aside). Of each set, a styled (ASS) track is kept over a plain one, else the first."""
+    import hashlib
+
+    seen: dict[tuple, StreamInfo] = {}
+    tracks = sorted((t for t in info.subtitle_streams() if t.codec in _TEXT_SUBTITLES),
+                    key=lambda t: (t.codec not in ("ass", "ssa"), t.index))
+    ffmpeg = tools.require("ffmpeg")
+    for t in tracks:
+        p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-i", str(src), "-map", f"0:{t.index}",
+                       "-f", "srt", "-"], timeout=300, check=False)
+        if p.returncode != 0 or not (p.stdout or "").strip():
+            continue
+        text = re.sub(r"<[^>]*>|\{[^}]*\}", "", p.stdout)
+        key = (t.language, t.forced, hashlib.sha256(re.sub(r"[ \t]+", " ", text).strip().encode()).hexdigest())
+        if key in seen:
+            t.duplicate = True
+        else:
+            seen[key] = t
+
+
+def analyse_audio(src: Path, info: VideoInfo, s: Settings, mp4: bool) -> None:
+    """Listen to the soundtracks where the answer changes what's done: silent ones (when they may be left out),
+    stereo with identical channels (stored as mono when the track is encoded), and talk (a lower bitrate)."""
+    from . import audio as audio_mod
+    from .probe import AudioInfo
+
+    if s.video_dup_audio:
+        try:
+            find_duplicate_subtitles(src, info)
+        except tools.Cancelled:
+            raise
+        except Exception:  # noqa: BLE001 - every subtitle track stays
+            from .log import ignored
+            ignored("video.find_duplicate_subtitles")
+    for st in info.audio_streams():
+        one = AudioInfo(st.codec, 0, st.channels, st.bits, "", info.duration, st.bit_rate, st.index)
+        encoded = bool(s.audio_bitrate) or packs_as_flac(st, mp4)
+        try:
+            if s.video_drop_silent:
+                st.silent = _silent(src, st.index)
+            if s.audio_mono and st.channels == 2 and encoded and not st.silent:
+                st.identical = audio_mod.identical_channels(src, one, exact=packs_as_flac(st, mp4)
+                                                            and not s.audio_bitrate)
+            if (s.audio_speech and s.audio_bitrate and not st.silent
+                    and info.duration >= audio_mod.SPEECH_MIN_SECONDS):
+                st.speech = audio_mod.is_speech(src, one)
+        except tools.Cancelled:
+            raise
+        except Exception:  # noqa: BLE001 - can't tell: the track is treated as before
+            from .log import ignored
+            ignored("video.analyse_audio")
+
+
+def _silent(src: Path, index: int) -> bool:
+    ffmpeg = tools.require("ffmpeg")
+    p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-i", str(src), "-map", f"0:{index}", "-af", "volumedetect",
+                   "-f", "null", "-"], timeout=3600, check=False)
+    m = re.search(r"max_volume:\s*(-?inf|-?[0-9.]+) dB", p.stderr or "")
+    return p.returncode == 0 and m is not None and (m.group(1).endswith("inf") or float(m.group(1)) <= -60.0)
 
 
 def _hdr10_params(info: VideoInfo, encoder: str) -> str:
@@ -468,7 +605,7 @@ def display_filter(info: VideoInfo) -> str:
 
 def drops_repeats(info: VideoInfo, s: Settings) -> bool:
     """Whether repeated (padding) frames are removed, restoring the original frame rate."""
-    return bool(s.video_fix_cadence and info.cadence)
+    return bool(s.video_fix_cadence and info.cadence > 0)
 
 
 def output_fps(info: VideoInfo, s: Settings) -> float | None:
@@ -596,7 +733,7 @@ def grain_level(src: Path, info: VideoInfo, s: Settings, encoder: str,
                 cancel: threading.Event | None = None) -> int:
     """The film-grain synthesis level for this video (0: none). Only for SVT-AV1, and not for interlaced video
     (its combing looks like noise)."""
-    if s.video_grain != "auto" or encoder != "libsvtav1" or info.interlaced:
+    if s.video_grain not in ("auto", "banding") or encoder != "libsvtav1" or info.interlaced:
         return 0
     try:
         sigma = noise_sigma(src, info, cancel)
@@ -606,21 +743,24 @@ def grain_level(src: Path, info: VideoInfo, s: Settings, encoder: str,
         from wick.log import ignored
         ignored("video.grain_level")
         return 0
-    return next(level for limit, level in GRAIN_STEPS if sigma < limit)
+    level = next(level for limit, level in GRAIN_STEPS if sigma < limit)
+    return level or (BANDING_GRAIN if s.video_grain == "banding" else 0)
 
 
 def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str, q: int | None = None,
                segment: tuple[float, float] | None = None, progress: bool = True, remux: bool = False,
                fit: tuple[int, int, tuple[int, int]] | None = None, hw_decode: bool = False, grain: int = 0,
-               threads: int = 0, video_from: Path | None = None, probe: bool = False) -> list[str]:
+               threads: int = 0, video_from: Path | None = None, probe: bool = False, fonts=None) -> list[str]:
     """ffmpeg command for the full encode, or (with ``segment=(start, length)``) a sample or one part of a
     scene-by-scene encode (video only). ``remux``: copy the video as it is and only leave out tracks (audio/subtitles
     in other languages). ``probe``: a quick, faster-preset encode for choosing the quality (scene by scene).
     ``grain``: AV1 film-grain synthesis level (0: none). ``threads``: limit the encoder's
     threads (parts encoded side by side). ``video_from``: the video is already encoded (the joined parts): copy it
-    from there and take everything else from ``src``."""
+    from there and take everything else from ``src``. ``fonts``: a subfonts.FontPlan for the subtitle fonts.
+    ``fonts.covers``: MP4 cover pictures stored smaller. ``info.screen``: a screen recording (SVT-AV1's screen-content
+    tools)."""
     ffmpeg = tools.require("ffmpeg")
-    mp4 = dst.suffix.lower() == ".mp4"
+    mp4 = is_mp4(dst.suffix)
     if q is None and not remux:
         q = encoder_quality(s, encoder)
     args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error"]
@@ -638,6 +778,11 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     args += ["-i", str(src)]
     if video_from is not None:
         args += ["-i", str(video_from)]
+    picture_input = {}
+    pictures = fonts.covers if fonts is not None and not segment else {}
+    for n, (index, path) in enumerate(sorted(pictures.items())):
+        args += ["-i", str(path)]
+        picture_input[index] = (2 if video_from is not None else 1) + n
 
     # Which input streams go into the output, in order.
     keep_audio, keep_subs, dropped = select_tracks(info, s)
@@ -647,18 +792,24 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         mapped = [st for st in info.streams if st.index == info.main_video_index]
         mapped += keep_audio
         mapped += [st for st in keep_subs if st.codec in _TEXT_SUBS]
+        mapped += [st for st in info.streams if st.attached_pic and st.codec in ("mjpeg", "png")]    # covers
     else:  # mkv / webm keep everything except data streams (and tracks in languages left out)
-        gone = {st.index for st in dropped}
-        mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone]
+        gone = {st.index for st in dropped} | set(fonts.replace if fonts is not None else ())
+        mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone
+                  and not (st.kind == "subtitle" and st.codec not in _MKV_SUBTITLES)]    # (teletext: no place in MKV)
     for st in mapped:
         joined = video_from is not None and st.index == info.main_video_index
-        args += ["-map", "1:v:0" if joined else f"0:{st.index}"]
+        args += ["-map", "1:v:0" if joined else f"{picture_input[st.index]}:0" if st.index in picture_input
+                 else f"0:{st.index}"]
     args += metadata_args(s.metadata, info)
     args += ["-map_chapters", "-1" if segment else "0", "-c", "copy"]
 
     # Output index of the main video stream among output video streams.
-    v_out = [st for st in mapped if st.kind == "video"].index(
-        next(st for st in mapped if st.index == info.main_video_index))
+    videos = [st for st in mapped if st.kind == "video"]
+    v_out = videos.index(next(st for st in mapped if st.index == info.main_video_index))
+    for n, st in enumerate(videos):
+        if st.attached_pic and mp4:
+            args += [f"-disposition:v:{n}", "attached_pic"]
     if remux or video_from is not None:
         if video_from is not None:
             for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
@@ -667,14 +818,14 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
                     args += [f"-{opt}:v:{v_out}", info.color[key]]
             if mp4 and codec_for(info, s) == "hevc":
                 args += [f"-tag:v:{v_out}", "hvc1"]
-            args += _audio_args(keep_audio, s, mp4, fit)
-        if mp4:
-            if any(st.kind == "subtitle" for st in mapped):
-                args += ["-c:s", "mov_text"]
-            args += ["-movflags", "+faststart"]
+        args += _audio_args(keep_audio, s, mp4, fit, remux=remux) + default_audio_args(info, keep_audio)
+        args += _container_args(dst, s, mapped, fonts, "copy" if remux else f"{encoder} scenes", grain,
+                                live_photo_id(info))
         args.append(str(dst))
         return args
     args += [f"-c:v:{v_out}", encoder]
+    if info.hdr == "Dolby Vision" and _encoder_option(encoder, "dolbyvision"):
+        args += ["-dolbyvision", "0"]          # (the Dolby Vision layer isn't carried over: the base layer is kept)
 
     ten_bit = info.is_10bit or bool(info.hdr) or encoder in ("av1_nvenc", "libsvtav1")
     gpu_pix = "p010le" if ten_bit else ("yuv420p" if encoder.endswith("_nvenc") else "nv12")   # (QSV/AMF: NV12)
@@ -682,9 +833,12 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     out_w, out_h = fit[2] if fit is not None else frame_size(info, s)
     pixels = out_w * out_h
     cap = source_rate_limit(info, s, encoder) if fit is None else 0
+    denoise = int(grain != BANDING_GRAIN)       # (the banding grain goes on top: nothing is removed first)
     svt = ":".join(p for p in (svt_tuning() if encoder == "libsvtav1" else "",
+                               "scm=1" if info.screen and encoder == "libsvtav1" else "",
                                hdr10 if encoder == "libsvtav1" else "",
-                               f"film-grain={grain}:film-grain-denoise=1" if grain and encoder == "libsvtav1" else "",
+                               f"film-grain={grain}:film-grain-denoise={denoise}" if grain and encoder == "libsvtav1"
+                               else "",
                                f"lp={threads}" if threads and encoder == "libsvtav1" else "") if p)
     if cap and encoder == "libsvtav1":
         svt = ":".join(p for p in (svt, f"mbr={min(cap, 100000)}") if p)
@@ -715,6 +869,8 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     else:  # libx265
         args += ["-crf", str(q), "-preset", "veryfast" if probe else s.video_effort, "-x265-params", x265]
         pix = "yuv420p10le" if ten_bit else "yuv420p"
+    if encoder.endswith("_videotoolbox") and pix == "p010le":
+        args += ["-profile:v", "main10"]        # (10-bit, HDR included: VideoToolbox needs the profile named)
     if cap and encoder != "libsvtav1":
         args += ["-maxrate", f"{cap}k", "-bufsize", f"{cap * 2}k"]
     args += [f"-pix_fmt:v:{v_out}", pix]
@@ -745,27 +901,222 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         args += [f"-tag:v:{v_out}", "hvc1"]  # plays in Windows/Apple players
 
     if not segment:
-        args += _audio_args(keep_audio, s, mp4, fit)
-        if mp4:
-            if any(st.kind == "subtitle" for st in mapped):
-                args += ["-c:s", "mov_text"]
-            args += ["-movflags", "+faststart"]
+        args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
+        args += _container_args(dst, s, mapped, fonts,
+                                f"{encoder} {'size limit' if fit is not None else q}", grain, live_photo_id(info))
     args.append(str(dst))
     return args
 
 
-def _audio_args(keep_audio: list, s: Settings, mp4: bool, fit) -> list[str]:
+TAG = "WICK"        # container tag: the Wick version and settings that made the file (a remux or re-encode)
+LIVE_PHOTO_KEY = "com.apple.quicktime.content.identifier"    # (the same in a Live Photo's photo and clip)
+
+
+def is_mp4(ext: str) -> bool:
+    """MP4 and QuickTime (.mov): the same family of containers, with the same limits on what they hold."""
+    return ext.lower() in (".mp4", ".mov")
+
+
+def settings_tag(s: Settings, video: str, grain: int = 0, fonts=None) -> str:
+    """What made this file, in short: "0.2.0; libsvtav1 30; preset 4; grain 6; audio 128k; fonts cut". Read
+    back by the plan, so a file Wick already made isn't done again."""
+    from . import __version__
+
+    parts = [__version__, video]
+    if video.startswith("libsvtav1"):
+        parts.append(f"preset {svt_preset(s)}")
+    elif video.startswith("libx265"):
+        parts.append(f"preset {s.video_effort}")
+    if grain:
+        parts.append(f"grain {grain}")
+    if s.audio_bitrate:
+        parts.append(f"audio {s.audio_bitrate}k")
+    if fonts is not None or s.video_fonts:
+        parts.append("fonts cut")
+    return "; ".join(parts)
+
+
+def live_photo_id(info: VideoInfo) -> str:
+    """The Live Photo link in a clip's metadata ("" when it isn't the clip of a Live Photo)."""
+    return next((str(v) for k, v in info.tags.items() if k.lower() == LIVE_PHOTO_KEY), "")
+
+
+def made_by_wick(info: VideoInfo) -> str:
+    """The settings tag Wick left in this file ("" if none)."""
+    return next((str(v) for k, v in info.tags.items() if k.upper() == TAG), "")
+
+
+@lru_cache(maxsize=16)
+def _encoder_option(encoder: str, option: str) -> bool:
+    """Does this FFmpeg's encoder take ``option`` (newer builds add some, like dolbyvision)?"""
+    try:
+        out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-h", f"encoder={encoder}"], timeout=30,
+                        check=False).stdout or ""
+    except Exception:  # noqa: BLE001
+        return False
+    return f"-{option} " in out
+
+
+def dolby_vision_base(info: VideoInfo) -> str:
+    """For Dolby Vision profile 8 (a base layer every player shows): that layer's kind ("HLG", "HDR10", "SDR");
+    "" when there's none (profile 5 and others need Dolby Vision to look right)."""
+    if info.hdr != "Dolby Vision" or info.dv_profile != 8:
+        return ""
+    return {1: "HDR10", 2: "SDR", 4: "HLG"}.get(info.dv_compat, "")
+
+
+def screen_recording(src: Path, info: VideoInfo, cancel: threading.Event | None = None) -> bool:
+    """A recording of a screen (slides, apps, a desktop): large areas of exactly one colour and no camera noise,
+    in three frames spread over the video. Films, even animated ones, keep grain or gradients."""
+    import numpy as np
+
+    if info.duration <= 0:
+        return False
+    ffmpeg = tools.require("ffmpeg")
+    flat = []
+    for at in (0.2, 0.5, 0.8):
+        if cancel is not None and cancel.is_set():
+            raise tools.Cancelled()
+        w, h = info.width, info.height
+        p = tools.run([ffmpeg, "-hide_banner", "-nostdin", "-v", "error", "-ss", f"{info.duration * at:.2f}", "-i",
+                       str(src), "-map", f"0:{info.main_video_index}", "-frames:v", "1", "-f", "rawvideo",
+                       "-pix_fmt", "gray", "-"], timeout=120, check=False, text=False)
+        frame = np.frombuffer(p.stdout or b"", dtype=np.uint8)
+        if p.returncode != 0 or frame.size != w * h:
+            return False
+        img = frame.reshape(h, w).astype(np.int16)
+        same = (np.abs(np.diff(img, axis=1)) == 0).mean()          # a pixel exactly like its neighbour
+        flat.append(float(same))
+    return min(flat) > 0.6
+
+
+def _container_args(dst: Path, s: Settings, mapped: list, fonts, video: str, grain: int,
+                    live_id: str = "") -> list[str]:
+    """Subtitles for MP4, the subtitle fonts, and the settings tag."""
+    from . import subfonts
+
+    mp4 = is_mp4(dst.suffix)
     args: list[str] = []
-    for i, st in enumerate(keep_audio):
-        if fit is not None and fit[1]:
-            codec = "aac" if mp4 else "libopus"
-            args += [f"-c:a:{i}", codec, f"-b:a:{i}", f"{fit[1]}k"]
-        elif s.audio_bitrate:
-            codec = "aac" if mp4 else "libopus"
-            args += [f"-c:a:{i}", codec, f"-b:a:{i}", f"{s.audio_bitrate}k"]
-        elif mp4 and st.codec not in _MP4_AUDIO_OK:
-            args += [f"-c:a:{i}", "aac", f"-b:a:{i}", "192k"]
+    if mp4 and any(st.kind == "subtitle" for st in mapped):
+        args += ["-c:s", "mov_text"]
+    if fonts is not None and dst.suffix.lower() == ".mkv":
+        args += subfonts.args(fonts, sum(1 for st in mapped if st.kind == "attachment"))
+    if live_id:
+        args += ["-metadata", f"{LIVE_PHOTO_KEY}={live_id}"]   # (whatever the metadata choice: it links the pair)
+    covers = mp4 and any(st.attached_pic for st in mapped)
+    if not covers:      # (in MP4, custom tags need use_metadata_tags, which drops cover pictures: covers win)
+        args += ["-metadata", f"{TAG}={settings_tag(s, video, grain, fonts)}"]
+    if mp4:
+        args += ["-movflags", "+faststart" if covers else "+faststart+use_metadata_tags"]
     return args
+
+
+# Layouts the Opus encoder takes (others, like 5.1 with side speakers, are given the nearest of these).
+_OPUS_LAYOUTS = ("mono", "stereo", "3.0", "quad", "5.0", "5.1", "6.1", "7.1")
+_LOSSLESS_AUDIO = {"flac", "alac", "truehd", "mlp", "wavpack", "tta", "ape"}
+
+
+def audio_rate(base: int, channels: int) -> int:
+    """The audio setting is for stereo; surround gets more (5.1: twice, 7.1: about 2.7 times), mono less."""
+    if channels <= 0 or channels == 2:
+        return base
+    if channels == 1:
+        return max(32, round(base * 0.6))
+    return min(512, round(base * max(1.0, channels / 3)))
+
+
+_FLAC_PCM = {"pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_bluray", "pcm_dvd"}
+
+
+def packs_as_flac(st, mp4: bool) -> bool:
+    """Uncompressed audio (WAV-style, or a Blu-ray's or DVD's LPCM) that FLAC holds exactly, in MKV."""
+    return not mp4 and st.codec in _FLAC_PCM and st.bits in (0, 16, 20, 24)
+
+
+def _audio_args(keep_audio: list, s: Settings, mp4: bool, fit, remux: bool = False) -> list[str]:
+    """Per kept track: copy it, pack it losslessly (FLAC), or encode it. ``remux``: the picture is copied, so
+    only lossless packing and the chosen stereo mix happen."""
+    args: list[str] = []
+    lossy = "aac" if mp4 else "libopus"
+    for i, st in enumerate(keep_audio):
+        downmix = s.video_stereo and st.channels > 2
+        mono = s.audio_mono and st.identical and not downmix
+        channels = 2 if downmix else 1 if mono else st.channels
+        codec, kbps = lossy, 0
+        if fit is not None and fit[1]:
+            kbps = fit[1]
+        elif packs_as_flac(st, mp4) and (not s.audio_bitrate or remux):
+            codec = "flac"
+        elif remux and not mp4 and st.codec in _NOT_IN_MKV_AUDIO:
+            kbps = audio_rate(s.audio_bitrate or 160, channels)      # (broadcast AAC-LATM: MKV can't hold it)
+        elif s.audio_bitrate and not remux:
+            kbps = audio_rate(s.audio_bitrate, channels)
+            if st.speech:
+                kbps = min(kbps, round(_speech_kbps(mp4) * (1 if channels == 1 else 1.5)))
+            # Already at or under the target (and lossy, and fits the container): re-encoding would only make it
+            # bigger and sound worse.
+            if (not downmix and not mono and st.bit_rate and st.bit_rate <= kbps * 1000 * 1.05
+                    and not is_lossless_audio(st) and (not mp4 or st.codec in _MP4_AUDIO_OK)):
+                continue
+        elif mp4 and st.codec not in _MP4_AUDIO_OK:
+            codec, kbps = "aac", audio_rate(192, channels)
+        elif downmix:
+            kbps = audio_rate(s.audio_bitrate or (192 if mp4 else 160), 2)
+        elif mono and packs_as_flac(st, mp4):
+            codec = "flac"
+        else:
+            continue
+        args += [f"-c:a:{i}", codec]
+        if codec == "flac":
+            args += [f"-compression_level:a:{i}", "12"]
+        else:
+            args += [f"-b:a:{i}", f"{kbps}k"]
+        if downmix:
+            args += [f"-ac:a:{i}", "2"]
+        elif mono:
+            args += [f"-filter:a:{i}", "pan=mono|c0=c0"]          # (one channel as it is: exact for FLAC)
+        elif codec == "libopus" and st.layout and st.layout not in _OPUS_LAYOUTS:
+            args += [f"-filter:a:{i}", "aformat=channel_layouts=" + "|".join(reversed(_OPUS_LAYOUTS))]
+    return args
+
+
+_NOT_IN_MKV_AUDIO = {"aac_latm"}
+_MKV_SUBTITLES = {"ass", "ssa", "subrip", "srt", "webvtt", "hdmv_pgs_subtitle", "dvd_subtitle", "dvb_subtitle",
+                  "text", "mov_text"}
+
+
+def _speech_kbps(mp4: bool) -> int:
+    from .audio import SPEECH_KBPS
+
+    return SPEECH_KBPS["aac" if mp4 else "opus"]["balanced"]
+
+
+def _audio_note(keep_audio: list, s: Settings, mp4: bool, remux: bool = False) -> str:
+    parts = []
+    identical = sum(1 for a in keep_audio if a.identical and s.audio_mono and not (s.video_stereo and a.channels > 2)
+                    and (s.audio_bitrate or packs_as_flac(a, mp4)))
+    if identical:
+        parts.append("stereo with identical channels stored as mono")
+    if not remux and s.audio_bitrate and any(a.speech for a in keep_audio):
+        parts.append("speech at a lower bitrate")
+    pcm = sum(1 for a in keep_audio if packs_as_flac(a, mp4)) if remux or not s.audio_bitrate else 0
+    if pcm:
+        parts.append(f"{'uncompressed audio' if pcm == 1 else f'{pcm} uncompressed soundtracks'} packed as FLAC")
+    if s.video_stereo and any(a.channels > 2 for a in keep_audio):
+        parts.append("surround mixed down to stereo")
+    return ", ".join(parts)
+
+
+def default_audio_args(info: VideoInfo, keep_audio: list) -> list[str]:
+    """When the default soundtrack was left out as a lower-quality copy, the lossless one it copied becomes the
+    default."""
+    if not keep_audio or any(a.default for a in keep_audio) or not any(a.default for a in info.audio_streams()):
+        return []
+    was = next(a for a in info.audio_streams() if a.default)
+    for i, a in enumerate(keep_audio):
+        if a.language == was.language and is_lossless_audio(a):
+            return [f"-disposition:a:{i}", "default"]
+    return []
 
 
 SMART_STEPS = {  # best quality first
@@ -777,6 +1128,7 @@ SMART_STEPS = {  # best quality first
     "hevc_qsv": [18, 21, 24, 26, 28, 30, 32, 34],
     "av1_amf": [80, 96, 108, 116, 124, 132, 140, 148, 156, 164],
     "hevc_amf": [18, 21, 24, 26, 28, 30, 32, 34],
+    "hevc_videotoolbox": [80, 76, 72, 68, 64, 60, 56, 52],
 }
 SAMPLE_SECONDS = 4.0
 
@@ -994,23 +1346,71 @@ def convert_video(
     cancel: threading.Event | None = None,
 ) -> tuple[Path, str]:
     """Encode to a temp file next to ``src``; verify; return (temp path, encoder used)."""
+    import tempfile
+
+    if plan.route != "video_remux" or s.video_drop_silent or s.video_dup_audio:
+        steps.report("Listening to the soundtracks")
+        analyse_audio(src, info, s, is_mp4(plan.target_ext))
+    with tempfile.TemporaryDirectory(prefix="wick-fonts-") as folder:
+        fonts = _font_plan(src, info, s, plan.target_ext, Path(folder))
+        return _convert(src, info, plan, s, fonts, on_progress, cancel)
+
+
+def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
+    """The subtitle fonts' plan (subfonts.FontPlan), or None: nothing to change, or it couldn't be worked out."""
+    from . import subfonts
+
+    if is_mp4(ext):
+        try:
+            return subfonts.mp4_covers(src, info, folder)
+        except tools.Cancelled:
+            raise
+        except Exception:  # noqa: BLE001 - the covers are copied as they are
+            from .log import ignored
+            ignored("video._font_plan.covers")
+            return None
+    fonts = s.video_fonts and any(subfonts.is_font(st) for st in info.streams)
+    if ext.lower() != ".mkv" or not (fonts or any(subfonts.is_picture(st) for st in info.streams)):
+        return None
+    steps.report("Checking which characters the subtitles use" if fonts else "Checking the cover pictures")
+    try:
+        return subfonts.plan(src, info, select_tracks(info, s)[1], folder, fonts_too=fonts)
+    except tools.Cancelled:
+        raise
+    except Exception:  # noqa: BLE001 - the fonts stay as they are
+        from .log import log
+
+        log.warning("Couldn't work out the subtitle fonts of %s; they're kept as they are", src.name, exc_info=True)
+        return None
+
+
+def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:
     out = temp_name(src.parent, plan.target_ext)
     keep_audio, _subs, dropped = select_tracks(info, s)
-    if plan.route == "video_remux":   # efficient already: only leave out tracks in other languages
+    if plan.route == "video_remux":   # efficient already: tracks, fonts and lossless audio packing only
+        if not (dropped or fonts is not None or info.container == "mpegts"
+                or _audio_args(keep_audio, s, is_mp4(out.suffix), None, remux=True)):
+            raise NotWorthIt("Nothing to change without re-encoding the picture; original kept")
         try:
-            steps.report("Copying the video without the tracks in other languages")
-            tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True), info.duration,
+            steps.report("Copying the video without the tracks in other languages" if dropped
+                         else "Copying the video with smaller subtitle fonts")
+            tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
                                       on_progress, cancel)
             steps.report("Checking the result")
-            verify_video(info, out, info.codec, dst_is_mp4=out.suffix == ".mp4", audio_tracks=len(keep_audio),
-                         src_path=src)
-            plan.outcome = (f"picture untouched, {len(dropped)} track{'s' if len(dropped) != 1 else ''} in other "
-                            "languages left out")
+            verify_video(info, out, info.codec, dst_is_mp4=is_mp4(out.suffix), audio_tracks=len(keep_audio),
+                         src_path=src, copied=True)
+            done = ["picture untouched", "rewrapped from a TV recording" if info.container == "mpegts" else "",
+                    tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix), True)]
+            if fonts is not None:
+                done.append(fonts.note())
+            plan.outcome = ", ".join(x for x in done if x)
             return out, "copy"
         except BaseException:
             remove_quietly(out)
             raise
     codec = codec_for(info, s)
+    if codec == "av1" and out.suffix.lower() == ".mov":
+        codec = "hevc"                     # (QuickTime files can't hold AV1: a Live Photo's clip stays a .mov)
     encoder = choose_encoder(codec, s.video_encoder)
     if s.video_crop_bars:
         import dataclasses
@@ -1021,37 +1421,56 @@ def convert_video(
             info = dataclasses.replace(info, crop=bars)
     limit = s.fit_under_kb * 1024
     if limit and src.stat().st_size > limit:
-        return _encode_to_fit(src, out, info, plan, s, codec, encoder, len(keep_audio), on_progress, cancel)
+        return _encode_to_fit(src, out, info, plan, s, codec, encoder, len(keep_audio), on_progress, cancel, fonts)
     from . import chunked
 
     q = None
     notes: list[str] = []
     grain = 0
-    if encoder == "libsvtav1" and s.video_grain == "auto":
+    base = dolby_vision_base(info)
+    if base:
+        notes.append(f"Dolby Vision layer left out, {base} picture kept")
+    if encoder == "libsvtav1":
+        steps.report("Checking whether it's a screen recording")
+        try:
+            if screen_recording(src, info, cancel):
+                import dataclasses
+
+                info = dataclasses.replace(info, screen=True)
+                notes.append("screen recording: tuned for text and flat areas")
+        except tools.Cancelled:
+            raise
+        except Exception:  # noqa: BLE001
+            from .log import ignored
+            ignored("video.screen_recording")
+    if encoder == "libsvtav1" and s.video_grain in ("auto", "banding") and not info.screen:
         steps.report("Checking for film grain")
         grain = grain_level(src, info, s, encoder, cancel)
-        if grain:
+        if grain == BANDING_GRAIN:
+            notes.append("a light grain added to hide banding")
+        elif grain:
             notes.append(f"film grain re-created on playback (level {grain})")
 
     def finish(used: str) -> tuple[Path, str]:
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=out.suffix == ".mp4",
+        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix),
                      expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
         steps.report("Measuring how close it looks to the original")
         score = measure(src, info, out, s, cancel, grain if used == "libsvtav1" else 0)
         if score is not None:
             check_quality_budget(score, info, s, used)
             notes.append(f"{score} ({score.verdict()})")
-        if dropped:
-            notes.append(f"{len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages left out")
+        notes.extend((tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix))))
         if info.crop:
             notes.append(f"black bars removed ({info.crop[0]}×{info.crop[1]})")
-        plan.outcome = ", ".join(notes)
+        if fonts is not None:
+            notes.append(fonts.note())
+        plan.outcome = ", ".join(x for x in notes if x)
         return out, used
 
     if chunked.applies(info, s, encoder):
         try:
-            _, part_notes = chunked.encode(src, out, info, s, encoder, grain, on_progress, cancel)
+            _, part_notes = chunked.encode(src, out, info, s, encoder, grain, on_progress, cancel, fonts)
             notes += part_notes
             result = finish(encoder)
             chunked.finished(src, s, encoder, grain)
@@ -1065,27 +1484,28 @@ def convert_video(
             log.warning("Scene-by-scene encoding failed for %s, encoding it as a whole: %s", src.name, e)
             remove_quietly(out)
             chunked.finished(src, s, encoder, grain)
-            notes = [n for n in notes if n.startswith("film grain")] + ["encoded as a whole"]
+            notes = [n for n in notes if n.startswith(("film grain", "a light grain"))] + ["encoded as a whole"]
     if measures_quality(s):
         steps.report("Encoding short samples to choose the quality")
         q, choice = smart_quality(src, info, s, encoder, cancel, grain)
         if choice.endswith("(grain kept)"):
             grain = 0
-            notes = [n for n in notes if not n.startswith("film grain")]
+            notes = [n for n in notes if not n.startswith(("film grain", "a light grain"))]
         notes.append(choice)
     hw = s.video_encoder != "cpu" and HW_DECODE    # ("CPU only" keeps the graphics card out of it entirely)
     try:
         try:
             steps.report(f"Encoding {codec.upper()} video ({encoder})")
             try:
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, hw_decode=hw, grain=grain),
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, hw_decode=hw, grain=grain,
+                                                     fonts=fonts),
                                           info.duration, on_progress, cancel)
             except tools.ToolError:
                 if not hw:
                     raise
                 remove_quietly(out)        # hardware decoding failed on this file: decode it on the CPU
                 steps.report(f"Encoding {codec.upper()} video ({encoder}, decoding on the processor)")
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, grain=grain), info.duration,
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, grain=grain, fonts=fonts), info.duration,
                                           on_progress, cancel)
         except tools.ToolError:
             # Some sources exceed GPU limits (e.g. > 8K, unusual formats). On Auto,
@@ -1100,7 +1520,8 @@ def convert_video(
                 notes.append(choice)
             steps.report(f"The graphics card couldn't encode this video: encoding {codec.upper()} on the processor "
                          f"({encoder})")
-            tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q), info.duration, on_progress, cancel)
+            tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, fonts=fonts), info.duration, on_progress,
+                                      cancel)
         return finish(encoder)
     except BaseException:
         remove_quietly(out)
@@ -1108,7 +1529,7 @@ def convert_video(
 
 
 def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Settings, codec: str, encoder: str,
-                   audio_tracks: int, on_progress, cancel) -> tuple[Path, str]:
+                   audio_tracks: int, on_progress, cancel, fonts=None) -> tuple[Path, str]:
     """Encode at the bitrate that fits ``s.fit_under_kb``; if the encoder overshoots, again a little lower."""
     from .formats import human
 
@@ -1122,14 +1543,14 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
             steps.report(f"Encoding {codec.upper()} at {video_kbps:,} kbps to fit under {human(limit)} ({encoder})")
             fit = (video_kbps, audio_kbps, size)
             try:
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit), info.duration,
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit, fonts=fonts), info.duration,
                                           on_progress, cancel)
             except tools.ToolError:
                 if s.video_encoder != "auto" or encoder == CPU_ENCODERS[codec]:
                     raise
                 remove_quietly(out)
                 encoder = CPU_ENCODERS[codec]
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit), info.duration,
+                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, fit=fit, fonts=fonts), info.duration,
                                           on_progress, cancel)
             got = out.stat().st_size
             if got <= limit:
@@ -1139,7 +1560,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
                                                   f"(it made {human(got)})")
             video_kbps = max(30, int(video_kbps * limit / got * 0.93))     # overshot: aim lower
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=out.suffix == ".mp4", expected_size=size,
+        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix), expected_size=size,
                      audio_tracks=audio_tracks, src_path=src)
         plan.outcome = f"{video_kbps:,} kbps, {size[0]}×{size[1]} to fit under {human(limit)}"
         return out, encoder
@@ -1150,10 +1571,15 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
 
 def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
                  expected_size: tuple[int, int] | None = None, audio_tracks: int | None = None,
-                 src_path: Path | None = None) -> None:
+                 src_path: Path | None = None, copied: bool = False) -> None:
+    """``copied``: the picture was copied as it is (a Dolby Vision layer may stay); else it must be gone."""
     got = probe_video(out)
     if got is None:
         raise VerificationFailed("Output video can't be read")
+    if got.hdr == "Dolby Vision" and not copied:
+        raise VerificationFailed("The Dolby Vision layer came along without its picture")
+    if live_photo_id(src) and live_photo_id(got) != live_photo_id(src):
+        raise VerificationFailed("The clip would lose its link to its Live Photo")
     want_codec = {"av1": "av1", "hevc": "hevc", "h264": "h264", "vp9": "vp9"}.get(codec, codec)
     if got.codec != want_codec:
         raise VerificationFailed(f"Output codec is {got.codec}, expected {want_codec}")

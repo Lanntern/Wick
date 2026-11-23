@@ -45,6 +45,29 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--audio-bitrate", type=int, default=0, metavar="KBPS", help="re-encode audio; 0 = copy")
     g.add_argument("--no-film-grain", action="store_true",
                    help="AV1: don't store grainy videos without their grain (re-created on playback)")
+    g.add_argument("--hide-banding", action="store_true",
+                   help="AV1: also add a light grain to clean videos, which hides banding")
+    g.add_argument("--drop-audio-copies", action="store_true",
+                   help="leave out lossy soundtracks that copy a lossless one in the same language")
+    g.add_argument("--stereo", action="store_true", help="mix surround soundtracks down to stereo")
+    g.add_argument("--drop-silent", action="store_true", help="leave out soundtracks that are silent throughout")
+    g.add_argument("--skip-dolby-vision", action="store_true",
+                   help="leave Dolby Vision videos alone (by default their HDR base layer is re-encoded)")
+    g.add_argument("--keep-fonts", action="store_true",
+                   help="MKV: keep subtitle fonts whole (by default they're cut to the characters used)")
+    g.add_argument("--keep-previews", action="store_true",
+                   help="JPEG: keep camera previews and EXIF thumbnails stored inside photos")
+    g.add_argument("--drop-editing-data", action="store_true",
+                   help="PDF: leave out Illustrator's and Photoshop's editing copy (no longer editable there)")
+    g.add_argument("--crop-pictures", action="store_true",
+                   help="Office: cut off what picture crops hide (they can't be uncropped afterwards)")
+    g.add_argument("--drop-pivot-caches", action="store_true",
+                   help="Excel: leave pivot table caches for Excel to rebuild when the file opens")
+    g.add_argument("--zopfli", action="store_true", help="Office and e-books: denser, much slower compression")
+    g.add_argument("--zip-pictures", action="store_true", help="shrink the pictures inside .zip files")
+    g.add_argument("--keep-svg", action="store_true", help="leave SVG drawings as they are")
+    g.add_argument("--keep-document-fonts", action="store_true",
+                   help="Office and PDF: keep embedded fonts whole (by default they're cut to the characters used)")
     g.add_argument("--whole", action="store_true",
                    help="encode videos as a whole, not scene by scene (no parts side by side, no carrying on)")
     g.add_argument("--video-metric", choices=("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli"),
@@ -57,6 +80,10 @@ def _add_settings_args(p: argparse.ArgumentParser) -> None:
     g.add_argument("--audio-format", choices=AUDIO_FORMATS, default="opus")
     g.add_argument("--audio-quality", choices=AUDIO_QUALITIES, default="balanced")
     g.add_argument("--keep-stereo", action="store_true", help="don't store identical-channel stereo as mono")
+    g.add_argument("--keep-upsampled", action="store_true",
+                   help="keep hi-res files that were upsampled from CD-type audio at their rate")
+    g.add_argument("--no-speech", action="store_true",
+                   help="don't store long talk recordings (podcasts, audiobooks) as mono at a lower bitrate")
     g.add_argument("--cd-quality", action="store_true", help="reduce hi-res audio to 44.1/48 kHz, 16-bit")
     g.add_argument("--min-audio-kb", type=int, default=100)
     g = p.add_argument_group("quality")
@@ -103,8 +130,16 @@ def _settings(a: argparse.Namespace) -> Settings:
         video_max_height=a.max_height, video_max_fps=a.max_fps, audio_bitrate=a.audio_bitrate,
         smart_quality=bool(a.smart), smart_target=a.smart or "identical",
         audio_lossless=a.audio_lossless, audio_lossy=a.audio_lossy, audio_format=a.audio_format,
-        audio_quality=a.audio_quality, audio_mono=not a.keep_stereo, audio_cd_quality=a.cd_quality,
-        min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "auto",
+        audio_quality=a.audio_quality, audio_mono=not a.keep_stereo, audio_speech=not a.no_speech,
+        audio_fake_hires=not a.keep_upsampled, audio_cd_quality=a.cd_quality,
+        min_audio_kb=a.min_audio_kb, video_grain="off" if a.no_film_grain else "banding" if a.hide_banding else "auto",
+        video_fonts=not a.keep_fonts,
+        document_fonts=not a.keep_document_fonts, image_extras=not a.keep_previews,
+        document_drop_editing=a.drop_editing_data, document_crop=a.crop_pictures,
+        document_pivots=a.drop_pivot_caches, document_zopfli=a.zopfli,
+        archive_pictures=a.zip_pictures, image_svg=not a.keep_svg,
+        video_dup_audio=a.drop_audio_copies, video_stereo=a.stereo,
+        video_drop_silent=a.drop_silent, video_dolby_vision=not a.skip_dolby_vision,
         video_chunked=not a.whole, video_metric=a.video_metric,
     )
     if a.resize_long_edge:
@@ -159,6 +194,11 @@ def cmd_scan(a: argparse.Namespace) -> int:
           f"(save ~{human(total - est)})")
     if result.skipped_program_dirs:
         print(f"Skipped {len(result.skipped_program_dirs)} program/game folder(s).")
+    if result.skipped_libraries:
+        from .protected import describe
+
+        for library in result.skipped_libraries[:5]:
+            print(f"Left alone: {describe(library)}.")
     if result.cloud_only_files:
         print(f"Skipped {result.cloud_only_files} cloud-only file(s) (OneDrive etc.).")
     return 0

@@ -39,7 +39,7 @@ def gui_start(exe: Path, work: Path) -> bool:
 
 def main() -> int:
     app = Path(sys.argv[1])
-    exe = next(p for p in (app / "Wick.exe", app / "Wick") if p.exists())
+    exe = next(p for p in (app / "Wick.exe", app / "Wick", app / "Contents" / "MacOS" / "Wick") if p.exists())
     work = Path(tempfile.mkdtemp(prefix="smoke-åäö-"))
     src = work / "in"
     src.mkdir()
@@ -77,6 +77,12 @@ def main() -> int:
                                      "Select-Object ProcessId,ParentProcessId,Name,CommandLine | Format-List"],
                                     capture_output=True, text=True)
                 print("PROCESSES:\n" + ps.stdout[-6000:])
+            else:
+                ps = subprocess.run(["ps", "-axo", "pid,ppid,stat,etime,command"], capture_output=True, text=True)
+                print("PROCESSES (Wick, Python and encoders):\n" + "\n".join(
+                    line for line in ps.stdout.splitlines()
+                    if any(k in line for k in ("PID", "Wick", "python", "ffmpeg", "cjxl", "caffeinate")))[-6000:])
+            print("main process still running:", proc.poll() is None)
             if trace.exists():
                 text = trace.read_text(encoding="utf-8", errors="replace")
                 print("TRACE (first 6000 chars):\n" + text[:6000])
@@ -124,7 +130,8 @@ def main() -> int:
     except (OSError, ValueError):
         check = {}
     applied = check.get("applied") or {}
-    decoder_ok = bool(check.get("ok")) and applied.get("integrity") == "low" and applied.get("job") is True
+    decoder_ok = bool(check.get("ok")) and "error" not in applied and (
+        os.name != "nt" or (applied.get("integrity") == "low" and applied.get("job") is True))
     print(f"decoder worker: exit {proc.returncode}, {check} {'OK' if decoder_ok else 'FAILED'}")
     failed |= not decoder_ok
     applog = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Wick" / "logs" / "wick.log"

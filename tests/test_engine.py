@@ -101,8 +101,7 @@ def test_jpeg_rebuilt_when_bin_emptied(media_dir):
     from wick import trash_restore
     item = trash_restore.find_trashed(Path(rec.original), rec.trashed_at)
     assert item is not None, "original should be findable in the Recycle Bin/Trash"
-    os.remove(item.data_path)
-    os.remove(item.meta_path)
+    trash_restore.purge(item)
 
     ok, failed = undo_run(run_id)
     assert failed == 0
@@ -128,6 +127,23 @@ def test_video_roundtrip(media_dir, codec):
     for name, data in originals.items():
         assert (media_dir / name).read_bytes() == data, name
     assert sorted(p.name for p in media_dir.iterdir()) == sorted(originals)
+
+
+@needs_ffmpeg
+def test_mac_media_engine_encodes_hevc(media_dir):
+    """A real encode on Apple's media engine (VideoToolbox), where there is one: the macOS CI job."""
+    from wick import video
+    from wick.probe import probe_video
+
+    if not video.encoder_works("hevc_videotoolbox"):
+        pytest.skip("no VideoToolbox HEVC encoder here")
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=s=1280x720:r=30:d=3", "-c:v", "libx264", "-crf", "10", "clip.mp4",
+           cwd=media_dir)
+    s = Settings(video_codec="hevc", video_encoder="gpu", min_video_mb=0, min_savings_pct=0)
+    results, _run_id = _run(media_dir, s)
+    assert results[0].status == DONE, results[0].message
+    out = probe_video(media_dir / "clip.mp4")
+    assert out is not None and out.codec == "hevc"
 
 
 @needs_image_tools

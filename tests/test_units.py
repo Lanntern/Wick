@@ -1,6 +1,7 @@
 """Fast tests that need no external tools."""
 
 import os
+import sys
 import struct
 import zlib
 from pathlib import Path
@@ -297,7 +298,7 @@ def test_watcher_waits_for_stable_new_files(tmp_path):
         assert fw.poll_once() == []      # our own output is ignored
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Linux desktop-entry variant")
+@pytest.mark.skipif(os.name == "nt" or sys.platform == "darwin", reason="Linux desktop-entry variant")
 def test_desktop_integration_files(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
@@ -674,7 +675,7 @@ def test_gpu_encoders_nvidia_intel_amd(monkeypatch):
         monkeypatch.setattr(video, "encoder_works", lambda e, w=works: e in w)
         assert video.choose_encoder("hevc", "auto") == expect
     monkeypatch.setattr(video, "encoder_works", lambda e: False)
-    with pytest.raises(RuntimeError, match="NVIDIA.*Intel.*AMD"):
+    with pytest.raises(RuntimeError, match="NVIDIA.*Intel.*AMD|Macs can't encode AV1"):
         video.choose_encoder("av1", "gpu")
     assert "-global_quality" in video._gpu_quality_args("hevc_qsv", 26)
     assert video._gpu_quality_args("av1_amf", 124)[-4:] == ["-qp_i", "124", "-qp_p", "124"]
@@ -683,6 +684,33 @@ def test_gpu_encoders_nvidia_intel_amd(monkeypatch):
     assert [video.quality_label(e) for e in ("hevc_nvenc", "av1_qsv", "av1_amf", "libx265")] == ["CQ", "ICQ", "QP", "CRF"]
     for encoder in (*video.GPU_ENCODERS["av1"], *video.GPU_ENCODERS["hevc"]):
         assert encoder in video._QUALITY and encoder in video.SMART_STEPS and encoder in video.CRF_MAX
+
+
+def test_videotoolbox_on_a_mac(monkeypatch):
+    """Apple's media engine: HEVC only, quality 1-100 with higher better, hardware only, 10-bit named."""
+    from wick import video
+    from wick.probe import StreamInfo, VideoInfo
+
+    assert video.is_gpu("hevc_videotoolbox") and "hevc_videotoolbox" not in video.GPU_ENCODERS["av1"]
+    q = video._QUALITY["hevc_videotoolbox"]
+    assert q["high"] > q["balanced"] > q["small"]                        # (higher is better)
+    steps = video.SMART_STEPS["hevc_videotoolbox"]
+    assert steps == sorted(steps, reverse=True)                          # best quality first
+    assert video.encoder_quality(Settings(video_quality="custom", video_crf=24), "hevc_videotoolbox") == 64
+    assert video.encoder_quality(Settings(video_quality="custom", video_crf=18), "hevc_videotoolbox") == 76
+    args = video._gpu_quality_args("hevc_videotoolbox", 64)
+    assert args[:2] == ["-q:v", "64"] and "-allow_sw" in args
+    hdr = VideoInfo("hevc", 1920, 1080, "yuv420p10le", 30, 60, 6_000_000, 0, [StreamInfo(0, "video", "hevc")])
+    args = video.build_args(Path("a.mov"), Path("b.mp4"), hdr, Settings(), "hevc_videotoolbox", 64)
+    assert "main10" in args and "p010le" in args and "hvc1" in args
+    # Automatic picks HEVC on a Mac whose media engine works (no AV1 encoder there); AV1 elsewhere.
+    monkeypatch.setattr(video, "encoder_works", lambda e: e == "hevc_videotoolbox")
+    monkeypatch.setattr(video.sys, "platform", "darwin")
+    assert video.codec_for(None, Settings()) == "hevc"
+    assert video.codec_for(None, Settings(video_encoder="cpu")) == "av1"
+    assert video.choose_encoder("hevc", "auto") == "hevc_videotoolbox"
+    monkeypatch.setattr(video.sys, "platform", "linux")
+    assert video.codec_for(None, Settings()) == "av1"
 
 
 def test_hardware_decoding_is_asked_for_before_the_input():
@@ -911,3 +939,20 @@ def test_diagnostics_include_the_last_crash_record(tmp_path, monkeypatch):
                                                  encoding="utf-8")
     text = wlog.diagnostics(include_log=False)
     assert "Last crash record" in text and "Segmentation fault" in text
+
+
+def test_an_ffmpeg_that_errors_and_hangs_is_stopped(tmp_path, monkeypatch):
+    """FFmpeg sometimes prints an error and then never exits (seen with AV1 into .mov): the run is stopped."""
+    import sys
+
+    import pytest
+
+    from wick import tools
+
+    monkeypatch.setattr(tools, "STALL_AFTER_ERROR", 1.0)
+    script = tmp_path / "hang.py"
+    script.write_text("import sys, time\nsys.stderr.write('Could not write header\\n'); sys.stderr.flush()\n"
+                      "time.sleep(60)\n")
+    with pytest.raises(tools.ToolError) as err:
+        tools.run_ffmpeg_progress([sys.executable, str(script)], 10.0)
+    assert "stopped responding" in str(err.value.stderr if hasattr(err.value, "stderr") else err.value)

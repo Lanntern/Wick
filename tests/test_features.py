@@ -207,8 +207,14 @@ def test_repeated_frames_found_when_gpu_decoding_crashes(tmp_path, monkeypatch):
             return subprocess.CompletedProcess(args, -6, "", "Assertion failed")
         return real_run(args, *a, **k)
 
+    from wick import probe
+
+    monkeypatch.setattr(probe, "_hw_decode_ok", True)       # (an earlier test may have found GPU decoding failing)
     monkeypatch.setattr(tools, "run", run)
     assert detect_cadence(tmp_path / "padded.mp4", probe_video(tmp_path / "padded.mp4")) == 5 and crashed
+    assert not probe._hw_decode_ok                          # (and later videos go straight to the processor)
+    crashed.clear()
+    assert detect_cadence(tmp_path / "padded.mp4", probe_video(tmp_path / "padded.mp4")) == 5 and not crashed
 
 
 def _cadence_report(path, info) -> str:
@@ -245,7 +251,7 @@ def test_repeated_frames_detected_and_removed(tmp_path):
            cwd=tmp_path)
     assert detect_cadence(tmp_path / "real.mp4", probe_video(tmp_path / "real.mp4")) == 0
 
-    s = Settings(video_codec="hevc", min_video_mb=0, output_mode="suffix", image_format="none")
+    s = Settings(video_codec="hevc", video_encoder="cpu", min_video_mb=0, output_mode="suffix", image_format="none")
     entry = next(e for e in scan([tmp_path], s).entries if e.path.name == "padded.mp4")
     assert entry.video.cadence == 5 and round(entry.video.content_fps) == 24, _cadence_report(entry.path, entry.video)
     assert "30→24 fps" in mediainfo.describe(entry) and "padded" in mediainfo.cadence_note(entry.video)
@@ -332,7 +338,7 @@ def test_camera_videos_get_hevc_by_default():
 
     phone = VideoInfo("h264", 1920, 1080, "yuv420p", 30, 10, 20_000_000, 0, tags={"com.apple.quicktime.make": "Apple"})
     download = VideoInfo("h264", 1920, 1080, "yuv420p", 30, 10, 5_000_000, 0)
-    s = Settings()
+    s = Settings(video_encoder="cpu")             # (on a Mac's media engine, Automatic is HEVC for everything)
     assert s.video_codec == "auto"
     assert codec_for(phone, s) == "hevc" and codec_for(download, s) == "av1"
     assert codec_for(phone, Settings(video_codec="av1")) == "av1"

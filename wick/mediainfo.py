@@ -22,7 +22,7 @@ def bitrate(bps: float) -> str:
 
 def cadence_note(v) -> str:
     """Explains repeated frames, or "" if there are none."""
-    if not getattr(v, "cadence", 0):
+    if getattr(v, "cadence", 0) <= 0:
         return ""
     from .plan import fps_label
 
@@ -38,7 +38,7 @@ def describe(entry) -> str:
         parts = [f"{v.width}×{v.height}"]
         if v.fps:
             # "30→24 fps": stored at 30, but only 24 distinct frames per second (see cadence_note)
-            fps = f"{fps_label(v.fps)}→{fps_label(v.content_fps)}" if v.cadence else fps_label(v.fps)
+            fps = f"{fps_label(v.fps)}→{fps_label(v.content_fps)}" if v.cadence > 0 else fps_label(v.fps)
             parts.append(f"{fps} fps")
         if getattr(v, "vfr", False):
             parts[-1] = parts[-1].replace(" fps", " fps (variable)")

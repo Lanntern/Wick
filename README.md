@@ -90,6 +90,10 @@ To see `.jxl` photos in Photos and File Explorer, install Microsoft's free
 [JPEG XL Image Extension](https://apps.microsoft.com/detail/9MZPRTH5C0TB). Most browsers and chat apps can't
 open JPEG XL yet, so use WebP for pictures you send to people.
 
+**macOS** (Apple silicon): `Wick-macos-arm64.dmg` from the Releases page, or
+`brew tap lanntern/wick https://github.com/Lanntern/Wick` then `brew install --cask wick`. It isn't signed by
+Apple yet; see [Wick on macOS](docs/macos.md).
+
 ## Privacy
 
 Wick has no accounts, ads or tracking, and your files are never uploaded. It only goes online to check GitHub

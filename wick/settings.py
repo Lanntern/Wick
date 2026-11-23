@@ -38,6 +38,7 @@ class Settings:
     resize_height: int = 1080
     resize_percent: int = 50
     metadata: str = "keep"           # see METADATA_MODES / metadata.py (orientation + color profile always kept)
+    image_extras: bool = True        # leave out camera previews inside JPEGs and EXIF thumbnails (copies of the photo)
     preserve_dates: bool = True      # give outputs the original's modified/created dates
     # Videos
     video_codec: str = "auto"        # auto (HEVC for camera/phone videos, else AV1) | av1 | hevc | none
@@ -51,7 +52,13 @@ class Settings:
     video_fix_cadence: bool = True   # drop frames that were only repeated to pad the frame rate (24 -> 30 fps)
     video_crop_bars: bool = False    # remove black bars (letterboxing) found in the picture
     video_grain: str = "auto"        # AV1 film-grain synthesis: auto (grainy videos: grain removed, re-created on
-    #                                  playback, far smaller) | off
+    #                                  playback, far smaller) | banding (also a light grain on clean videos,
+    #                                  which hides banding in skies and dark scenes) | off
+    video_fonts: bool = True         # MKV: subtitle fonts cut to the characters used; unused fonts left out
+    video_dup_audio: bool = False    # leave out lossy soundtracks that copy a lossless one in the same language
+    video_stereo: bool = False       # surround soundtracks mixed down to stereo
+    video_drop_silent: bool = False  # soundtracks that stay silent from start to end are left out
+    video_dolby_vision: bool = True  # Dolby Vision 8 (iPhone HDR): re-encode the base layer (HLG/HDR10); else skip
     video_chunked: bool = True       # processor encodes: scene by scene, several parts at once (faster; Smart quality
     #                                  per scene; an interrupted video carries on where it stopped)
     video_metric: str = "auto"       # how Smart quality measures videos: auto (VMAF) | vmaf | ssimulacra2 | xpsnr |
@@ -65,10 +72,19 @@ class Settings:
     audio_format: str = "opus"       # lossy output: opus | aac | mp3
     audio_quality: str = "balanced"  # high | balanced | small
     audio_mono: bool = True          # store as mono when both channels are identical
+    audio_speech: bool = True        # long talk recordings (podcasts, audiobooks): mono at a lower bitrate
+    audio_fake_hires: bool = True    # "hi-res" that was upsampled from CD-type audio goes back to 44.1/48 kHz
     audio_cd_quality: bool = False   # reduce hi-res (88.2-192 kHz, 24-bit) to 44.1/48 kHz, 16-bit
     # Office documents and PDFs
     documents: str = "lossless"      # lossless (pictures inside shrunk, identical pixels) | reduce (+ large ones
     #                                  scaled down) | none
+    document_fonts: bool = True      # embedded fonts cut to the characters the document uses
+    document_drop_editing: bool = False  # PDF: leave out Illustrator's/Photoshop's own copy (no longer editable there)
+    document_crop: bool = False      # Office: cut off what picture crops hide (pictures used once)
+    document_pivots: bool = False    # Excel: leave pivot table caches for Excel to rebuild when the file opens
+    document_zopfli: bool = False    # Office/EPUB: denser, much slower Deflate for the text inside (Smallest files)
+    archive_pictures: bool = False   # ZIP files: pictures inside stored smaller (identical pixels)
+    image_svg: bool = True           # SVG drawings: editor data, metadata and comments removed (drawn the same)
     # Smart quality: search for the smallest result that still meets a measured quality target
     fit_under_kb: int = 0            # 0 = off; else make each image/video at most this size (KB)
     smart_quality: bool = False
@@ -157,7 +173,7 @@ class Settings:
         self.video_quality = pick(self.video_quality, VIDEO_QUALITIES, "balanced")
         self.video_effort = pick(self.video_effort, ("medium", "slow"), "medium")
         self.video_tracks = pick(self.video_tracks, VIDEO_TRACKS, "all")
-        self.video_grain = pick(self.video_grain, ("auto", "off"), "auto")
+        self.video_grain = pick(self.video_grain, ("auto", "banding", "off"), "auto")
         self.video_metric = pick(self.video_metric, ("auto", "vmaf", "ssimulacra2", "xpsnr", "butteraugli"), "auto")
         self.documents = pick(self.documents, DOCUMENT_MODES, "lossless")
         self.languages = ",".join(x for x in (p.strip() for p in str(self.languages or "").split(",")) if x)

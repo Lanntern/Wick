@@ -26,8 +26,55 @@ _holders = 0
 _inhibitor: subprocess.Popen | None = None
 
 
+_activity = None          # macOS: the NSProcessInfo activity token while work runs
+
+# NSActivityUserInitiated: work the person started. macOS then neither naps the app (App Nap slows hidden windows
+# to a crawl) nor lets the computer idle to sleep; the display may still sleep.
+_NS_ACTIVITY_USER_INITIATED = 0x00FFFFFF
+
+
+def _mac_begin() -> bool:
+    global _activity
+    import ctypes
+
+    from .macobjc import nsstring, sel, send, cls
+
+    try:
+        info = send(ctypes.c_void_p)(cls("NSProcessInfo"), sel("processInfo"))
+        token = send(ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_void_p)(
+            info, sel("beginActivityWithOptions:reason:"), _NS_ACTIVITY_USER_INITIATED, nsstring("Compressing files"))
+        if not token:
+            return False
+        _activity = send(ctypes.c_void_p)(token, sel("retain"))     # (kept until the work ends)
+        return True
+    except Exception:  # noqa: BLE001 - then caffeinate, as before
+        from wick.log import ignored
+        ignored("power._mac_begin")
+        return False
+
+
+def _mac_end() -> None:
+    global _activity
+    import ctypes
+
+    from .macobjc import sel, send, cls
+
+    if _activity is None:
+        return
+    try:
+        info = send(ctypes.c_void_p)(cls("NSProcessInfo"), sel("processInfo"))
+        send(None, ctypes.c_void_p)(info, sel("endActivity:"), _activity)
+        send(None)(_activity, sel("release"))
+    except Exception:  # noqa: BLE001
+        from wick.log import ignored
+        ignored("power._mac_end")
+    _activity = None
+
+
 def _hold_other() -> None:
     global _inhibitor
+    if sys.platform == "darwin" and _mac_begin():
+        return
     cmd = None
     if sys.platform == "darwin" and shutil.which("caffeinate"):
         cmd = ["caffeinate", "-i", "-w", str(os.getpid())]
@@ -44,6 +91,7 @@ def _hold_other() -> None:
 
 def _release_other() -> None:
     global _inhibitor
+    _mac_end()
     if _inhibitor is not None:
         try:
             _inhibitor.terminate()

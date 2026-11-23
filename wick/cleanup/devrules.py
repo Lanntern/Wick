@@ -81,7 +81,7 @@ KINDS = {
     "infra": "Terraform providers",
     "shared": "Package and IDE caches",
     "docker": "Docker",
-    "vdisk": "WSL and Docker virtual disks",
+    "vdisk": "Virtual disks",
 }
 # Names that are often, but not always, generated ("dist" can be a hand-made release folder). They are only
 # listed when the project's own .gitignore ignores them *and* a build tool's file sits beside them.

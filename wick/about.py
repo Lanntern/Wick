@@ -48,6 +48,8 @@ CREDITS: tuple[Credit, ...] = (
     Credit("Brotli", "WOFF2 compression", "MIT", "https://github.com/google/brotli"),
     Credit("blake3", "Fast checksums for finding duplicates", "CC0-1.0 or Apache-2.0",
            "https://github.com/oconnor663/blake3-py"),
+    Credit("zopfli", "Denser compression for Office files and e-books", "Apache-2.0",
+           "https://github.com/fonttools/py-zopfli"),
 )
 
 PRIVACY = ("Wick works entirely on this computer. It has no accounts, ads or tracking, and never sends your files "

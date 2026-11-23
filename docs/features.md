@@ -35,10 +35,30 @@ Options:
 
 **Preview** any file to compare before and after in a zoomable split view, with the expected size.
 
+**What else a JPEG carries:**
+
+- **Ultra HDR gain maps** and other pictures stored after the photo (stereo and depth images) are kept, with the
+  MPF index pointing at them. Such photos stay JPEG when another format is chosen, since other formats would
+  keep only the main picture and lose the HDR.
+- **Hidden previews and thumbnails** (on by default): the camera's own smaller copy after the photo and the
+  EXIF thumbnail are left out. Viewers make their own.
+- **Colour profiles** that give the same colours as sRGB, but take kilobytes, become a 588-byte sRGB profile.
+- **HEIC and AVIF with an HDR gain map, a depth map or several views** (iPhone and Samsung HDR photos,
+  portrait photos, spatial and stereo photos) are left alone: re-encoding would keep only the main picture.
+- **Live Photos**: the photo is only made smaller losslessly as the same-name JPEG, and the clip keeps its .mov
+  name and its link to the photo (re-encoded as HEVC: QuickTime files can't hold AV1). A suffix would separate
+  them, so with that output choice they're left alone.
+- **SVG drawings** lose editor data, metadata, comments and excess digits, and are drawn before and after to
+  check they look the same.
+- **Motion Photos** (Google format): the photo is made smaller with identical pixels and the clip re-encoded as
+  HEVC; the photo's XMP is updated to point at the new clip. Samsung's own format and HEIC Motion Photos are
+  left alone.
+
 ## Videos
 
 - **Codec:** *Automatic* uses HEVC for videos straight from cameras and phones (AV1 encoders tend to smooth
-  away their grain and fine detail) and AV1 for everything else. Videos already in HEVC, AV1 or VP9 are skipped.
+  away their grain and fine detail) and AV1 for everything else. Videos already in HEVC, AV1 or VP9 are skipped
+  (apart from leaving out tracks and cutting subtitle fonts, which doesn't touch the picture).
 - **Graphics card or processor:** *Auto* tries NVIDIA (NVENC), Intel (Quick Sync) and AMD (AMF) with a short
   test encode, and uses the processor (SVT-AV1 or x265) if none works.
 
@@ -68,10 +88,38 @@ Options:
   where it left off next time. Unused parts are removed after 14 days.
 - **Film grain** (AV1 on the processor): grain is removed before encoding and similar grain is re-created during
   playback, which saves a lot on grainy footage. The grain level is measured per video; clean videos are left as
-  they are.
+  they are. *Re-create it, and hide banding* also adds a light grain to clean videos, which breaks up the steps
+  that show in skies and dark scenes.
+- **Subtitle fonts** (MKV): styled subtitles often bring several large fonts. Each is cut to the characters the
+  subtitles draw with it, plus ASCII, Latin-1 and common punctuation, and fonts no subtitle uses are left out. A
+  font whose licence doesn't allow cutting stays whole. On AV1 and HEVC videos this is done without re-encoding,
+  when the fonts add up to 1 MB or more.
 - **Only my languages:** leaves out audio and subtitle tracks in other languages. The main soundtrack and
   untagged tracks always stay.
-- **Limits:** maximum resolution (never upscales), maximum frame rate, and an audio bitrate.
+- **Lower-quality copies** (optional): Blu-ray films often carry the same soundtrack twice, lossless (TrueHD,
+  DTS-HD MA, FLAC or PCM) and a lossy copy for older players. The copy is left out when it's in the same language
+  and has no more channels; commentaries and untagged tracks always stay. If the copy was the default track, the
+  lossless one becomes the default.
+- **Uncompressed audio** (WAV-style PCM, and the LPCM of Blu-rays and DVDs) in MKV videos is packed as FLAC: the
+  same samples, usually 40 to 60% smaller. On AV1 and HEVC videos this happens without re-encoding the picture.
+- **Stereo only** (optional): 5.1 and 7.1 soundtracks are mixed down to stereo, for laptops, phones and
+  headphones.
+- **Cover pictures** attached to MKV videos, and MP4 and MOV posters, are stored smaller with the same pixels
+  whenever the video is rebuilt.
+- **Soundtracks** that are encoded: stereo with identical channels becomes mono, talk over 10 minutes gets the
+  speech bitrate, and (optional) tracks silent from start to end are left out.
+- **Screen recordings** (large areas of exactly one colour, no camera noise) use SVT-AV1's screen-content tools.
+- **TV recordings** (.ts) in HEVC or AV1 are rewrapped into MKV without the broadcast padding, without
+  re-encoding the picture.
+- **iPhone HDR (Dolby Vision 8)**: when such a video has to be re-encoded (smaller size, frame rate or a size
+  limit), its HDR base picture is kept and the Dolby Vision layer left out; rewrapping keeps Dolby Vision. Other
+  Dolby Vision videos are skipped.
+- **Limits:** maximum resolution (never upscales), maximum frame rate, and an audio bitrate. The audio bitrate is
+  for stereo: mono gets 60% of it, 5.1 twice and 7.1 about 2.7 times (at most 512 kbps). Tracks already at or
+  under it are copied as they are, since re-encoding would make them bigger.
+- **Made by Wick:** every video and audio file Wick makes carries a short tag with the version and settings used
+  (for example "0.2.0; libsvtav1 30; preset 4; audio 128k; fonts cut"), and JPEGs and PNGs a "Wick 0.2.0"
+  comment, so they aren't compressed again, even after being moved or copied.
 - **Format details:** AV1 is 10-bit. HEVC stays 8-bit unless the source is 10-bit, and is tagged so Windows and
   Apple players open it. MP4 and MOV stay MP4; MKV keeps every track, subtitle and attachment. HDR10 and HLG
   video keep 10-bit color and their HDR information. Interlaced video is deinterlaced.
@@ -87,6 +135,15 @@ Options:
 
 - **Identical channels become mono:** "stereo" files whose two channels are the same (voice memos, old
   recordings) are stored as mono, at half the size with no audible change.
+- **Podcasts and audiobooks:** recordings of talk over 10 minutes (recognised by their frequent short pauses,
+  little sound above 5 kHz and near-identical channels) are stored as mono at a lower bitrate when they're
+  encoded to Opus, AAC or MP3: Opus 64, 48 or 32 kbps for High, Balanced or Small. Music is left as before.
+- **Album art** (every picture: front, back, booklet) is stored smaller with the same pixels. Files whose art takes 300 KB or more get just that, with
+  the sound copied untouched, even when the audio itself is left alone.
+- **Upsampled "hi-res"**: 88.2 to 192 kHz files that are really CD-type audio (nothing above 22 or 24 kHz, a
+  resampler's wall) go back to 44.1 or 48 kHz when packed as FLAC. Real hi-res recordings stay as they are.
+- **Tag padding**: FLAC and MP3 files with 64 KB or more of empty space in their tags lose it, with sound and
+  tags checked unchanged.
 - **Hi-res to CD quality** (optional): 88.2 to 192 kHz, 24-bit audio becomes 44.1 or 48 kHz, 16-bit with dither.
 - **Music for your phone** (Watch Folders): keeps a smaller Opus, AAC or MP3 copy of your music library, with tags
   and album art. Only changed songs are redone, and copies of songs you deleted are removed.
@@ -97,6 +154,30 @@ Word, PowerPoint, Excel, OpenDocument and PDF files get their pictures stored sm
 everything else in the file stays byte-for-byte the same and is checked. PDFs are also restructured
 losslessly with qpdf. Optionally, pictures larger than 2560 px are scaled down. Signed and password-protected
 documents are never changed.
+
+**E-books and comic books** (.epub, .cbz) are documents too: their pictures are stored smaller with identical
+pixels, and an e-book's fonts (plain or scrambled the IDPF or Adobe way) are cut to the characters in the book.
+Copy-protected e-books are left alone.
+
+**ZIP files** (optional): the JPEG and PNG pictures inside are stored smaller with identical pixels; everything
+else stays byte for byte. Password-protected ZIPs and ZIPs over 2 GB are left alone.
+
+**More inside documents:**
+
+- Office files lose pictures and embedded files nothing points to any more, and BMP and TIFF pictures become
+  PNG with the same pixels.
+- PDFs lose old page thumbnails; identical streams (a logo or font repeated in merged PDFs) are stored once;
+  black-and-white scans become CCITT Group 4 with the same pixels (often a third smaller).
+- Options: remove cropped-away parts of pictures in Word and PowerPoint (the crop can't be undone afterwards);
+  let Excel rebuild pivot table caches; leave out Illustrator's and Photoshop's editing data in PDFs (often half
+  the file); pack Office files and e-books tighter with Zopfli (slow; on with *Smallest files*).
+
+**Embedded fonts** (on by default) are cut to what the document uses. In Word, PowerPoint and OpenDocument files,
+each embedded font keeps every character that appears in the document, plus ASCII, Latin-1 and common
+punctuation; Word's scrambled fonts are unscrambled, cut and scrambled again with the same key, and marked as
+subsets. In PDFs, TrueType and OpenType fonts embedded whole are cut to the glyphs the pages draw (glyph
+numbers unchanged), and every page is drawn before and after: if one pixel differs, the fonts stay whole. PDFs with forms, PDF/A
+files and PDFs over 300 pages keep their fonts. Fonts whose licence doesn't allow cutting always stay whole.
 
 ## Presets and Smart quality
 
@@ -129,6 +210,27 @@ Graphics cards get the best settings they accept, each tried once with a tiny en
 full-resolution first pass, temporal AQ and B-frame references; Intel adds look-ahead; AMD uses quality-defined
 VBR with pre-analysis and adaptive quantization, matched to the size its constant QP would give.
 
+### Speed
+
+- The biggest files start first, so the end of a job isn't one large file on one core.
+- Videos encoded on a graphics card run alongside the photos (with one photo job fewer); processor encodes wait,
+  since they use every core.
+- On a hard drive or a network share, three files at a time, unless Parallel images is set in the options.
+- While a game, film or presentation is full screen, half as many files run at once.
+- A file that didn't get smaller is remembered with the options it was tried with, and skipped next time unless
+  the file or those options change. Files you pick yourself are always tried.
+- Scans show the list as soon as the folders are listed; each file's details fill in as they're read.
+
+### While it works
+
+- Time left for the whole job, from how fast this job has gone, and the space saved so far.
+- A recently compressed photo, before and after, every few seconds.
+- Failed files come with what usually fixes them: close the app that has the file open, free up space, allow
+  Wick in Controlled folder access, or install the missing encoder.
+- Notifications have Undo and Show Files buttons.
+- **Compress right away** (Settings › Integration): files sent from File Explorer's menu are compressed without
+  opening the window.
+
 ## Home, Convert and Metadata
 
 - **Home** reads the headers of the files in your Pictures, Videos, Downloads, Desktop and Documents folders in
@@ -154,11 +256,14 @@ Each tool scans first and only preselects what's safe. Everything can be undone 
 | Similar Photos | Resized, re-saved or edited copies, and optionally burst shots. The best copy stays. | Recycle Bin |
 | Duplicates | Identical files | Recycle Bin, or replaced with hard links (same drive, data stored once) |
 | Archives | .zip, .7z and .tar files that were already extracted, with every file matching | Recycle Bin |
-| Compress Apps | Installed games (Steam, Epic, GOG) and folders you add | Windows' built-in transparent compression |
+| Compress Apps | Installed games (Steam, Epic, GOG), folders you add, and (optional) folders of 1 GB or more in Documents, Downloads or Desktop unchanged for 6 months that aren't mostly photos, videos or archives | Windows' built-in transparent compression |
 | Google Takeout | Google Photos exports | Merged into one folder with the correct dates and albums |
 | Caches | Browser, Discord, Spotify, Teams, Slack, Telegram, shader and Adobe caches, crash dumps, driver installers | Recycle Bin |
-| Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL and Docker disks | Recycle Bin; Docker data removed by Docker; disks compacted |
-| Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files | Removed with Windows' own tools |
+| Developer | `node_modules`, build output, virtual environments and package caches that can be rebuilt; Docker leftovers; WSL, Docker, Hyper-V, VirtualBox and VMware disks | Recycle Bin; Docker data removed by Docker; disks compacted |
+| Windows | Previous Windows installation, update leftovers, error reports, old drivers, old temporary files, and installer packages no installed program lists any more | Removed with Windows' own tools |
+| RAW + JPEG | Photos the camera saved as both RAW and JPEG/HEIC; lists the one you choose. Never preselected | Recycle Bin |
+| Phone Backups | iPhone and iPad backups (iTunes, Apple Devices) and Samsung Smart Switch backups, with device name and date. Never preselected | Recycle Bin |
+| Camera Proxies | GoPro, DJI and Insta360 low-resolution copies and thumbnails, only when the full video is beside them | Recycle Bin |
 | Installers | Installers and disk images older than N days | Recycle Bin |
 | Apps | Installed apps, with when each was last opened; those not opened in 6 months first | The app's own uninstaller, then its leftover folders go to the Recycle Bin |
 | App Leftovers | Folders in AppData and ProgramData that no installed app uses and that haven't changed in months. Never preselected | Recycle Bin |

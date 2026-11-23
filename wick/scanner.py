@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
+import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -11,10 +13,11 @@ from pathlib import Path
 
 from .formats import (
     _EXT_KIND, AUDIO, AUDIO_EXTS, CONVERT_INPUTS, CONVERT_ONLY_KINDS, DOC, DOCUMENT, DOCUMENT_EXTS, HEIC, IMAGE_KINDS,
-    ARCHIVE, COMIC, FONT, JXL, PDF, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
+    ARCHIVE, COMIC, COMIC_EXTS, FONT, JXL, PDF, SVG, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
     ImageInfo, classify, read_image_info, sniff,
 )
 from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
+from .protected import dataless, inside_library, is_library
 from .settings import Settings
 
 # Folder names that are never scanned (case-insensitive). These hold OS,
@@ -61,6 +64,7 @@ class ScanResult:
     roots: list[Path]
     entries: list[FileEntry] = field(default_factory=list)
     skipped_program_dirs: list[Path] = field(default_factory=list)
+    skipped_libraries: list[Path] = field(default_factory=list)    # Photos and other apps' libraries
     unreadable_dirs: list[Path] = field(default_factory=list)
     cloud_only_files: int = 0
     jxl_files: int = 0          # JPEG XL files seen (already efficient; not listed as entries)
@@ -80,6 +84,11 @@ PARTS_PREFIX = ".wick-parts-"   # a video being encoded scene by scene (chunked.
 def _is_hidden(entry: os.DirEntry) -> bool:
     if entry.name.startswith("."):
         return True
+    if sys.platform == "darwin":            # (Finder's hidden flag: ~/Library, where apps keep their data, has it)
+        try:
+            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
+        except OSError:
+            return False
     if os.name == "nt":
         try:
             attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
@@ -90,7 +99,9 @@ def _is_hidden(entry: os.DirEntry) -> bool:
 
 
 def _cloud_only(st: os.stat_result) -> bool:
-    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS)
+    """Only in the cloud (OneDrive on Windows, iCloud Drive's optimised storage on a Mac): reading it would
+    download it."""
+    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS) or dataless(st)
 
 
 def scan(
@@ -101,10 +112,14 @@ def scan(
     probe: bool = True,
     picked: bool = False,
     found: Callable[[FileEntry], None] | None = None,
+    listed: Callable[[list[FileEntry]], None] | None = None,
+    ready: Callable[[list[FileEntry]], None] | None = None,
 ) -> ScanResult:
     """Scan folders and/or individual files. Files given directly are always included; with ``picked`` (someone
     chose them, rather than Watch Folders finding them) the size minimums don't apply to them either.
-    ``found`` runs on the scanning thread for each new entry, before optional compression probing."""
+    ``found`` runs on the scanning thread for each new entry, before optional compression probing.
+    ``listed`` gets every entry once the folders are listed, before their details are read (a list can show them
+    straight away); ``ready`` then gets batches of entries whose details have been read."""
     if isinstance(paths, (str, os.PathLike)):
         paths = [Path(paths)]
     roots = [Path(os.path.abspath(p)) for p in paths]
@@ -112,6 +127,11 @@ def scan(
     seen: set[str] = set()
 
     for root in roots:
+        library = inside_library(root)
+        if library is not None:             # (even when chosen directly: changing it would break the app's library)
+            if library not in result.skipped_libraries:
+                result.skipped_libraries.append(library)
+            continue
         if root.is_file():
             _add_file(result, root, None, seen, settings, found)
             if picked and result.entries and result.entries[-1].path == root:
@@ -127,8 +147,10 @@ def scan(
             return result
 
     mark_live_photos(result.entries)
+    if listed is not None:
+        listed(list(result.entries))
     if probe:
-        probe_entries(result.entries, progress, cancel)
+        probe_entries(result.entries, progress, cancel, settings, ready)
         if cancel is not None and cancel.is_set():
             result.cancelled = True
     result.entries.sort(key=lambda e: e.size, reverse=True)
@@ -155,6 +177,13 @@ def mark_live_photos(entries: list[FileEntry]) -> None:
 def _kind(p: Path, settings: Settings | None) -> str | None:
     if settings is not None and settings.convert_inputs and p.suffix.lower() == ".pdf":
         return PDF                                    # (Convert: its own kind, with its own choices)
+    if settings is not None and settings.convert_inputs and p.suffix.lower() in COMIC_EXTS:
+        return COMIC                                  # (Convert: pages to pictures or PDF; Compress: a document)
+    if settings is not None and not settings.convert_inputs:
+        if p.suffix.lower() == ".svg" and settings.image_svg:
+            return SVG
+        if p.suffix.lower() == ".zip" and settings.archive_pictures:
+            return DOCUMENT                           # (its pictures, like a comic book's)
     kind = classify(p)
     if kind is None and settings is not None:
         ext = p.suffix.lower()
@@ -200,12 +229,16 @@ def _is_drive_root(p: Path) -> bool:
     return os.name == "nt" and p.anchor != "" and Path(p.anchor) == p
 
 
+def _mac_volume_root(p: Path) -> bool:
+    return sys.platform == "darwin" and (str(p) == "/" or (p.parent == Path("/Volumes")))
+
+
 def _big_scope(root: Path) -> bool:
     """Worth asking Everything: a whole drive or your whole user folder (where it saves minutes). A smaller
     folder is read directly: quick anyway, and certain to include a file saved a moment ago (Everything's
     index can trail the disk by a moment)."""
     try:
-        return _is_drive_root(root) or os.path.normcase(os.path.abspath(root)) == \
+        return _is_drive_root(root) or _mac_volume_root(root) or os.path.normcase(os.path.abspath(root)) == \
             os.path.normcase(os.path.abspath(Path.home()))
     except OSError:
         return False
@@ -215,6 +248,13 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
     """Windows: the list of files without asking the disk about every one. From Everything when it's running
     (any folder, instant), else for a whole drive from its NTFS file table (Windows asks for administrator
     permission). None: scan the usual way."""
+    if sys.platform == "darwin" and _big_scope(root):
+        from . import spotlight
+
+        try:
+            return spotlight.listing_for(root, _LISTED_EXTS, progress)
+        except Exception:  # noqa: BLE001 - Spotlight's answer is a bonus: any problem, the usual way
+            return None
     if os.name == "nt" and _big_scope(root):
         from . import everything
 
@@ -258,6 +298,9 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
         for sub in listing.subdirs.get(d, []):
             _p, sattrs, _m, sname = listing.dirs[sub]
             if sattrs & REPARSE or sname.lower() in EXCLUDED_DIR_NAMES or sname.startswith(PARTS_PREFIX):
+                continue
+            if is_library(sname):
+                result.skipped_libraries.append(path / sname)
                 continue
             if not settings.include_hidden and (sname.startswith(".") or sattrs & (HIDDEN | SYSTEM)):
                 continue
@@ -323,6 +366,9 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     continue
                 if c.is_dir(follow_symlinks=False):
                     if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
+                        continue
+                    if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
+                        result.skipped_libraries.append(Path(c.path))
                         continue
                     if not settings.include_hidden and _is_hidden(c):
                         continue
@@ -390,8 +436,13 @@ def preload_codecs(heif: bool = True) -> None:
 
 
 def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
-                  cancel: threading.Event | None = None) -> None:
-    """Read image headers and video info (in parallel)."""
+                  cancel: threading.Event | None = None, settings: Settings | None = None,
+                  ready: Callable[[list[FileEntry]], None] | None = None) -> None:
+    """Read image headers and video info (in parallel). Repeated frames in videos are only looked for when
+    the option to remove them is on (one FFmpeg run per video saved otherwise)."""
+    from .probe import NOT_MEASURED
+
+    cadence = settings is None or settings.video_fix_cadence
     from . import index
 
     todo = []
@@ -401,17 +452,34 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         cached = index.lookup(e.path, e.size, e.mtime, e.kind)
         if cached is None:
             todo.append(e)
+        elif e.kind == VIDEO and cadence and cached.cadence == NOT_MEASURED:
+            todo.append(e)                        # (scanned with the option off: look for repeated frames now)
         elif e.kind == VIDEO:
             e.video = cached
         elif e.kind == AUDIO:
             e.audio = cached
         else:
             e.image = cached
+    waiting = {id(e) for e in todo}
+    batch: list[FileEntry] = [e for e in entries if id(e) not in waiting] if ready is not None else []
+    last_sent = [time.monotonic()]
+
+    def send(force: bool = False) -> None:
+        # (called under ``lock``) every quarter second at most, so the list updates smoothly without flooding
+        if ready is None or not batch or (not force and time.monotonic() - last_sent[0] < 0.25):
+            return
+        ready(batch.copy())
+        batch.clear()
+        last_sent[0] = time.monotonic()
+
     if not todo:
+        send(True)
         return
     preload_codecs(heif=any(e.kind == HEIC for e in entries))
     done = 0
     lock = threading.Lock()
+    with lock:
+        send(True)                     # (cached ones first)
 
     def work(e: FileEntry) -> None:
         nonlocal done
@@ -426,16 +494,21 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         if e.kind == VIDEO:
             e.video = probe_video(e.path)
             if e.video is not None:
-                e.video.cadence = detect_cadence(e.path, e.video)
+                e.video.cadence = detect_cadence(e.path, e.video) if cadence else NOT_MEASURED
         elif e.kind == AUDIO:
             e.audio = probe_audio(e.path)
         else:
             e.image = read_image_info(e.path, e.kind)
         with lock:
             done += 1
+            if ready is not None:
+                batch.append(e)
+                send()
             if progress and (done % 20 == 0 or e.kind in (VIDEO, AUDIO)):
                 progress(f"Reading file info: {e.path.name}", done, len(todo))
 
     with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
         list(pool.map(work, todo))
+    with lock:
+        send(True)
     index.store([(e.path, e.size, e.mtime, e.kind, e.info) for e in todo if e.info is not None])

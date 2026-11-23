@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from contextlib import contextmanager
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..protected import inside_library, is_library
 from ..scanner import EXCLUDED_DIR_NAMES, PROGRAM_MARKER_EXTS, _CLOUD_ONLY_ATTRS
 
 ProgressFn = Callable[[str, int, int], None]  # message, done, total
@@ -105,12 +107,20 @@ def cancelled(cancel: threading.Event | None) -> bool:
 
 
 def cloud_only(st: os.stat_result) -> bool:
-    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS)
+    """OneDrive's online-only files on Windows, iCloud Drive's dataless ones on a Mac (reading would download)."""
+    from ..protected import dataless
+
+    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS) or dataless(st)
 
 
 def is_hidden(entry: os.DirEntry) -> bool:
     if entry.name.startswith("."):
         return True
+    if sys.platform == "darwin":            # (Finder's hidden flag, as on ~/Library)
+        try:
+            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
+        except OSError:
+            return False
     if os.name == "nt":
         try:
             attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
@@ -121,14 +131,17 @@ def is_hidden(entry: os.DirEntry) -> bool:
 
 
 def walk_files(roots: list[Path], *, skip_program_folders: bool = True, include_hidden: bool = False,
-               cancel: threading.Event | None = None, dirs_out: list[Path] | None = None
-               ) -> Iterator[tuple[Path, os.stat_result]]:
+               cancel: threading.Event | None = None, dirs_out: list[Path] | None = None,
+               into_packages: bool = False) -> Iterator[tuple[Path, os.stat_result]]:
+    """``into_packages``: also inside app bundles and libraries (protected.py); only for tools that must, such as
+    compressing an app."""
     cache = getattr(_scan_context, "inventory", None)
     if cache is None:
         yield from _walk_files(roots, skip_program_folders=skip_program_folders, include_hidden=include_hidden,
-                               cancel=cancel, dirs_out=dirs_out)
+                               cancel=cancel, dirs_out=dirs_out, into_packages=into_packages)
         return
-    key = (tuple(os.path.normcase(os.path.abspath(p)) for p in roots), skip_program_folders, include_hidden)
+    key = (tuple(os.path.normcase(os.path.abspath(p)) for p in roots), skip_program_folders, include_hidden,
+           into_packages)
     if cache is not None and key in cache:
         cached_files, cached_directories = cache[key]
         if dirs_out is not None:
@@ -141,7 +154,7 @@ def walk_files(roots: list[Path], *, skip_program_folders: bool = True, include_
     files = []
     directories: list[Path] = []
     for item in _walk_files(roots, skip_program_folders=skip_program_folders, include_hidden=include_hidden,
-                            cancel=cancel, dirs_out=directories):
+                            cancel=cancel, dirs_out=directories, into_packages=into_packages):
         # A bounded cache avoids consuming arbitrary memory on a whole drive. Oversized scans fall back
         # to separate walks; normal streaming remains active and no incomplete inventory is reused.
         if cache is not None and len(files) <= 250_000:
@@ -154,12 +167,14 @@ def walk_files(roots: list[Path], *, skip_program_folders: bool = True, include_
 
 
 def _walk_files(roots: list[Path], *, skip_program_folders: bool = True, include_hidden: bool = False,
-               cancel: threading.Event | None = None, dirs_out: list[Path] | None = None
-               ) -> Iterator[tuple[Path, os.stat_result]]:
+               cancel: threading.Event | None = None, dirs_out: list[Path] | None = None,
+               into_packages: bool = False) -> Iterator[tuple[Path, os.stat_result]]:
     """All regular files under ``roots`` (no symlinks, no system/program folders, no cloud-only files)."""
     seen: set[str] = set()
     for root in roots:
         root = Path(os.path.abspath(root))
+        if not into_packages and inside_library(root) is not None:
+            continue
         if root.is_file():
             try:
                 yield root, root.stat()
@@ -195,6 +210,8 @@ def _walk_files(roots: list[Path], *, skip_program_folders: bool = True, include
                         if getattr(c.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400:
                             continue    # directory junction/reparse point: avoid cycles and crossing into other trees
                         if c.name.lower() in EXCLUDED_DIR_NAMES or (not include_hidden and is_hidden(c)):
+                            continue
+                        if not into_packages and is_library(c.name):   # (deleting inside an app's library breaks it)
                             continue
                         stack.append(Path(c.path))
                     elif c.is_file(follow_symlinks=False):

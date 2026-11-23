@@ -159,7 +159,8 @@ def windows_items(items: list[Candidate], writer: journal.RunWriter, cancel=None
         before = shutil.disk_usage(drive).free
     except OSError:
         before = None
-    ok, msg = winclean.run_system([c.extra["system"] for c in items], cancel)
+    files = [f for c in items if c.extra.get("system") == "installer_orphans" for f in c.extra.get("paths", [])]
+    ok, msg = winclean.run_system([c.extra["system"] for c in items], cancel, files)
     if not ok:
         return [Outcome(c, False, msg) for c in items]
     freed_total = 0

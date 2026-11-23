@@ -4,6 +4,7 @@ import io
 import json
 import sys
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -35,11 +36,11 @@ def test_check_reads_github_release(monkeypatch):
         return _Answer(json.dumps({"tag_name": "v99.0.0", "html_url": "https://example.invalid/r",
                                    "body": "Updates FFmpeg to fix CVE-2026-12345."}).encode())
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
     rel = updates.check()
     assert rel.version == "99.0.0" and rel.security and rel.url == "https://example.invalid/r"
     assert sent["ua"].startswith("Wick/")          # no other identifying information
-    monkeypatch.setattr(updates.urllib.request, "urlopen",
+    monkeypatch.setattr(urllib.request, "urlopen",
                         lambda req, timeout: _Answer(json.dumps({"tag_name": "v0.0.1", "body": ""}).encode()))
     assert updates.check() is None                         # already newer than that
 
@@ -48,14 +49,14 @@ def test_check_failures_are_explained(monkeypatch):
     def missing(req, timeout):
         raise urllib.error.HTTPError(updates.API, 404, "Not Found", {}, None)
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", missing)
+    monkeypatch.setattr(urllib.request, "urlopen", missing)
     with pytest.raises(updates.CheckFailed, match="No published releases"):
         updates.check()
 
     def offline(req, timeout):
         raise urllib.error.URLError("no route")
 
-    monkeypatch.setattr(updates.urllib.request, "urlopen", offline)
+    monkeypatch.setattr(urllib.request, "urlopen", offline)
     with pytest.raises(updates.CheckFailed, match="No connection"):
         updates.check()
 
@@ -175,3 +176,20 @@ def test_package_manager_installs_are_recognised(tmp_path):
     assert updates.install_source(str(installed / "Wick.exe")) == "winget"
     assert updates.PACKAGE_MANAGERS["winget"][1] == "winget upgrade Lanntern.Wick"
     assert updates.install_source() == ""                                       # running from source
+
+
+def test_the_homebrew_cask_follows_a_release(tmp_path):
+    import shutil
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+    import update_cask
+
+    cask = tmp_path / "wick.rb"
+    shutil.copy(update_cask.CASK, cask)
+    digest = "ab" * 32
+    sums = f"{'cd' * 32}  Wick-windows.zip\n{digest}  Wick-macos-arm64.dmg\n"
+    assert update_cask.update("v0.3.1", sums, cask)
+    text = cask.read_text()
+    assert 'version "0.3.1"' in text and f'sha256 "{digest}"' in text and "#{version}" in text
+    assert not update_cask.update("0.3.2", f"{'cd' * 32}  Wick-windows.zip\n", cask)   # (no Mac image: unchanged)
+    assert 'version "0.3.1"' in cask.read_text()

@@ -248,6 +248,15 @@ def broken_check(path: Path, size: int, thorough: bool) -> tuple[str, str] | Non
     return None
 
 
+def svg_same(a: Path, b: Path) -> bool:
+    """Do both SVGs draw the same (checked in the worker)? False when it can't be told."""
+    try:
+        header, _ = call("svg_same", str(a), str(b), timeout=120)
+    except DecoderFailed:
+        return False
+    return header.get("result") is True
+
+
 def similar_fingerprint(path: Path) -> tuple[int, int, int] | None:
     try:
         header, _ = call("similar_fingerprint", str(path), timeout=120)

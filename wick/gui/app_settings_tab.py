@@ -137,20 +137,44 @@ class AppSettingsTab(Page):
         self.menu.setChecked(integration.context_menu_installed())
         self.menu.toggled.connect(self._menu_toggled)
         menu_desc = ("Adds Compress with Wick and Convert with Wick when you right-click files and folders."
-                     if integration.IS_WINDOWS else "Adds Wick to your file manager's Open With menu.")
-        card.lay.addWidget(setting_row("Context menu", menu_desc, self.menu))
+                     if integration.IS_WINDOWS else
+                     "Adds Compress with Wick and Convert with Wick to Finder's right-click menu (Quick Actions)."
+                     if integration.IS_MAC else "Adds Wick to your file manager's Open With menu.")
+        menu_row = setting_row("Context menu", menu_desc, self.menu)
+        card.lay.addWidget(menu_row)
+        sep = separator()
+        card.lay.addWidget(sep)
+        if not integration.HAS_MENU:
+            menu_row.hide()
+            sep.hide()
+        self.quick = ToggleSwitch("Compress right away from the context menu")
+        self.quick.setChecked(self.qs.value("explorer/quick", False, bool))
+        self.quick.toggled.connect(lambda on: self.qs.setValue("explorer/quick", on))
+        card.lay.addWidget(setting_row("Compress right away from the context menu",
+                                       "Files sent to Wick are compressed with your current options without opening "
+                                       "the window; a notification says when it's done and can undo it.", self.quick))
         card.lay.addWidget(separator())
         self.autostart = ToggleSwitch("Start at sign-in")
         self.autostart.setChecked(integration.autostart_enabled())
         self.autostart.toggled.connect(self._autostart_toggled)
-        card.lay.addWidget(setting_row("Start at sign-in", "Wick opens in the tray, so watched folders keep working.",
+        card.lay.addWidget(setting_row("Start at sign-in", f"Wick opens in the {integration.TRAY}, so watched folders "
+                                                           "keep working.",
                                        self.autostart))
         card.lay.addWidget(separator())
-        self.close_to_tray = ToggleSwitch("Keep running in the tray")
+        self.close_to_tray = ToggleSwitch(f"Keep running in the {integration.TRAY}")
         self.close_to_tray.setChecked(self.qs.value("close_to_tray", True, bool))
         self.close_to_tray.toggled.connect(lambda on: self.qs.setValue("close_to_tray", on))
-        card.lay.addWidget(setting_row("Keep running in the tray", "Closing the window doesn't stop watched folders.",
+        card.lay.addWidget(setting_row(f"Keep running in the {integration.TRAY}",
+                                       "Closing the window doesn't stop watched folders.",
                                        self.close_to_tray))
+        if integration.IS_MAC:
+            card.lay.addWidget(separator())
+            self.taskbar_progress = ToggleSwitch("Progress on the Dock icon")
+            self.taskbar_progress.setChecked(self.qs.value("taskbar/progress", True, bool))
+            self.taskbar_progress.toggled.connect(lambda on: self._taskbar_setting("taskbar/progress", on))
+            card.lay.addWidget(setting_row("Progress on the Dock icon", "How far a job is, ‖ when paused and ! if "
+                                                                        "something failed. Pause and Stop are in the "
+                                                                        "icon's menu.", self.taskbar_progress))
         if integration.IS_WINDOWS:
             card.lay.addWidget(separator())
             self.taskbar_progress = ToggleSwitch("Progress on the taskbar")
@@ -261,6 +285,7 @@ class AppSettingsTab(Page):
             card.lay.addWidget(setting_row(name, desc, state))
             if i < len(status) - 1:
                 card.lay.addWidget(separator())
+        self._add_mac_install(card)
         col.addWidget(card)
 
         # diagnostics
@@ -452,6 +477,63 @@ class AppSettingsTab(Page):
         if latest and updates.newer(latest) and source in updates.PACKAGE_MANAGERS:
             state += f" Update with: {updates.PACKAGE_MANAGERS[source][1]}"
         self.update_status.setText(f"Last checked: {when}. {state}".strip())
+
+    def _add_mac_install(self, card) -> None:
+        """macOS without the encoders (Wick run from its source): install them with Homebrew, after asking."""
+        from .. import macsetup
+
+        if not macsetup.applies():
+            return
+        missing = macsetup.missing_formulae()
+        if not missing:
+            return
+        card.lay.addWidget(separator())
+        if macsetup.brew() is None:
+            note = text(macsetup.homebrew_hint(), Type.FOOTNOTE, wrap=True)
+            card.lay.addWidget(note)
+            return
+        self.brew_btn = button("Install Encoders", "primary", None,
+                               "Runs Homebrew: brew install " + " ".join(missing))
+        self.brew_btn.clicked.connect(lambda: self._install_with_brew(missing))
+        self.brew_state = text("", Type.FOOTNOTE, secondary=True, wrap=True)
+        self.brew_state.setTextFormat(Qt.PlainText)
+        card.lay.addWidget(setting_row("Install the missing encoders",
+                                       "With Homebrew (" + ", ".join(missing) + "). Takes a few minutes.",
+                                       self.brew_btn))
+        card.lay.addWidget(self.brew_state)
+
+    def _install_with_brew(self, formulae: list[str]) -> None:
+        from PySide6.QtCore import QThread, Signal
+
+        from .. import macsetup
+
+        class Install(QThread):
+            line = Signal(str)
+            done = Signal(str)            # "" when it worked, else why not
+
+            def run(self) -> None:
+                try:
+                    macsetup.install(formulae, self.line.emit)
+                    self.done.emit("")
+                except Exception as e:  # noqa: BLE001
+                    self.done.emit(str(e) or type(e).__name__)
+
+        self.brew_btn.setEnabled(False)
+        self.brew_state.setText("Installing with Homebrew…")
+        self._brew = Install(self)
+        self._brew.line.connect(lambda line: self.brew_state.setText(line[-160:]))
+
+        def finished(error: str) -> None:
+            if error:
+                self.brew_state.setText("Homebrew couldn't install them:\n" + error)
+                self.brew_btn.setEnabled(True)
+                return
+            self.brew_state.setText("Installed. Wick uses them from now on.")
+            self.brew_btn.hide()
+            self.win.probe.start() if not self.win.probe.isRunning() else None   # (graphics encoders, again)
+
+        self._brew.done.connect(finished)
+        self._brew.start()
 
     def _open_logs(self) -> None:
         from ..log import log_dir, log_file

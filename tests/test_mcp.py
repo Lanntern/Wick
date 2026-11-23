@@ -48,8 +48,9 @@ def _call(s, name, **args):
 
 
 def _outside_appdata(tmp_path: Path) -> Path:
-    """A folder the real server accepts: on Windows pytest's temp folders are under AppData, which it refuses."""
-    if os.name != "nt":
+    """A folder the real server accepts: pytest's temp folders are under AppData on Windows and /private/var on
+    macOS, which it refuses."""
+    if os.name != "nt" and sys.platform != "darwin":
         return tmp_path
     import tempfile
 

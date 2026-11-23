@@ -435,3 +435,16 @@ def test_office_documents_to_pdf(media_dir, tmp_path):
     r = next(r for r in results if r.entry.path.name == "letter.odt")
     assert r.status == DONE, r.message
     assert r.output.suffix == ".pdf" and pdftools.page_count(r.output) == 1
+
+
+@needs_ffmpeg
+def test_animated_webp_without_ffmpegs_webp_encoder(media_dir, monkeypatch):
+    """Homebrew's ffmpeg (macOS) has no libwebp: ffmpeg decodes, Pillow writes the animation."""
+    ffmpeg("-f", "lavfi", "-i", "testsrc2=s=320x180:r=30:d=1", "-c:v", "libx264", "clip.mp4", cwd=media_dir)
+    monkeypatch.setattr(convert, "_ffmpeg_has_webp", lambda: False)
+    s = Settings(output_mode="beside", min_video_mb=0, min_image_kb=0)
+    results, _ = _convert_all(media_dir, convert.ConvertOptions(image_target="none", video_target="webp_anim"), s)
+    r = next(r for r in results if r.entry.path.name == "clip.mp4")
+    assert r.status == DONE, r.message
+    with Image.open(r.output) as im:
+        assert im.format == "WEBP" and im.n_frames > 10 and im.size[0] > 0

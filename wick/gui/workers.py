@@ -16,6 +16,8 @@ from ..settings import Settings
 
 class ScanThread(QThread):
     progress = Signal(str, int, int)
+    listed = Signal(object)  # list[FileEntry]: everything found, before the details are read
+    ready = Signal(object)   # list[FileEntry]: a batch whose details have been read
     result = Signal(object)  # ScanResult
     error = Signal(str)
 
@@ -29,7 +31,8 @@ class ScanThread(QThread):
 
         try:
             with power.awake():
-                self.result.emit(scan(self.paths, self.settings, self.progress.emit, self.cancel, picked=True))
+                self.result.emit(scan(self.paths, self.settings, self.progress.emit, self.cancel, picked=True,
+                                      listed=self.listed.emit, ready=self.ready.emit))
         except Exception as e:  # noqa: BLE001
             from ..log import log
 

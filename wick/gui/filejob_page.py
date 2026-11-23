@@ -100,6 +100,7 @@ class FileJobPage(Page):
         rl.setSpacing(Space.L)
         self.job_status = JobStatus(*self.status_words)
         self.job_status.stop_requested.connect(self.stop)
+        self.job_status.fix_requested.connect(lambda key: self.win.apply_fix(key, retry=self.scan, rescan=self.scan))
         self.pauser = PauseControl(self.job_status, window)
         rl.addWidget(self.job_status)
         card = Card(padding=0, spacing=0, inset=True)

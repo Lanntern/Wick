@@ -49,6 +49,7 @@ CLEANUP_KINDS = {
     "duplicates": "Duplicates", "similar_photos": "Similar Photos", "large_files": "Large Files",
     "broken_files": "Broken Files", "empty_items": "Empty Items", "old_installers": "Installers",
     "app_caches": "Caches", "installed_apps": "Apps", "app_leftovers": "App Leftovers",
+    "camera_proxies": "Camera Proxies",
 }
 _WHOLE_COMPUTER = {"app_caches", "installed_apps", "app_leftovers"}
 
@@ -406,6 +407,10 @@ class Server:
                                     for e, p in biggest]
         if result.skipped_program_dirs:
             out["program_folders_skipped"] = len(result.skipped_program_dirs)
+        if result.skipped_libraries:
+            from .protected import describe
+
+            out["app_libraries_left_alone"] = [describe(p) for p in result.skipped_libraries[:10]]
         if result.cloud_only_files:
             out["cloud_only_files_skipped"] = result.cloud_only_files
         return out
@@ -495,7 +500,7 @@ class Server:
     def t_find_cleanup(self, args, **_) -> dict:
         from pathlib import Path as _Path
 
-        from .cleanup import apps, broken, caches, duplicates, empties, installers, largefiles, similar
+        from .cleanup import apps, broken, caches, duplicates, empties, installers, largefiles, proxies, similar
         from .formats import human
 
         kind = args.get("kind")
@@ -521,6 +526,7 @@ class Server:
             "app_caches": lambda: caches.find_caches(),
             "installed_apps": lambda: apps.find_apps(),
             "app_leftovers": lambda: apps.find_leftovers(),
+            "camera_proxies": lambda: proxies.find_proxies(roots),
         }
         result = finders[kind]()
         items = sorted(result.items, key=lambda c: -c.size)

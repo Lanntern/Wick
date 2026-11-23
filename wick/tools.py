@@ -175,7 +175,9 @@ def lower_thread_priority() -> None:
 
             k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             k32.SetThreadPriority(k32.GetCurrentThread(), -1)  # THREAD_PRIORITY_BELOW_NORMAL
-        elif hasattr(os, "setpriority"):
+        elif sys.platform.startswith("linux") and hasattr(os, "setpriority"):
+            # (Linux only: there a thread's id works as a process id. On macOS it doesn't, and could name some
+            # other process; the encoders' own processes are already started at low priority there.)
             os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 10)
     except Exception:  # noqa: BLE001
         from wick.log import ignored
@@ -224,6 +226,9 @@ def _candidate_dirs() -> Iterator[Path]:
         from .journal import data_dir
 
         yield data_dir() / "tools"
+    if sys.platform == "darwin":
+        # Homebrew (Apple silicon, then Intel) and MacPorts: an app opened from Finder doesn't get the shell's PATH.
+        yield from (Path("/opt/homebrew/bin"), Path("/usr/local/bin"), Path("/opt/local/bin"))
 
 
 @lru_cache(maxsize=None)
@@ -335,6 +340,17 @@ def run(
     return proc
 
 
+STALL_AFTER_ERROR = 60.0      # seconds without progress after FFmpeg printed an error: it's stuck
+STALL_SILENT = 1800.0         # seconds without any progress at all
+
+
+def _has_output(f) -> bool:
+    try:
+        return os.fstat(f.fileno()).st_size > 0
+    except OSError:
+        return False
+
+
 def run_ffmpeg_progress(
     args: Sequence[str | os.PathLike],
     duration: float | None,
@@ -360,9 +376,12 @@ def run_ffmpeg_progress(
         _considerate(proc)
         cancelled = False
         finished = threading.Event()
+        last_output = [time.monotonic()]
+        stalled = [False]
 
-        def watch_cancel() -> None:
-            # Reading stdout can block indefinitely when an encoder hangs without printing a line.
+        def watch() -> None:
+            # Reading stdout can block indefinitely when an encoder hangs without printing a line: cancelling
+            # kills it, and so does a stall (FFmpeg sometimes reports an error and then never exits).
             while not finished.wait(0.1):
                 if cancel is not None and cancel.is_set():
                     try:
@@ -370,12 +389,20 @@ def run_ffmpeg_progress(
                     except OSError:
                         pass    # already exited
                     return
+                quiet = time.monotonic() - last_output[0]
+                if quiet > STALL_AFTER_ERROR and _has_output(errf) or quiet > STALL_SILENT:
+                    stalled[0] = True
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                    return
 
-        if cancel is not None:
-            threading.Thread(target=watch_cancel, daemon=True, name="encoder-cancel").start()
+        threading.Thread(target=watch, daemon=True, name="encoder-watch").start()
         try:
             assert proc.stdout is not None
             for raw in proc.stdout:
+                last_output[0] = time.monotonic()
                 if cancel is not None and cancel.is_set():
                     cancelled = True
                     proc.kill()
@@ -400,6 +427,8 @@ def run_ffmpeg_progress(
         if proc.returncode != 0:
             errf.seek(0)
             said = errf.read().decode("utf-8", "replace")
+            if stalled[0]:
+                said += "\n(FFmpeg stopped responding" + (" after this error)" if said.strip() else ")")
             _log_run([str(a) for a in args], time.monotonic() - started, proc.returncode, said)
             raise ToolError([str(a) for a in args], proc.returncode, said)
         _log_run([str(a) for a in args], time.monotonic() - started, 0, None)

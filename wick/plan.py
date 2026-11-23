@@ -7,7 +7,7 @@ from pathlib import Path
 
 from . import tools
 from .fileops import BIN_NAME, trash_available
-from .formats import AUDIO, AVIF, BMP, DOCUMENT, GIF, HEIC, JPEG, PNG, TIFF, VIDEO, WEBP, video_output_ext
+from .formats import AUDIO, AVIF, BMP, DOCUMENT, GIF, HEIC, JPEG, PNG, SVG, TIFF, VIDEO, WEBP, video_output_ext
 from .scanner import FileEntry
 from .settings import Settings
 
@@ -39,6 +39,8 @@ class Plan:
     route: str = ""
     resize: tuple[int, int] | None = None
     note: str = ""                # extra info shown to the user
+    speech: bool = False          # audio: talk (podcast, audiobook): mono at the speech bitrate
+    audio_rate: int = 0           # audio: resample to this (hi-res audio that was upsampled from CD-type audio)
     outcome: str = ""             # filled in by the encoder (e.g. Smart quality's choice)
     raw_est: int = 0              # estimate before learning from past results (see calibration.py)
     dest: Path | None = None      # save exactly here ("Save As…" in the preview) instead of per the output mode
@@ -58,15 +60,17 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
     if s.output_mode == "folder" and not s.output_dir.strip():
         return _skip("Choose an output folder")
     if entry.live_pair:
-        return _skip("Part of a Live Photo, so the photo and its video stay together")
+        return _plan_live(entry, s)
     if entry.image is not None and entry.image.motion:
-        return _skip("Motion Photo. Its short video is stored inside the file and would be lost")
+        return _plan_motion(entry, s)
     if entry.kind == VIDEO:
         p = _plan_video(entry, s)
     elif entry.kind == AUDIO:
         p = _plan_audio(entry, s)
     elif entry.kind == DOCUMENT:
         p = _plan_document(entry, s)
+    elif entry.kind == SVG:
+        p = _plan_svg(entry, s)
     else:
         p = _plan_image(entry, s)
     if p.convert and p.est_size:
@@ -79,6 +83,62 @@ def plan_entry(entry: FileEntry, s: Settings) -> Plan:
         return _skip(f"No {BIN_NAME} on this drive (USB/network). Choose another output option, "
                      "or allow permanent deletion")
     return p
+
+
+def _plan_live(e: FileEntry, s: Settings) -> Plan:
+    """Half of a Live Photo (a photo and a clip with the same name, linked by an ID in both). The photo is only
+    made smaller losslessly as the same JPEG; the clip keeps its .mov name and the link. Anything that would
+    rename either half (a suffix) or change the photo's format is skipped, so the two stay together."""
+    import dataclasses
+
+    keep = "Part of a Live Photo, so the photo and its video stay together"
+    if s.output_mode == "suffix":
+        return _skip(keep + " (a suffix would separate them)")
+    if e.kind == JPEG:
+        p = _plan_image(e, dataclasses.replace(s, image_format="keep", jpeg_mode="lossless", resize_mode="none",
+                                                 fit_under_kb=0))
+        if not p.convert or p.route != "jpeg_opt":
+            return p if not p.convert else _skip(keep)
+        p.reason += "; Live Photo: stays a JPEG with the same name"
+        return p
+    if e.kind == VIDEO:
+        p = _plan_video(e, s)
+        if not p.convert or p.route not in ("video", "video_remux"):
+            return p if not p.convert else _skip(keep)
+        p.target_ext = e.path.suffix.lower()
+        if p.target_ext == ".mov":                 # (QuickTime files can't hold AV1)
+            p.reason = p.reason.replace("→ AV1", "→ HEVC")
+        p.reason += "; Live Photo: keeps its name and its link to the photo"
+        return p
+    return _skip(keep)
+
+
+def _plan_svg(e: FileEntry, s: Settings) -> Plan:
+    if not s.image_svg:
+        return _skip("SVG cleanup is off")
+    if _too_small(e, 10 * 1024):
+        return _skip("Smaller than 10 KB")
+    return Plan(True, "Editor data, metadata and comments removed (drawn the same)", e.path.suffix.lower(),
+                int(e.size * 0.8), lossless=True, route="svg")
+
+
+def _plan_motion(e: FileEntry, s: Settings) -> Plan:
+    """A Motion Photo: the photo losslessly and the clip as HEVC, put back together (motionphoto.py)."""
+    if e.kind != JPEG:
+        return _skip("HEIC Motion Photo. Its short video is stored inside the file and would be lost")
+    if s.image_format == "none" or s.video_codec == "none":
+        return _skip("Motion Photo. Both photo and video compression need to be on")
+    from .motionphoto import clip_length
+
+    try:
+        with open(e.path, "rb") as f:
+            clip = clip_length(f.read())
+    except OSError:
+        clip = 0
+    if not clip:
+        return _skip("Motion Photo stored in a way Wick can't rebuild (its video would be lost)")
+    return Plan(True, "Motion Photo: photo made smaller with identical pixels, clip as HEVC", e.path.suffix.lower(),
+                int(e.size - clip * 0.5), False, False, "motion_photo")
 
 
 def _lossy_ratio(q: int, table: tuple[float, float, float, float]) -> float:
@@ -113,6 +173,11 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
             resize = None
     out_w, out_h = resize or (info.width, info.height)
 
+    if fmt == "keep" and kind in (JPEG, PNG) and not resize and not fit:
+        from . import marker
+
+        if marker.has(e.path):
+            return _skip("Already compressed with Wick")
     if info.pages > 1 and not (fmt == "keep" and kind == TIFF):
         return _skip("Multi-page TIFFs can only be compressed with Keep format")
     if kind == WEBP and info.animated and fmt in ("keep", "jxl"):
@@ -124,6 +189,17 @@ def _plan_image(e: FileEntry, s: Settings) -> Plan:
             return _skip("HEIC support isn't installed")
 
     route, target, lossless, reversible = "", "", mode == "lossless", False
+
+    if kind in (HEIC, AVIF) and info.extras:
+        # No encoder here writes these back: re-encoding keeps only the main picture.
+        return _skip("HDR photo. Re-encoding would lose its HDR (gain map)" if info.extras == "gainmap"
+                     else "Photo with a depth map or several views. Re-encoding would keep only the main picture")
+    if kind == JPEG and fmt != "keep" and getattr(info, "extras", "") in ("gainmap", "other"):
+        # Other formats would carry only the main picture: an Ultra HDR photo would lose its HDR, a stereo or
+        # depth photo its second picture. It stays a JPEG, made smaller with nothing lost.
+        fmt = "keep"
+        notes.append("kept as JPEG to keep its HDR" if info.extras == "gainmap"
+                     else "kept as JPEG to keep its extra pictures")
 
     if fmt == "keep":
         target = e.path.suffix.lower()
@@ -287,21 +363,25 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
     v = e.video
     if v is None:
         return _skip("Couldn't read video info")
-    if v.hdr == "Dolby Vision":
-        return _skip("Dolby Vision video. Re-encoding would lose its Dolby Vision layer")
-    from .video import codec_for, drops_repeats, output_fps, select_tracks
+    from .video import codec_for, dolby_vision_base, drops_repeats, output_fps, packs_as_flac, select_tracks
+    from .video import tracks_note as tracks_note_of
 
     resized = s.video_target_size(v.width, v.height) != (v.width - v.width % 2, v.height - v.height % 2)
     capped = output_fps(v, s) is not None
     repeats = drops_repeats(v, s)
     if v.duration <= 0:
         return _skip("Unknown duration")
-    _a, _subs, dropped = select_tracks(v, s)
+    base = dolby_vision_base(v) if s.video_dolby_vision else ""
+    dv_skip = ("Dolby Vision video. Re-encoding would lose its Dolby Vision layer"
+               if v.hdr == "Dolby Vision" and not base else "")
+    kept_audio, _subs, dropped = select_tracks(v, s)
     dropped_audio = sum(1 for st in dropped if st.kind == "audio")
-    tracks_note = (f"leaves out {len(dropped)} track{'s' if len(dropped) != 1 else ''} in other languages"
-                   if dropped else "")
+    tracks_note = tracks_note_of(v, s).replace(" left out", "")
+    tracks_note = f"leaves out {tracks_note}" if tracks_note else ""
     limit = s.fit_under_kb * 1024
     fit = bool(limit) and e.size > limit
+    if fit and dv_skip:
+        return _skip(dv_skip)
     if fit:
         from .formats import human
 
@@ -310,12 +390,31 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         return Plan(True, f"{v.codec.upper()} → {'AV1' if codec == 'av1' else 'HEVC'}, made to fit under "
                     f"{human(limit)}", target, min(limit, int(e.size * 0.95)), route="video")
     if v.codec in EFFICIENT_VIDEO_CODECS and not (resized or capped or repeats or v.interlaced):
-        if not dropped:
-            return _skip(f"Already uses an efficient codec ({v.codec.upper()})")
-        saved = dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration
-        est = max(int(e.size * 0.5), int(e.size - saved)) if dropped_audio else int(e.size * 0.99)
-        return Plan(True, f"{v.codec.upper()} kept as it is; {tracks_note}",
-                    video_output_ext(e.path.suffix, v.codec), est, lossless=True, route="video_remux")
+        from . import subfonts
+        from .video import made_by_wick
+
+        ext = video_output_ext(e.path.suffix, v.codec)
+        made = made_by_wick(v)
+        fonts = subfonts.font_bytes(v) if s.video_fonts and ext == ".mkv" and "fonts cut" not in made else 0
+        fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
+        pcm = [a for a in kept_audio if packs_as_flac(a, ext in (".mp4", ".mov"))]
+        stereo = [a for a in kept_audio if s.video_stereo and a.channels > 2]
+        broadcast = v.container == "mpegts" and ext == ".mkv"        # (TV recordings: padding, teletext...)
+        if not (dropped or fonts or pcm or stereo or broadcast):
+            return _skip("Already compressed with Wick" if made
+                         else f"Already uses an efficient codec ({v.codec.upper()})")
+        pcm_bytes = sum(a.bit_rate or 1_536_000 for a in pcm) / 8 * v.duration
+        stereo_bytes = sum(a.bit_rate or 640_000 for a in stereo if a not in pcm) / 8 * v.duration
+        saved = (dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7 + pcm_bytes * 0.45
+                 + stereo_bytes * 0.6 + (e.size * 0.08 if broadcast else 0))
+        est = max(int(e.size * 0.3), int(e.size - saved)) if saved else int(e.size * 0.99)
+        why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "",
+                                    "uncompressed audio packed as FLAC" if pcm else "",
+                                    "surround mixed down to stereo" if stereo else "",
+                                    "broadcast padding removed" if broadcast else "") if x)
+        return Plan(True, f"{v.codec.upper()} kept as it is; {why}", ext, est, lossless=True, route="video_remux")
+    if dv_skip:
+        return _skip(dv_skip)
     codec = codec_for(v, s)
 
     av1_r, hevc_r = _VIDEO_BASE.get(v.codec, _LEGACY_RATIO)
@@ -344,7 +443,9 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:
         extra.append(f"{min(tw, th)}p")
     if v.interlaced:
         extra.append("deinterlaced")
-    if v.hdr:
+    if v.hdr == "Dolby Vision":
+        extra.append(f"{base} kept, Dolby Vision layer left out")
+    elif v.hdr:
         extra.append(f"{v.hdr} kept")
     if repeats and not capped:
         extra.append(f"{fps_label(v.content_fps)} fps (repeated frames removed)")
@@ -384,11 +485,16 @@ def _plan_document(e: FileEntry, s: Settings) -> Plan:
         jpeg, png, _other = documents.office_pictures(e.path)
     except documents.Unsupported as x:
         return _skip(str(x))
-    if jpeg + png < 50 * 1024:
-        return _skip("No pictures inside worth shrinking")
-    saved = jpeg * (0.35 if reduce else 0.05) + png * (0.5 if reduce else 0.2)
-    return Plan(True, f"Pictures inside shrunk ({note})", ext, int(e.size - saved), lossless=not reduce,
-                route="document")
+    if ext == ".zip" and e.size > 2 * 1024 ** 3:
+        return _skip("Larger than 2 GB")
+    extras = documents.office_extras(e.path)
+    if jpeg + png < 50 * 1024 and extras < 50 * 1024 and not s.document_zopfli:
+        return _skip("No pictures or fonts inside worth shrinking")
+    saved = jpeg * (0.35 if reduce else 0.05) + png * (0.5 if reduce else 0.2) + extras * 0.5
+    what = {".epub": "E-book", ".cbz": "Comic book", ".zip": "ZIP file"}.get(ext, "Pictures inside shrunk")
+    if ext in (".epub", ".cbz", ".zip"):
+        what += ": pictures shrunk" + (", fonts cut" if ext == ".epub" and s.document_fonts else "")
+    return Plan(True, f"{what} ({note})", ext, int(e.size - saved), lossless=not reduce, route="document")
 
 
 # Typical FLAC size relative to the source, for music.
@@ -396,7 +502,8 @@ _FLAC_RATIO = {"pcm": 0.58, "flac": 0.97, "alac": 0.98, "ape": 1.03, "wavpack": 
 
 
 def _plan_audio(e: FileEntry, s: Settings) -> Plan:
-    from .audio import FORMATS, cd_target, flac_problem, is_lossless, source_label, target_kbps
+    from .audio import (ART_CONTAINERS, FORMATS, PADDING_MIN, SPEECH_KBPS, cd_target, flac_problem, is_lossless,
+                        is_speech, made_by_wick, padding, source_label, target_kbps, upsampled_from)
 
     if s.audio_lossless == "keep" and s.audio_lossy == "keep":
         return _skip("Audio conversion is off")
@@ -409,34 +516,81 @@ def _plan_audio(e: FileEntry, s: Settings) -> Plan:
         return _skip("Unknown duration")
     if not tools.find_tool("ffmpeg"):
         return _skip("Needs FFmpeg, which isn't installed")
+    if made_by_wick(a):
+        return _skip("Already compressed with Wick")
     src = source_label(e.path, a)
     lossless_src = is_lossless(a.codec)
     extra = []
     if lossless_src and s.audio_lossless == "keep":
-        return _skip("Lossless audio is set to stay as it is")
+        return _padding_plan(e, padding, PADDING_MIN) or _skip("Lossless audio is set to stay as it is")
     if lossless_src and s.audio_lossless == "flac":
         problem = flac_problem(a, s)
         if problem:
             return _skip(problem)
         rate, bits = cd_target(a) if s.audio_cd_quality else (None, None)
+        fake = 0 if rate or not s.audio_fake_hires else _guess(upsampled_from, e, a)
+        if fake:
+            rate = fake
+            extra.append("the original was upsampled")
         ratio = _FLAC_RATIO.get("pcm" if a.codec.startswith("pcm_") else a.codec, 1.0)
         if rate or bits:
             ratio *= ((rate or a.sample_rate) * (bits or a.bits or 16)) / max(1, a.sample_rate * (a.bits or 16))
             extra.append(f"{(rate or a.sample_rate) / 1000:g} kHz/{bits or a.bits}-bit")
         lossless = not (rate or bits)
         desc = f"{src} → FLAC" + (" (lossless)" if lossless else "") + (f", {', '.join(extra)}" if extra else "")
-        return Plan(True, desc, ".flac", int(e.size * min(0.98, ratio)), lossless, False, "audio_flac")
+        return Plan(True, desc, ".flac", int(e.size * min(0.98, ratio)), lossless, False, "audio_flac",
+                    audio_rate=fake)
     fmt = s.audio_format
     kbps = target_kbps(fmt, s.audio_quality, a.channels)
+    lossy_on = lossless_src or s.audio_lossy != "keep"
+    speech = (lossy_on and s.audio_speech and fmt in SPEECH_KBPS and a.duration >= 600
+              and _guess(is_speech, e, a))
+    if speech:
+        kbps = SPEECH_KBPS[fmt][s.audio_quality]
     if not lossless_src:
+        art = _art_plan(e, a, ART_CONTAINERS) or _padding_plan(e, padding, PADDING_MIN)
         if s.audio_lossy == "keep":
-            return _skip(f"Already compressed ({src}); re-encoding is off")
+            return art or _skip(f"Already compressed ({src}); re-encoding is off")
         src_kbps = a.bit_rate / 1000
         if src_kbps < kbps * 1.4:
-            return _skip(f"Already efficient ({src} at {src_kbps:.0f} kbps)")
+            return art or _skip(f"Already efficient ({src} at {src_kbps:.0f} kbps)")
     # Album art and tags travel along: count what isn't audio in the source.
     other = max(0, e.size - int(a.bit_rate / 8 * a.duration)) if not lossless_src else 0
     est = int(kbps * 1000 / 8 * a.duration) + other
     label = FORMATS[fmt][2]
-    desc = f"{src} → {label} {kbps} kbps"
-    return Plan(True, desc, FORMATS[fmt][0], min(est, int(e.size * 0.95)), False, False, f"audio_{fmt}")
+    desc = f"{src} → {label} {kbps} kbps" + (" mono (speech)" if speech else "")
+    return Plan(True, desc, FORMATS[fmt][0], min(est, int(e.size * 0.95)), False, False, f"audio_{fmt}",
+                speech=speech)
+
+
+ART_MIN_BYTES = 300 * 1024
+
+
+def _art_plan(e: FileEntry, a, containers) -> Plan | None:
+    """Album art stored smaller (same pixels), the sound copied untouched: for files whose art is big."""
+    if a.cover_index < 0 or a.cover_codec not in ("mjpeg", "png") or e.path.suffix.lower() not in containers:
+        return None
+    art = e.size - int(a.bit_rate / 8 * a.duration)
+    if art < ART_MIN_BYTES:
+        return None
+    return Plan(True, "Album art stored smaller (same pixels); sound untouched", e.path.suffix.lower(),
+                e.size - int(art * 0.15), True, False, "audio_art")
+
+
+def _padding_plan(e: FileEntry, measure, minimum: int) -> Plan | None:
+    """Only the empty space in the tags removed, for files that keep a lot of it."""
+    pad = measure(e.path)
+    if pad < minimum:
+        return None
+    return Plan(True, "Empty space in the tags removed; sound and tags untouched", e.path.suffix.lower(),
+                e.size - pad, True, False, "audio_padding")
+
+
+def _guess(detect, e: FileEntry, a):
+    """A check that reads the sound (speech, upsampling); when it can't tell, the answer is no."""
+    try:
+        return detect(e.path, a)
+    except Exception:  # noqa: BLE001
+        from .log import ignored
+        ignored("plan._guess")
+        return 0

@@ -1,7 +1,8 @@
 """Which projects have something running in them right now: a terminal open in the folder, a dev server
 (``npm run dev`` runs node from the project's node_modules), a program built there, a venv's Python.
 
-Linux reads /proc. Windows reads each process's working folder and command line from its process
+Linux reads /proc. macOS asks ps (programs, command lines) and lsof (working folders; your own processes).
+Windows reads each process's working folder and command line from its process
 parameters (what Task Manager's "command line" column shows); processes of other users are skipped.
 """
 
@@ -137,10 +138,46 @@ def _windows() -> list[Proc]:
     return procs
 
 
+def parse_mac(ps_out: str, args_out: str, lsof_out: str) -> list[Proc]:
+    """From ``ps -axo pid=,ppid=,comm=``, ``ps -axo pid=,args=`` and ``lsof -a -d cwd -Fpn``."""
+    procs: dict[int, Proc] = {}
+    for line in ps_out.splitlines():
+        parts = line.split(None, 2)
+        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
+            exe = parts[2].strip()
+            procs[int(parts[0])] = Proc(int(parts[0]), int(parts[1]), os.path.basename(exe), exe=exe)
+    for line in args_out.splitlines():
+        parts = line.strip().split(None, 1)
+        if len(parts) == 2 and parts[0].isdigit() and int(parts[0]) in procs:
+            procs[int(parts[0])].cmdline = parts[1]
+    pid = None
+    for line in lsof_out.splitlines():                  # "p123" then "fcwd" then "n/path"
+        if line.startswith("p") and line[1:].isdigit():
+            pid = int(line[1:])
+        elif line.startswith("n") and pid in procs:
+            procs[pid].cwd = line[1:]
+    return list(procs.values())
+
+
+def _mac() -> list[Proc]:
+    import subprocess
+
+    def run(*cmd: str) -> str:
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=15, errors="replace").stdout
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    return parse_mac(run("/bin/ps", "-axo", "pid=,ppid=,comm="), run("/bin/ps", "-axo", "pid=,args="),
+                     run("/usr/sbin/lsof", "-a", "-d", "cwd", "-Fpn"))
+
+
 def processes() -> list[Proc]:
     try:
         if sys.platform == "win32":
             return _windows()
+        if sys.platform == "darwin":
+            return _mac()
         if os.path.isdir("/proc"):
             return _linux()
     except Exception:  # noqa: BLE001 - a nicety: never fail a scan over it

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import ctypes
 import os
+import sys
 
 from ..log import log
 
 IS_WINDOWS = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
 
 # ITaskbarList3
 CLSID_TaskbarList = "56fdf344-fd6d-11d0-958a-006097c9a090"
@@ -101,6 +103,9 @@ class Taskbar:
         self._buttons_added = False
         self._jobs: dict[int, tuple[object, str, float]] = {}   # id(panel) -> (panel, state, fraction)
         self._created_msg = 0
+        self._dock_menu = None
+        if IS_MAC:
+            self._setup_dock_menu()
         if IS_WINDOWS:
             try:
                 self._created_msg = ctypes.windll.user32.RegisterWindowMessageW("TaskbarButtonCreated")  # type: ignore[attr-defined]
@@ -160,7 +165,64 @@ class Taskbar:
         running = [p for p, state, _f in self._jobs.values() if state in ("normal", "indeterminate", "paused")]
         return running[-1] if running else None
 
+    def badge(self) -> str:
+        """The Dock icon's badge for the jobs running now (macOS): how far, paused, or a failure."""
+        if not self._jobs or not self.show_progress:
+            return ""
+        states = [s for _p, s, _f in self._jobs.values()]
+        state = next(s for s in ("error", "paused", "normal", "indeterminate") if s in states)
+        if state == "error":
+            return "!"
+        if state == "paused":
+            return "‖"
+        if state == "indeterminate":
+            return "…"
+        fractions = [f for _p, s, f in self._jobs.values() if s == "normal"]
+        return f"{int(100 * sum(fractions) / len(fractions))}%"
+
+    def _apply_mac(self) -> None:
+        import ctypes as c
+
+        from ..macobjc import Pool, cls, nsstring, sel, send
+
+        label = self.badge()
+        if label == getattr(self, "_shown_badge", None):
+            return
+        self._shown_badge = label
+        try:
+            with Pool():
+                app = send(c.c_void_p)(cls("NSApplication"), sel("sharedApplication"))
+                tile = send(c.c_void_p)(app, sel("dockTile"))
+                send(None, c.c_void_p)(tile, sel("setBadgeLabel:"), nsstring(label) if label else None)
+        except Exception:  # noqa: BLE001 - the badge is a nicety
+            from wick.log import ignored
+            ignored("gui.taskbar._apply_mac")
+        panel = self.active_panel()
+        if self._dock_menu is not None:
+            paused = bool(panel is not None and getattr(panel, "_paused_reason", ""))
+            self._dock_pause.setText("Resume" if paused else "Pause")
+            self._dock_pause.setVisible(panel is not None)
+            self._dock_stop.setVisible(panel is not None)
+
+    def _setup_dock_menu(self) -> None:
+        """The Dock icon's menu: Pause / Resume and Stop for the running job (like the Windows taskbar's buttons)."""
+        from PySide6.QtWidgets import QMenu
+
+        menu = QMenu(self.window)
+        self._dock_pause = menu.addAction("Pause", lambda: self.clicked(PAUSE_ID))
+        self._dock_stop = menu.addAction("Stop After the Current File", lambda: self.clicked(STOP_ID))
+        for action in (self._dock_pause, self._dock_stop):
+            action.setVisible(False)
+        try:
+            menu.setAsDockMenu()
+            self._dock_menu = menu
+        except AttributeError:       # (a Qt built without it)
+            pass
+
     def _apply(self) -> None:
+        if IS_MAC:
+            self._apply_mac()
+            return
         tb = self._taskbar()
         if tb is None:
             return

@@ -5,13 +5,15 @@ from __future__ import annotations
 from typing import cast
 
 import os
+import sys
 from pathlib import Path
 
 from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox
 
 from ..cleanup import (
-    actions, appcompress, archives, broken, caches, devclean, duplicates, empties, extensions, folders, installers,
-    largefiles, music, similar, takeout, videos, winclean,
+    actions, appcompress, archives, backups, broken, caches, devclean, duplicates, empties, extensions, folders,
+    macclean,
+    installers, largefiles, music, pairs, proxies, similar, takeout, videos, winclean,
 )
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
@@ -138,6 +140,17 @@ def _broken_options(sec: "ToolSection"):
     return [("", box)]
 
 
+def _pairs_options(sec: "ToolSection"):
+    combo = QComboBox()
+    combo.addItem("List the JPEGs (keep the RAW files)", "raw")
+    combo.addItem("List the RAW files (keep the JPEGs)", "jpeg")
+    combo.setCurrentIndex(max(0, combo.findData(sec.qs.value("cleanup/pairs/keep", "raw", str))))
+    combo.setAccessibleName("Which of each pair to list")
+    combo.currentIndexChanged.connect(lambda _i: sec.qs.setValue("cleanup/pairs/keep", combo.currentData()))
+    sec.extra_keep = combo
+    return [("Of each pair", combo)]
+
+
 def _similar_group_title(g: str, items: list[Candidate]) -> str:
     return f"{len(items) + 1} similar photos: keeping {items[0].keeper.name}"
 
@@ -192,6 +205,13 @@ def _appcompress_options(sec: ToolSection):
     tray.setToolTip('Wick stays running in the notification area. Use Quit in the tray menu to stop watching.')
     tray.toggled.connect(lambda on: sec.qs.setValue('appcompress/tray', on))
     sec.app_algorithm, sec.app_skip = algorithm, skip
+    old = QCheckBox('Also suggest folders unchanged for 6 months')
+    old.setChecked(cast(bool, sec.qs.value('appcompress/old_folders', False, bool)))
+    old.setToolTip('Looks in Documents, Downloads and Desktop for folders of 1 GB or more that nothing has changed '
+                   'in for 6 months, and that aren\'t mostly photos, videos or archives (those are compressed '
+                   'already). Their files open as usual; Windows decompresses them as they\'re read.')
+    old.toggled.connect(lambda on: sec.qs.setValue('appcompress/old_folders', on))
+    sec.app_old = old
     samples = QCheckBox('Test temporary samples for estimates (slower)')
     samples.setChecked(cast(bool, sec.qs.value('appcompress/sample', False, bool)))
     samples.setToolTip('Reads small portions of up to 8 files and compresses temporary copies using the chosen '
@@ -268,8 +288,15 @@ def _appcompress_options(sec: ToolSection):
         sec._game_results.raise_()
 
     community.clicked.connect(show_results)
+    if sys.platform == "darwin":
+        # APFS has one compression, and the community results are Windows games': hidden, but kept in the window
+        # (the scan reads the algorithm; a widget left out of the layout would be deleted under it).
+        for windows_only in (group, own_button, community):
+            windows_only.hide()
+        return [('', group), ('Skip file types', skip), ('', own_button), ('', community), ('', samples),
+                ('', old), ('', watch), ('', idle), ('', tray)]
     return [('Algorithm', group), ('Skip file types', skip), ('', own_button), ('', community), ('', samples),
-            ('', watch), ('', idle), ('', tray)]
+            ('', old), ('', watch), ('', idle), ('', tray)]
 
 
 def _takeout_options(sec: ToolSection):
@@ -514,6 +541,25 @@ def tools() -> list[Tool]:
              lambda s, p, c: installers.find_installers(s.folders, s.extra_days.value(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_days_option("installers", 30, "Older than", "Only list files older than this")),
+        Tool("proxies", "Camera Proxies",
+             "Low-resolution copies and thumbnails that GoPro, DJI and Insta360 cameras save next to every video "
+             "for their phone apps. A file is only listed when its full video is right beside it.",
+             lambda: _existing("Videos", "Pictures", "Desktop", "Downloads"),
+             lambda s, p, c: proxies.find_proxies(s.folders, p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
+        Tool("pairs", "RAW + JPEG",
+             "Photos the camera saved twice, as RAW and as JPEG or HEIC. One of each pair is listed; which one is "
+             "up to you, and nothing is selected for you.",
+             lambda: _existing("Pictures", "Desktop", "Downloads"),
+             lambda s, p, c: pairs.find_pairs(s.folders, s.extra_keep.currentData(), p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_pairs_options),
+        Tool("backups", "Phone Backups",
+             "iPhone and iPad backups made by iTunes or Apple Devices, and Samsung Smart Switch backups, newest "
+             "first. Each can be tens of gigabytes; nothing is selected for you.",
+             None, lambda s, p, c: backups.find_backups(p, c),
+             [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             available=lambda: "" if os.name == "nt" or sys.platform == "darwin" else
+             "Available on Windows and macOS."),
         Tool("apps", "Apps",
              "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
              f"uninstaller, then moves the folders it left behind to the {BIN_NAME}.",
@@ -554,14 +600,26 @@ def tools() -> list[Tool]:
              note="System items are removed with the same Windows tools Disk Cleanup uses. Your own files go to "
                   f"the {BIN_NAME}.",
              available=lambda: "" if winclean.supported() else "Available on Windows only."),
+        Tool("macclean", "Mac",
+             "What a Mac collects: Xcode's build data and old device support, caches, Mail's copies of opened "
+             "attachments, iPhone update files, old installers, and data left by apps that are gone.",
+             None, lambda s, p, c: macclean.find(p, c), [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             note="Only what's rebuilt or downloaded again by itself is selected for you.",
+             available=lambda: "" if macclean.supported() else "Available on macOS only."),
         Tool("appcompress", "Compress Apps",
-             "Compresses games and apps on NTFS drives. They keep working as usual, and Windows decompresses files "
-             "as they're read.",
+             ("Compresses apps and games with APFS's own compression. They keep working as usual, and macOS "
+              "decompresses files as they're read." if sys.platform == "darwin" else
+              "Compresses games and apps on NTFS drives. They keep working as usual, and Windows decompresses files "
+              "as they're read."),
              appcompress.default_sources,
-             lambda s, p, c: appcompress.find_compressible(appcompress.expand_sources(s.folders), p, c, **s._app_scan_options),
+             lambda s, p, c: appcompress.find_compressible(
+                 appcompress.expand_sources(s.folders) + (appcompress.old_folders(
+                     _existing("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
+                 p, c, **s._app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
-             available=lambda: "" if appcompress.supported() else "Available on Windows (NTFS drives) only."),
+             available=lambda: "" if appcompress.supported() else
+             "Available on Windows (NTFS drives) and Macs (APFS drives)."),
         Tool("takeout", "Google Takeout",
              "Turns a Google Photos Takeout into one folder of photos and videos, each with the date it was taken. "
              "Google stores those dates in separate files, so without this every photo shows the export date. If "

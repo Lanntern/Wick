@@ -47,6 +47,7 @@ def versions() -> dict[str, str]:
         "fontTools": _dist("fonttools"),
         "Brotli": _dist("brotli"),
         "blake3": _dist("blake3"),
+        "zopfli": _dist("zopfli"),
         "NumPy": _dist("numpy"),
         "lxml": _dist("lxml"),
         "Send2Trash": _dist("Send2Trash"),

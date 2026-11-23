@@ -20,7 +20,7 @@ def _jpeg_with_video_inside(path: Path) -> None:
     path.write_bytes(data[:2] + seg + data[2:] + b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 2000)
 
 
-def test_motion_photos_and_live_photos_are_left_alone(tmp_path):
+def test_motion_photos_and_live_photos_keep_their_parts_together(tmp_path):
     _jpeg_with_video_inside(tmp_path / "PXL_20260101_motion.jpg")
     Image.new("RGB", (400, 300), "navy").save(tmp_path / "IMG_0001.JPG", quality=90)
     (tmp_path / "IMG_0001.MOV").write_bytes(b"\x00" * 100)        # its Live Photo video
@@ -28,7 +28,8 @@ def test_motion_photos_and_live_photos_are_left_alone(tmp_path):
     s = Settings(min_image_kb=0, image_format="jxl", jpeg_mode="lossy")
     plans = {e.path.name: plan_entry(e, s) for e in scan([tmp_path], s).entries}
     assert not plans["PXL_20260101_motion.jpg"].convert and "Motion Photo" in plans["PXL_20260101_motion.jpg"].reason
-    assert not plans["IMG_0001.JPG"].convert and "Live Photo" in plans["IMG_0001.JPG"].reason
+    live = plans["IMG_0001.JPG"]           # (a Live Photo's photo: only made smaller as the same-name JPEG)
+    assert live.route == "jpeg_opt" and live.target_ext == ".jpg" and "Live Photo" in live.reason
     assert plans["plain.jpg"].convert
 
 

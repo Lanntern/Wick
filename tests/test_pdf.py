@@ -13,9 +13,11 @@ from wick.settings import Settings
 
 @pytest.fixture(scope="module", autouse=True)
 def qt():
-    from PySide6.QtGui import QGuiApplication
+    # A full QApplication (a QGuiApplication too): a bare QGuiApplication left in this test process would break
+    # the widget tests that run after it in the same process.
+    from PySide6.QtWidgets import QApplication
 
-    return QGuiApplication.instance() or QGuiApplication([])
+    return QApplication.instance() or QApplication([])
 
 
 def _pictures(d):

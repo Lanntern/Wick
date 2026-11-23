@@ -254,6 +254,15 @@ class SettingsPanel(QWidget):
                                "numbers, owner, author and comments.\nRotation and color profile always stay, so "
                                "images look the same.")
         f.addRow("Metadata", self.metadata)
+        self.image_extras = QCheckBox("Leave out hidden previews and thumbnails")
+        self.image_extras.setToolTip("Many cameras store a smaller copy of each photo inside it, and a tiny thumbnail "
+                                     "in its details. Viewers make their own. HDR gain maps and other pictures "
+                                     "that change how the photo looks are always kept.")
+        f.addRow(self.image_extras)
+        self.image_svg = QCheckBox("Clean up SVG drawings")
+        self.image_svg.setToolTip("Removes what only the editor needed (Inkscape settings, metadata, comments). "
+                                  "Each drawing is drawn before and after and only kept if it looks the same.")
+        f.addRow(self.image_svg)
         self.preserve_dates = QCheckBox("Keep original file dates")
         self.preserve_dates.setToolTip("Results get the original's modified and created dates, so photos stay "
                                        "sorted by when they were taken.")
@@ -296,7 +305,9 @@ class SettingsPanel(QWidget):
         self.video_fps = _combo([("Original", 0), ("60 fps", 60), ("30 fps", 30), ("24 fps", 24)],
                                 "Videos with a higher frame rate are reduced to this.")
         self.audio = _combo([("Copy as-is", 0), ("192 kbps", 192), ("128 kbps", 128), ("96 kbps", 96),
-                             ("64 kbps", 64)], "Re-encode audio (AAC in MP4, Opus in MKV/WebM) or keep it unchanged.")
+                             ("64 kbps", 64)], "Re-encode audio (AAC in MP4, Opus in MKV/WebM) or keep it unchanged. "
+                            "The rate is for stereo: 5.1 gets twice as much, 7.1 about 2.7 times. Tracks "
+                            "already at or under it are copied as they are.")
         f.addRow("Max resolution", self.video_height)
         f.addRow("Max frame rate", self.video_fps)
         self.audio.setAccessibleName("Soundtrack")
@@ -306,6 +317,25 @@ class SettingsPanel(QWidget):
                                    "the ones in languages you don't use, but always keeps the main soundtrack.")
         self.video_tracks.setAccessibleName("Audio and subtitle tracks")
         f.addRow("Tracks", self.video_tracks)
+        self.video_dup_audio = QCheckBox("Leave out duplicate soundtracks and subtitles")
+        self.video_dup_audio.setToolTip("Blu-ray films often have the same soundtrack twice: lossless, and a "
+                                        "smaller copy for older players. This keeps only the lossless one, and of "
+                                        "subtitle tracks with the same lines in the same language, keeps one. "
+                                        "Commentaries always stay.")
+        f.addRow(self.video_dup_audio)
+        self.video_stereo = QCheckBox("Mix surround sound down to stereo")
+        self.video_stereo.setToolTip("For watching on laptops, phones and headphones. 5.1 and 7.1 soundtracks "
+                                     "become stereo, which takes about a third of the space.")
+        f.addRow(self.video_stereo)
+        self.video_drop_silent = QCheckBox("Leave out silent soundtracks")
+        self.video_drop_silent.setToolTip("Dashcams, drones and screen recordings often have a soundtrack that "
+                                          "stays silent from start to end.")
+        f.addRow(self.video_drop_silent)
+        self.video_dolby_vision = QCheckBox("Include iPhone HDR (Dolby Vision) videos")
+        self.video_dolby_vision.setToolTip("These keep an ordinary HDR picture that every player shows, plus a "
+                                           "Dolby Vision layer on top. When they're re-encoded, the HDR picture "
+                                           "is kept and the extra layer is left out.")
+        f.addRow(self.video_dolby_vision)
         self._languages = ""
         self.languages_btn = button("", "", None, "Choose your languages")
         self.languages_btn.setAccessibleName("My languages")
@@ -321,11 +351,19 @@ class SettingsPanel(QWidget):
         self.video_crop.setToolTip("Crops black bands around the picture so no space is spent on them. Bars are "
                                    "only removed if they stay black for the whole video.")
         f.addRow(self.video_crop)
-        self.video_grain = QCheckBox("Re-create film grain")
-        self.video_grain.setToolTip("For AV1 on the processor. Grain from film or low light takes a lot of space, "
-                                    "so it's removed and a matching grain is added back during playback. Grainy "
-                                    "videos get much smaller and look the same.")
-        f.addRow(self.video_grain)
+        self.video_grain = _combo([("Re-create it", "auto"), ("Re-create it, and hide banding", "banding"),
+                                   ("Keep it in the picture", "off")],
+                                  "For AV1 on the processor. Grain from film or low light takes a lot of space, so "
+                                  "it's removed and a matching grain is added back during playback. Grainy videos "
+                                  "get much smaller and look the same. Hiding banding also adds a light grain to "
+                                  "clean videos, which breaks up the visible steps in skies and dark scenes.")
+        self.video_grain.setAccessibleName("Film grain")
+        f.addRow("Film grain", self.video_grain)
+        self.video_fonts = QCheckBox("Smaller subtitle fonts")
+        self.video_fonts.setToolTip("MKV videos with styled subtitles often carry several large fonts. This keeps "
+                                    "only the characters the subtitles use, and leaves out fonts they don't use. "
+                                    "Works on AV1 and HEVC videos too, without re-encoding the picture.")
+        f.addRow(self.video_fonts)
         self.video_chunked = QCheckBox("Encode scene by scene")
         self.video_chunked.setToolTip("For processor encodes of videos over 90 seconds. Splitting at scene changes "
                                       "lets the parts encode at the same time, which is faster on processors with "
@@ -362,6 +400,12 @@ class SettingsPanel(QWidget):
         self.audio_mono = QCheckBox("Mono when channels match")
         self.audio_mono.setToolTip("Stereo files with identical left and right channels are saved as mono. That "
                                    "halves the size and sounds the same.")
+        self.audio_speech = QCheckBox("Smaller podcasts and audiobooks")
+        self.audio_speech.setToolTip("Recordings of talk over 10 minutes are saved as mono at a lower bitrate, "
+                                     "which is plenty for voices. Music is never affected.")
+        self.audio_fake_hires = QCheckBox("Undo upsampled hi-res")
+        self.audio_fake_hires.setToolTip("Some 88.2 to 192 kHz files are CD audio made bigger: nothing is there above "
+                                         "what 44.1 or 48 kHz holds. Those go back to that rate; real hi-res stays.")
         self.audio_cd = QCheckBox("Reduce hi-res to CD quality")
         self.audio_cd.setToolTip("Converts 96 or 192 kHz and 24-bit audio to 44.1 or 48 kHz and 16-bit. The "
                                  "difference is beyond what people can hear.")
@@ -370,6 +414,8 @@ class SettingsPanel(QWidget):
         f.addRow("Lossy format", self.audio_format)
         f.addRow("Quality", self.audio_quality)
         f.addRow(self.audio_mono)
+        f.addRow(self.audio_speech)
+        f.addRow(self.audio_fake_hires)
         f.addRow(self.audio_cd)
         self.sections.append(Section("Audio", g, False))
         lay.addWidget(self.sections[-1])
@@ -385,6 +431,35 @@ class SettingsPanel(QWidget):
                                 "2560 px are also scaled down: much smaller, still sharp on screen.")
         self.documents.setAccessibleName("Documents")
         f.addRow("Pictures", self.documents)
+        self.document_fonts = QCheckBox("Cut embedded fonts to the characters used")
+        self.document_fonts.setToolTip("Word, PowerPoint and PDF files often carry whole fonts for a few hundred "
+                                       "characters. The document looks exactly the same; typing new characters "
+                                       "on a computer without the font may show another font.")
+        f.addRow(self.document_fonts)
+        self.document_drop_editing = QCheckBox("Leave out Illustrator and Photoshop editing data")
+        self.document_drop_editing.setToolTip("PDFs saved with \"Preserve Illustrator Editing Capabilities\" carry "
+                                              "a whole copy of the Illustrator file, often doubling their size. The "
+                                              "PDF looks the same without it, but Illustrator then opens it as a "
+                                              "plain PDF.")
+        f.addRow(self.document_drop_editing)
+        self.document_crop = QCheckBox("Remove cropped-away parts of pictures")
+        self.document_crop.setToolTip("Word and PowerPoint keep the whole picture when you crop it. This cuts off "
+                                      "the hidden part, so it looks the same but the crop can't be undone later. "
+                                      "Photos are only cut when large pictures are also reduced.")
+        f.addRow(self.document_crop)
+        self.document_pivots = QCheckBox("Let Excel rebuild pivot table caches")
+        self.document_pivots.setToolTip("Excel stores a copy of a pivot table's data in the file. Without it, the "
+                                        "file is smaller and Excel rebuilds the copy when it opens the file, which "
+                                        "can take a moment for large tables.")
+        f.addRow(self.document_pivots)
+        self.document_zopfli = QCheckBox("Pack documents tighter (slow)")
+        self.document_zopfli.setToolTip("Compresses the text inside Office files and e-books with Zopfli: a few "
+                                        "percent smaller, many times slower. Every app opens them as before.")
+        f.addRow(self.document_zopfli)
+        self.archive_pictures = QCheckBox("Shrink pictures inside ZIP files")
+        self.archive_pictures.setToolTip("Stores the JPEG and PNG pictures inside .zip files smaller, with identical "
+                                         "pixels. Everything else inside stays byte for byte the same.")
+        f.addRow(self.archive_pictures)
         f.addRow(_muted("Signed and password-protected documents are left alone."))
         self.sections.append(Section("Documents", g, False))
         lay.addWidget(self.sections[-1])
@@ -531,13 +606,18 @@ class SettingsPanel(QWidget):
                   self.video_quality,
                   self.output_mode, self.smart_target, self.video_height, self.video_fps, self.audio,
                   self.audio_lossless, self.audio_lossy, self.audio_format, self.audio_quality, self.video_jobs,
-                  self.video_tracks, self.documents, self.video_metric)
+                  self.video_tracks, self.documents, self.video_metric, self.video_grain)
         spins = (self.quality, self.effort, self.resize_long, self.resize_w, self.resize_h, self.resize_pct,
                  self.min_savings, self.min_savings_kb, self.min_image_kb, self.min_video_mb, self.workers,
                  self.min_audio_kb, self.video_crf)
         checks = (self.allow_delete, self.keep_structure, self.skip_programs, self.include_hidden,
-                  self.low_priority, self.preserve_dates, self.require_savings, self.smart, self.audio_mono,
-                  self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_grain,
+                  self.low_priority, self.preserve_dates, self.require_savings, self.smart, self.audio_mono, self.audio_speech,
+                  self.audio_fake_hires,
+                  self.audio_cd, self.video_cadence, self.fit_on, self.video_crop, self.video_fonts,
+                  self.video_dup_audio, self.video_stereo, self.document_fonts,
+                  self.video_drop_silent, self.video_dolby_vision, self.image_extras,
+                  self.document_drop_editing, self.document_crop, self.document_pivots, self.document_zopfli,
+                  self.image_svg, self.archive_pictures,
                   self.video_chunked)
         return ([c.currentIndexChanged for c in combos] + [s.valueChanged for s in spins]
                 + [c.toggled for c in checks] + [self.suffix.textChanged, self.output_dir.textChanged,
@@ -590,7 +670,9 @@ class SettingsPanel(QWidget):
         show(self.audio_format, uses_lossy)
         show(self.audio_quality, uses_lossy)
         show(self.audio_mono, lossless != "keep" or lossy != "keep")
+        show(self.audio_speech, uses_lossy)
         show(self.audio_cd, lossless == "flac")
+        show(self.audio_fake_hires, lossless == "flac" and not self.audio_cd.isChecked())
         sec["Audio"].setVisible(has("audio"))
         sec["Documents"].setVisible(has("document"))
 
@@ -648,11 +730,26 @@ class SettingsPanel(QWidget):
         _set_combo(self.audio_format, s.audio_format)
         _set_combo(self.audio_quality, s.audio_quality)
         _set_combo(self.documents, s.documents)
+        self.document_fonts.setChecked(s.document_fonts)
+        self.image_extras.setChecked(s.image_extras)
+        self.image_svg.setChecked(s.image_svg)
+        self.archive_pictures.setChecked(s.archive_pictures)
+        self.document_drop_editing.setChecked(s.document_drop_editing)
+        self.document_crop.setChecked(s.document_crop)
+        self.document_pivots.setChecked(s.document_pivots)
+        self.document_zopfli.setChecked(s.document_zopfli)
         self.audio_mono.setChecked(s.audio_mono)
+        self.audio_speech.setChecked(s.audio_speech)
+        self.audio_fake_hires.setChecked(s.audio_fake_hires)
         self.audio_cd.setChecked(s.audio_cd_quality)
         self.video_cadence.setChecked(s.video_fix_cadence)
         self.video_crop.setChecked(s.video_crop_bars)
-        self.video_grain.setChecked(s.video_grain == "auto")
+        _set_combo(self.video_grain, s.video_grain)
+        self.video_fonts.setChecked(s.video_fonts)
+        self.video_dup_audio.setChecked(s.video_dup_audio)
+        self.video_stereo.setChecked(s.video_stereo)
+        self.video_drop_silent.setChecked(s.video_drop_silent)
+        self.video_dolby_vision.setChecked(s.video_dolby_vision)
         self.video_chunked.setChecked(s.video_chunked)
         _set_combo(self.video_metric, s.video_metric)
         _set_combo(self.video_jobs, s.video_jobs)
@@ -694,12 +791,22 @@ class SettingsPanel(QWidget):
             fit_under_kb=max(1, self.fit_mb.bytes() // 1024) if self.fit_on.isChecked() else 0,
             audio_lossless=self.audio_lossless.currentData(), audio_lossy=self.audio_lossy.currentData(),
             audio_format=self.audio_format.currentData(), audio_quality=self.audio_quality.currentData(),
-            audio_mono=self.audio_mono.isChecked(), audio_cd_quality=self.audio_cd.isChecked(),
+            audio_mono=self.audio_mono.isChecked(), audio_speech=self.audio_speech.isChecked(),
+            audio_fake_hires=self.audio_fake_hires.isChecked(),
+            audio_cd_quality=self.audio_cd.isChecked(),
             min_audio_kb=self.min_audio_kb.value(), video_fix_cadence=self.video_cadence.isChecked(),
             video_crop_bars=self.video_crop.isChecked(),
-            video_grain="auto" if self.video_grain.isChecked() else "off", video_chunked=self.video_chunked.isChecked(),
+            video_grain=self.video_grain.currentData(),
+            video_fonts=self.video_fonts.isChecked(), video_dup_audio=self.video_dup_audio.isChecked(),
+            video_stereo=self.video_stereo.isChecked(), video_drop_silent=self.video_drop_silent.isChecked(),
+            video_dolby_vision=self.video_dolby_vision.isChecked(), video_chunked=self.video_chunked.isChecked(),
             video_metric=self.video_metric.currentData(),
             video_jobs=int(self.video_jobs.currentData()), documents=self.documents.currentData(),
+            document_fonts=self.document_fonts.isChecked(), image_extras=self.image_extras.isChecked(),
+            image_svg=self.image_svg.isChecked(), archive_pictures=self.archive_pictures.isChecked(),
+            document_drop_editing=self.document_drop_editing.isChecked(),
+            document_crop=self.document_crop.isChecked(), document_pivots=self.document_pivots.isChecked(),
+            document_zopfli=self.document_zopfli.isChecked(),
         )
         s.validate()
         return s
@@ -774,11 +881,14 @@ class SettingsPanel(QWidget):
         from ..video import GPU_ENCODERS
 
         def maker(encoder: str) -> str:
-            return {"nvenc": "NVIDIA", "qsv": "Intel", "amf": "AMD"}[encoder.rsplit("_", 1)[1]]
+            return {"nvenc": "NVIDIA", "qsv": "Intel", "amf": "AMD", "videotoolbox": "Apple"}[encoder.rsplit("_", 1)[1]]
 
         av1 = next((e for e in GPU_ENCODERS["av1"] if enc.get(e)), None)
         hevc = next((e for e in GPU_ENCODERS["hevc"] if enc.get(e)), None)
-        if av1 and hevc:
+        if hevc == "hevc_videotoolbox" and not av1:
+            text = ("This Mac's media engine encodes HEVC (fast), so Automatic uses HEVC. AV1 is only on the "
+                    "processor (slow).")
+        elif av1 and hevc:
             text = f"{maker(av1)} GPU found: AV1 and HEVC encode on the GPU (fast)."
         elif av1:
             text = f"{maker(av1)} GPU found: AV1 on the GPU (fast); HEVC uses the CPU."

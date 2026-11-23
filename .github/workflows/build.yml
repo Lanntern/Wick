@@ -286,11 +286,109 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # macOS (Apple silicon): the tests, then a developer build of Wick.app, signed ad hoc (no Apple certificate:
+  # right-click › Open the first time). The encoders are inside the app (packaging/mac_tools.py).
+  # Not needed by the Windows package; while macOS support is new, its failures don't block merging.
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 50
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
+        with:
+          version: "0.13.9"
+          enable-cache: true
+          cache-dependency-glob: |
+            requirements*.txt
+            .github/requirements-*.txt
+      - name: Encoders from Homebrew (ffmpeg, libjxl, gifsicle)
+        timeout-minutes: 15
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install ffmpeg jpeg-xl gifsicle
+          ffmpeg -hide_banner -encoders | grep -E "libsvtav1|libx265|videotoolbox" || true
+          ls /opt/homebrew/bin | grep -E "^(cjxl|djxl|cjpegli|ssimulacra2|butteraugli_main|gifsicle|ffprobe)$" || true
+      - name: Install (exact versions from requirements.txt, checksums enforced)
+        id: dependencies
+        run: |
+          uv pip install --require-hashes -r requirements.txt
+          uv pip install --no-deps .
+          uv pip install -r .github/requirements-test.txt
+      - name: Test core and integrations
+        timeout-minutes: 20
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >-
+          python -u -m pytest -v -ra --durations=25
+          --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
+          --junitxml=test-results/core.xml -n auto --dist loadgroup
+          --ignore=tests/test_gui.py --ignore=tests/test_layout.py --ignore=tests/test_style.py
+      - name: Test GUI and layouts
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        timeout-minutes: 12
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >-
+          python -u -m pytest -v -ra --durations=25
+          --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
+          --junitxml=test-results/gui.xml
+          tests/test_gui.py tests/test_layout.py tests/test_style.py
+      - name: Keep test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-macos
+          path: test-results/*.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Build Wick.app
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        id: app
+        run: |
+          uv pip install pyinstaller
+          mkdir -p build
+          python packaging/make_icon.py build/Wick.ico
+          pyinstaller --noconfirm --windowed --name Wick --icon build/Wick.ico \
+            --osx-bundle-identifier com.lanntern.wick \
+            --collect-submodules wick \
+            --collect-all pillow_heif --collect-all imagequant \
+            --collect-all mozjpeg_lossless_optimization --collect-all oxipng --collect-all py7zr \
+            --collect-all pikepdf --collect-all rawpy --collect-submodules fontTools \
+            packaging/launch.py
+          python packaging/mac_tools.py dist/Wick.app       # the encoders go inside the app
+          python packaging/mac_bundle.py dist/Wick.app
+          du -sh dist/Wick.app
+      - name: Smoke-test the built app
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        run: |
+          # Without Homebrew's copies, so only the encoders inside the app can be used.
+          brew unlink ffmpeg jpeg-xl gifsicle
+          python packaging/smoke_test.py dist/Wick.app
+          brew link ffmpeg jpeg-xl gifsicle
+      - name: Disk image (drag Wick to Applications)
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        run: python packaging/make_dmg.py dist/Wick.app Wick-macos-arm64.dmg
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() && steps.app.outcome == 'success' }}
+        with:
+          name: Wick-macos-arm64
+          path: Wick-macos-arm64.dmg
+          retention-days: 14
+
   # The app bundle and installer: for main, version tags and manual runs. Pull requests only run the tests
   # (start this workflow by hand on a branch to build it there).
   package:
-    if: github.event_name != 'pull_request'
-    needs: [lint, linux, windows]
+    # (The Mac disk image joins the release when the macOS job made one; its failures don't hold Windows back.)
+    if: >-
+      github.event_name != 'pull_request' && !cancelled() && needs.lint.result == 'success'
+      && needs.linux.result == 'success' && needs.windows.result == 'success'
+    needs: [lint, linux, windows, macos]
     runs-on: windows-latest
     timeout-minutes: 45
     permissions:
@@ -509,12 +607,19 @@ jobs:
           name: Wick-mcpb
           path: dist/Wick.mcpb
           retention-days: 30
+      - name: The Mac disk image (when the macOS job made one)
+        if: startsWith(github.ref, 'refs/tags/v')
+        continue-on-error: true
+        uses: actions/download-artifact@v7
+        with:
+          name: Wick-macos-arm64
       - name: Checksums for the release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           Copy-Item dist/Wick-setup.exe, dist/Wick.mcpb .
-          Get-FileHash Wick-setup.exe, Wick-windows.zip, Wick.mcpb -Algorithm SHA256 |
+          $files = @("Wick-setup.exe", "Wick-windows.zip", "Wick.mcpb") + @(Get-ChildItem Wick-macos-arm64.dmg -ErrorAction SilentlyContinue | ForEach-Object Name)
+          Get-FileHash $files -Algorithm SHA256 |
             ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
             Set-Content -Encoding ascii SHA256SUMS.txt
           Get-Content SHA256SUMS.txt
@@ -540,5 +645,6 @@ jobs:
             Wick-windows.zip
             Wick-setup.exe
             Wick.mcpb
+            Wick-macos-arm64.dmg
             SHA256SUMS.txt
 

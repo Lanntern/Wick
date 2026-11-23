@@ -83,13 +83,27 @@ def convert_image(src: Path, kind: str, info, plan: Plan, s: Settings) -> Path:
     With Smart quality (lossy static images), searches for the most compressed quality
     that still meets the perceptual target; ``plan.outcome`` records the choice.
     """
+    if plan.route == "motion_photo":
+        from . import motionphoto
+
+        return motionphoto.convert(src, info, plan, s)
     animated = info is not None and getattr(info, "frames", 1) > 1
     limit = s.fit_under_kb * 1024
     if limit and plan.route in SMART_ROUTES and not plan.lossless and not animated and src.stat().st_size > limit:
-        return _convert_to_fit(src, kind, info, plan, s, limit)
-    if not (s.smart_quality and plan.route in SMART_ROUTES and not plan.lossless and not animated):
-        return _convert_once(src, kind, info, plan, s)
-    return _convert_smart(src, kind, info, plan, s)
+        out = _convert_to_fit(src, kind, info, plan, s, limit)
+    elif not (s.smart_quality and plan.route in SMART_ROUTES and not plan.lossless and not animated):
+        out = _convert_once(src, kind, info, plan, s)
+    else:
+        out = _convert_smart(src, kind, info, plan, s)
+    if out.suffix.lower() in (".jpg", ".jpeg", ".png"):
+        from . import marker
+
+        try:
+            marker.add(out)                 # (recognised next time, wherever the file goes)
+        except Exception:  # noqa: BLE001 - only a convenience
+            from .log import ignored
+            ignored("images.marker")
+    return out
 
 
 FIT_QUALITIES = [95, 92, 90, 87, 85, 82, 80, 77, 75, 72, 70, 65, 60, 55, 50, 45, 40]   # best first
@@ -265,7 +279,35 @@ def read_pam(path: Path):
 
 
 def _filtered_meta(ctx: Ctx, img) -> md.Meta:
-    return md.filter_meta(md.read_meta(img), ctx.s.metadata)
+    from . import jpegparts
+
+    meta = md.filter_meta(md.read_meta(img), ctx.s.metadata)
+    if ctx.s.image_extras and meta.exif:
+        meta.exif = jpegparts.exif_without_thumbnail(meta.exif)
+    meta.icc = jpegparts.compact_icc(meta.icc) or meta.icc
+    return meta
+
+
+def _jpeg_extras(ctx: Ctx, new: bytes) -> bytes:
+    """A rewritten JPEG with what the original carried besides its main picture: the extra pictures after it
+    (an Ultra HDR gain map, stereo or depth images; camera previews unless left out), a slimmer EXIF thumbnail
+    and colour profile where they can go."""
+    from . import jpegparts
+
+    original = ctx.src.read_bytes() if ctx.kind == JPEG else b""
+    if ctx.s.image_extras:
+        new = jpegparts.strip_jpeg_thumbnail(new)
+    icc = jpegparts.compact_icc(jpegparts.jpeg_icc(new))
+    if icc:
+        new = jpegparts.replace_jpeg_icc(new, icc)
+    if not original:
+        return new
+    extras = jpegparts.kind(original[:256 * 1024])
+    if extras == "previews" and ctx.s.image_extras:
+        return jpegparts.without_extras(new)
+    if extras:
+        new = jpegparts.with_mpf_from(new, original)
+    return jpegparts.rejoin(new, original)
 
 
 def _ffmpeg_png(ctx: Ctx, src: Path, size: tuple[int, int] | None, eight_bit: bool = False) -> Path:
@@ -430,6 +472,11 @@ def digest_file(ctx: Ctx, path: Path, apply_orientation: bool = False) -> tuple[
 
     path = _decoded_path(ctx, path)
     with _open(path) as im:
+        if getattr(im, "format", "") == "MPO":            # (a JPEG with pictures after it: the photo is the first)
+            first = im.copy()
+            if apply_orientation and _orientation(path) != 1:
+                first = ImageOps.exif_transpose(first)
+            return digest_images([first])
         if apply_orientation:
             o = _orientation(path)
             frames = (ImageOps.exif_transpose(fr.copy()) if o != 1 else fr.copy()
@@ -594,7 +641,7 @@ def _route_jpeg_opt(ctx: Ctx):
     import mozjpeg_lossless_optimization as mz
 
     data = mz.optimize(ctx.staged.read_bytes(), copy=mz.COPY_MARKERS.ALL)
-    ctx.out.write_bytes(data)
+    ctx.out.write_bytes(_jpeg_extras(ctx, data))
     return _check_same_pixels(ctx, ctx.staged)
 
 
@@ -641,7 +688,7 @@ def _route_jpeg(ctx: Ctx):
             import mozjpeg_lossless_optimization as mz
 
             data = mz.optimize(data, copy=mz.COPY_MARKERS.ALL)
-    ctx.out.write_bytes(md.jpeg_write_meta(data, meta, drop_other=False))
+    ctx.out.write_bytes(_jpeg_extras(ctx, md.jpeg_write_meta(data, meta, drop_other=False)))
     return _check_decodes(ctx)
 
 

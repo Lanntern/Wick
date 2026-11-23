@@ -14,6 +14,8 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     background, preset, convert_to, paths = parse_args(argv)
     target = open_target(argv)
+    if paths and not convert_to and not target and quick_compress_on():
+        background = True       # Settings › "Compress right away": no window, a notification when it's done
 
     from PySide6.QtCore import QLockFile
     from PySide6.QtWidgets import QApplication
@@ -62,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
     server = integration.InstanceServer()
     win = MainWindow()
     server.paths_received.connect(win.receive_paths)
+    if sys.platform == "darwin":
+        _accept_finder_files(app, win)
     if not background:
         win.show()
     from PySide6.QtCore import QTimer
@@ -88,6 +92,48 @@ def main(argv: list[str] | None = None) -> int:
     resilience.exit_now_if_stuck(code)   # (a task that never stopped: end here, not in a crash at shutdown)
     resilience.end_cleanly()
     return code
+
+
+def _accept_finder_files(app, win) -> None:
+    """macOS: files opened with Wick from Finder (Open With, dropped on the Dock icon) arrive as FileOpen events,
+    not on the command line. Several at once come one event each: collected briefly, then handed over together."""
+    from PySide6.QtCore import QEvent, QObject, QTimer
+
+    pending: list[str] = []
+    timer = QTimer(app, singleShot=True, interval=300)
+
+    def flush() -> None:
+        paths = list(dict.fromkeys(pending))
+        pending.clear()
+        if paths:
+            quick = quick_compress_on() and not win.isVisible()
+            win.receive_paths(paths, not quick)
+
+    timer.timeout.connect(flush)
+
+    class FinderFiles(QObject):
+        def eventFilter(self, obj, event):  # noqa: N802
+            if event.type() == QEvent.FileOpen:
+                path = event.file() or event.url().toLocalFile()
+                if path:
+                    pending.append(path)
+                    timer.start()
+                return True
+            return False
+
+    app._finder_files = FinderFiles(app)          # (kept alive with the app)
+    app.installEventFilter(app._finder_files)
+
+
+def quick_compress_on() -> bool:
+    """Settings › Integration › "Compress right away from the context menu"."""
+    from PySide6.QtCore import QSettings
+
+    from .. import APP_NAME
+
+    path = os.environ.get("WICK_SETTINGS_FILE")
+    qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+    return bool(qs.value("explorer/quick", False, bool))
 
 
 def _mention_crash(win) -> None:

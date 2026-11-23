@@ -189,8 +189,9 @@ def _hide(folder: Path) -> None:
 # ---------------------------------------------------------------- encoding
 def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,
            on_progress: Callable[[float], None] | None = None,
-           cancel: threading.Event | None = None) -> tuple[Path, list[str]]:
-    """Encode ``src`` scene by scene into ``out`` (with all the other tracks). Returns (out, notes)."""
+           cancel: threading.Event | None = None, fonts=None) -> tuple[Path, list[str]]:
+    """Encode ``src`` scene by scene into ``out`` (with all the other tracks; ``fonts``: a subfonts.FontPlan).
+    Returns (out, notes)."""
     from . import quality
     from .video import SMART_STEPS, build_args, crop_filter, encoder_quality, frame_size, measures_quality
 
@@ -348,7 +349,8 @@ def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, gra
     tools.run([ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i",
                str(listing), "-c", "copy", str(joined)], timeout=3600)
     steps.report("Adding the soundtrack, subtitles and chapters")
-    tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, video_from=joined), info.duration, None, cancel)
+    tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, video_from=joined, grain=grain,
+                                         fonts=fonts), info.duration, None, cancel)
     notes = [f"encoded scene by scene in {len(parts)} parts" + (f", {resumed} carried over" if resumed else "")]
     kept = sum(1 for v in state.get("grain", {}).values() if grain and not int(v))
     if kept:

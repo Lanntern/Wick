@@ -22,12 +22,34 @@ def _run() -> int:
         return 1
 
 
+def _multiprocessing_helper() -> bool:
+    """macOS/Linux: Python's helper pools start a resource tracker by running this program with
+    ``-c "from multiprocessing.resource_tracker import main; main(fd)"``. A packaged app has no interpreter to
+    take ``-c``, so it would start Wick itself, which never ends (and keeps the caller's output open). Run the
+    tracker code instead. (freeze_support only does this on Windows, which doesn't use a tracker.)"""
+    args = sys.argv[1:]
+    if "-c" in args:
+        code = args[args.index("-c") + 1] if args.index("-c") + 1 < len(args) else ""
+        if code.startswith("from multiprocessing"):
+            exec(compile(code, "<multiprocessing>", "exec"), {"__name__": "__main__"})   # noqa: S102
+            return True
+    return False
+
+
 if __name__ == "__main__":
     import multiprocessing
 
+    if getattr(sys, "frozen", False) and os.name != "nt" and _multiprocessing_helper():
+        os._exit(0)
     multiprocessing.freeze_support()   # helper processes (see wick/procpool.py) start here and stop
     # No arguments (or file paths) open the window; "scan"/"run"/... use the command line.
     code = _run()
+    try:
+        from wick import procpool
+
+        procpool.shutdown()   # helper processes: os._exit below skips the atexit hook that would stop them
+    except Exception:  # noqa: BLE001
+        pass
     # Exit immediately: native libraries' worker threads can deadlock while they are
     # unloaded on Windows. All files and the history journal
     # are already flushed and fsynced at this point.

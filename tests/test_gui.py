@@ -949,6 +949,7 @@ def test_columns_keep_a_minimum_width():
 
 def test_language_choice_shows_with_only_my_languages(win):
     panel = win.compress.panel
+    panel.set_file_kinds(None)        # (an earlier test's file list may have hidden the video options)
     panel.video_codec.setCurrentIndex(panel.video_codec.findData("auto"))
     panel.video_tracks.setCurrentIndex(panel.video_tracks.findData("all"))
     assert not panel.languages_btn.isVisibleTo(panel)
@@ -2661,3 +2662,125 @@ def test_speed_or_size_is_asked_once_and_sets_the_defaults(win, monkeypatch):
     win.ask_tradeoff()                                       # once only
     assert not shown
     win.compress.panel.load(tradeoff.apply("balanced", win.compress.panel.settings()))
+
+
+def test_compress_page_says_where_the_space_comes_from_and_what_will_happen(win, tmp_path):
+    """The list appears while details are read; the breakdown by kind filters the list; the settings line
+    says what will be done."""
+    import shutil
+    import subprocess
+
+    from wick.settings import Settings
+
+    folder = tmp_path / "mixed"
+    folder.mkdir()
+    for i in range(3):
+        Image.effect_noise((300, 200), 30 + i).convert("RGB").save(folder / f"p{i}.png")
+    if shutil.which("ffmpeg"):
+        subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=s=320x240:d=2", "-pix_fmt",
+                        "yuv420p", "-c:v", "libx264", "-crf", "5", str(folder / "clip.mp4")], check=True)
+    page = win.compress
+    page.panel.load(Settings(min_image_kb=0, min_video_mb=0))
+    page.clear()
+    page.add_paths([str(folder)])
+    assert _wait(lambda: not page.busy() and len(page.model.rows) >= 3, 90)
+    assert page.model.pending_count() == 0
+    assert "Pictures to JPEG XL" in page.settings_line.text()
+    if (folder / "clip.mp4").exists() and any(r.entry.kind == "video" and r.plan.convert for r in page.model.rows):
+        assert not page.breakdown.isHidden() and "group:video" in page.breakdown.text()
+        page._show_group("group:video")
+        assert page.proxy.rowCount() == 1 and "Show all files" in page.breakdown.text()
+        page._show_group("group:all")
+        assert page.proxy.rowCount() == 4
+    page.clear()
+
+
+def test_files_from_the_context_menu_can_be_compressed_without_the_window(win, tmp_path, monkeypatch):
+    """Settings › "Compress right away": the files are scanned and compressed with the current options, a
+    notification says so, and Undo / Show Files work from the notification."""
+    from wick.settings import Settings
+
+    folder = tmp_path / "quick"
+    folder.mkdir()
+    pic = folder / "shot.png"
+    Image.effect_noise((200, 150), 40).convert("RGB").save(pic)
+    notes = []
+    monkeypatch.setattr(win, "tray_message", lambda msg, force=False, actions=(), launch="": notes.append(
+        (msg, [a[1] for a in actions])))
+    quits = []
+    monkeypatch.setattr(win, "quick_done", lambda: quits.append(True))
+    page = win.compress
+    page.panel.load(Settings(min_image_kb=0, image_format="jxl", output_mode="suffix"))
+    page.clear()
+    monkeypatch.setattr(win, "isVisible", lambda: False)
+    monkeypatch.setattr(win, "isActiveWindow", lambda: False)
+    monkeypatch.setattr(page, "window", lambda: win)
+    win.receive_paths([str(pic)], show=False)
+    assert page.quick
+    assert _wait(lambda: quits, 90), notes
+    assert notes[0][0].startswith("Compressing 1 file")
+    assert "undo-last" in notes[-1][1] and "show-files" in notes[-1][1]
+    assert win._last_run and win._last_outputs and win._last_outputs[0].exists()
+    page.clear()
+
+
+def test_the_job_panel_shows_savings_fixes_and_a_before_and_after(win, tmp_path):
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    from PIL import Image
+
+    from wick.engine import DONE, FAILED, FileResult
+    from wick.formats import JPEG
+    from wick.gui.jobstatus import JobStatus
+    from wick.scanner import FileEntry
+
+    src, out = tmp_path / "a.jpg", tmp_path / "a-small.jpg"
+    Image.effect_noise((300, 200), 40).convert("RGB").save(src, quality=95)
+    Image.open(src).save(out, quality=60)
+    panel = JobStatus()
+    panel.show()
+    panel.start(3, 3_000_000)
+    a = FileEntry(src, src.stat().st_size, JPEG, 0)
+    panel.file_started(a)
+    done = FileResult(a, DONE, "Saved", out, out.stat().st_size)
+    panel.file_finished(done)
+    assert "saved" in panel.title.text() and panel.saved_so_far() == done.saved
+    deadline = time.monotonic() + 30
+    while panel.compare.isHidden() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.02)
+    assert not panel.compare.isHidden() and panel.compare.pics["after"].pixmap() is not None
+    assert "Before" in panel.compare.captions["before"].text()
+    b = FileEntry(tmp_path / "b.jpg", 1000, JPEG, 0)
+    busy = FileResult(b, FAILED, "[WinError 32] being used by another process; original kept")
+    keys = []
+    panel.fix_requested.connect(keys.append)
+    panel.finish([done, busy])
+    assert not panel.fix_text.isHidden() and "Close the app" in panel.fix_text.text()
+    panel.fix_row.itemAt(0).widget().click()
+    assert keys == ["in_use"]
+    panel.start(1, 10)                                             # a new job starts clean
+    assert panel.fix_text.isHidden() and panel.compare.isHidden()
+
+
+def test_before_and_after_show_in_whichever_order_they_arrive(win, tmp_path):
+    from PIL import Image
+
+    from wick.engine import DONE, FileResult
+    from wick.formats import JPEG
+    from wick.gui.jobstatus import CompareStrip
+    from wick.scanner import FileEntry
+
+    png = tmp_path / "x.png"
+    Image.new("RGB", (40, 30), "red").save(png)
+    strip = CompareStrip()
+    e = FileEntry(tmp_path / "a.jpg", 2000, JPEG, 0)
+    strip._entry, strip.token = e, 7
+    strip._result = FileResult(e, DONE, "Saved", tmp_path / "a.jxl", 1000)
+    strip._got("after", 7, png.read_bytes())               # (the result's picture first)
+    assert strip.isHidden()
+    strip._got("before", 7, png.read_bytes())
+    assert not strip.isHidden() and "50% smaller" in strip.note.text()
+    strip._got("after", 6, png.read_bytes())               # (a stale one from an earlier file is ignored)
+

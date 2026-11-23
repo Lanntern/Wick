@@ -911,6 +911,12 @@ class ToolSection(QWidget):
             q = (f"Decompress {n} folder{'s' if n != 1 else ''}?",
                  "Files keep the same contents but may take more disk space. Close running games first. "
                  "To compress again afterward, choose an algorithm in Compress Apps.", "Decompress")
+        elif any(c.extra.get("vdisk") for c in items) and not any(c.extra.get("vdisk") in ("wsl", "docker")
+                                                                   for c in items):
+            q = (f"Compact {n} virtual machine disk{'s' if n != 1 else ''}?",
+                 "Shut the virtual machines down first: a disk in use can't be compacted. Nothing inside the disks "
+                 "changes. VirtualBox and VMware only give back space the machine has zeroed. Hyper-V disks ask for "
+                 "administrator permission once, and large disks can take a while.", "Compact")
         elif any(c.extra.get("vdisk") for c in items):
             from ..cleanup import vdisk
 
