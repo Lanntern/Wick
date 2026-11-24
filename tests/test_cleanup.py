@@ -180,7 +180,10 @@ def _age_tree(root: Path, days: float) -> None:
     t = time.time() - days * 86400
     for dirpath, dirs, files in os.walk(root):
         for n in dirs + files:
-            os.utime(os.path.join(dirpath, n), (t, t))
+            try:
+                os.utime(os.path.join(dirpath, n), (t, t))
+            except FileNotFoundError:        # (git removes its own lock and temporary files as it finishes)
+                pass
 
 
 def test_developer_folders(tmp_path):
