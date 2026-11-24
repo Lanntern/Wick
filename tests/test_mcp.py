@@ -210,7 +210,7 @@ def test_limits(tmp_path):
 
 def test_no_way_to_ask_means_no_change(tmp_path, monkeypatch):
     """Without a Windows dialog or client support for confirmation requests, nothing is changed."""
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(sys, "platform", "linux")
     s = Server([str(tmp_path)], out=io.BytesIO(), forbidden=[data_dir()])
     with pytest.raises(mcp_server.ToolError):
         s.confirm("Allow?")
@@ -218,7 +218,7 @@ def test_no_way_to_ask_means_no_change(tmp_path, monkeypatch):
 
 def test_confirmation_through_the_client(tmp_path, monkeypatch):
     """Elsewhere than Windows, the client asks the user (elicitation); only an explicit approve counts."""
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(sys, "platform", "linux")
     out = io.BytesIO()
     s = Server([str(tmp_path)], out=out, forbidden=[data_dir()])
     s.client_caps = {"elicitation": {}}
