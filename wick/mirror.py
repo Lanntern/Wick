@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import tools
+from . import tools, walk
 from .audio import FORMATS as AF
 from .audio import build_args, cover_metadata, is_lossless, verify_audio
 from .fileops import remove_quietly, temp_name
@@ -72,7 +72,7 @@ def _inside(a: Path, b: Path) -> bool:
         return False
 
 
-def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced",  # noqa: C901 (to split up)
+def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced",
          progress: Callable[[str, int, int], None] | None = None, cancel: threading.Event | None = None,
          workers: int = 0) -> SyncResult:
     """Bring the copy in ``dest`` up to date with ``library`` (see the module notes)."""
@@ -87,127 +87,150 @@ def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced"
     entries: dict[str, dict] = old.get("files", {}) if old.get("format") == fmt and old.get("quality") == quality \
         else {}
     previous: dict[str, dict] = old.get("files", {})          # everything we made before, to tidy up
-    s = Settings(audio_quality=quality)
     res = SyncResult()
-
-    # What the library holds.
-    songs: list[tuple[str, Path, os.stat_result]] = []
-    covers: list[tuple[str, Path, os.stat_result]] = []
-    for dirpath, dirs, files in os.walk(library):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for name in files:
-            p = Path(dirpath) / name
-            rel = p.relative_to(library).as_posix()
-            try:
-                st = p.stat()
-            except OSError:
-                continue
-            if name.lower() in _COVERS:
-                covers.append((rel, p, st))
-            elif classify(p) == AUDIO:
-                songs.append((rel, p, st))
-                res.library_bytes += st.st_size
-
-    lock = threading.Lock()
-    done = [0]
-    total = len(songs) + len(covers)
-    new_entries: dict[str, dict] = {}
-
-    def up_to_date(rel: str, st: os.stat_result) -> bool:
-        e = entries.get(rel)
-        return e is not None and e.get("size") == st.st_size and e.get("mtime_ns") == st.st_mtime_ns \
-            and (dest / e["out"]).is_file()
-
-    def tick(what: str) -> None:
-        with lock:
-            done[0] += 1
-            if progress:
-                progress(what, done[0], total)
-
-    def one(item: tuple[str, Path, os.stat_result], is_cover: bool) -> None:
-        rel, src, st = item
-        if cancel is not None and cancel.is_set():
-            return
-        if up_to_date(rel, st):
-            with lock:
-                new_entries[rel] = entries[rel]
-                res.unchanged += 1
-            tick(f"Up to date: {src.name}")
-            return
-        info = None if is_cover else probe_audio(src)
-        if not is_cover and info is None:
-            with lock:
-                res.failed.append((rel, "can't be read"))
-            tick(src.name)
-            return
-        encode = info is not None and is_lossless(info.codec)
-        out_rel = str(Path(rel).with_suffix(_ext(fmt)).as_posix()) if encode else rel
-        out = dest / out_rel
-        out.parent.mkdir(parents=True, exist_ok=True)
-        tmp = temp_name(out.parent, out.suffix, "-sync")
-        meta = None
-        try:
-            if encode:
-                assert info is not None           # (only covers have none, and they're copied)
-                meta = cover_metadata(src, info, out.parent) if fmt == "opus" else None
-                tools.run(build_args(src, tmp, info, s, fmt, False, meta), timeout=3600)
-                verify_audio(src, info, tmp, fmt, False, exact=False)
-            else:
-                shutil.copyfile(src, tmp)
-            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
-            os.replace(tmp, out)
-        except Exception as e:  # noqa: BLE001 - one bad song doesn't stop the rest
-            remove_quietly(tmp)
-            with lock:
-                res.failed.append((rel, str(e)[:200]))
-            tick(src.name)
-            return
-        finally:
-            remove_quietly(meta)
-        with lock:
-            new_entries[rel] = {"out": out_rel, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
-            if encode:
-                res.encoded += 1
-            else:
-                res.copied += 1
-        tick(f"{'Encoded' if encode else 'Copied'} {src.name}")
-
+    songs, covers = _library_files(library, res)
+    job = _Sync(dest, fmt, Settings(audio_quality=quality), entries, res, progress, cancel, len(songs) + len(covers))
     n = workers or max(1, min(8, (os.cpu_count() or 2)))
     with ThreadPoolExecutor(max_workers=n) as pool:
-        list(pool.map(lambda it: one(it, False), songs))
-        list(pool.map(lambda it: one(it, True), covers))
-
-    # Tidy up: copies we made whose song is gone (or that a new format replaced). Never anything else.
-    keep = {e["out"] for e in new_entries.values()}
-    if not (cancel is not None and cancel.is_set()):
-        emptied: set[Path] = set()
-        for e in previous.values():
-            out_rel = e.get("out", "")
-            target = dest / out_rel
-            if out_rel and out_rel not in keep and _inside(target, dest) and target.is_file():
-                try:
-                    target.unlink()
-                    res.removed += 1
-                    emptied.add(target.parent)
-                except OSError:
-                    pass
-        for folder in emptied:   # only folders a removed copy was in, up to the copy's top folder
-            while folder != dest and _inside(folder, dest):
-                try:
-                    folder.rmdir()
-                except OSError:
-                    break
-                folder = folder.parent
-    else:   # stopped: keep what's known so the next run continues
+        list(pool.map(lambda it: job.one(it, False), songs))
+        list(pool.map(lambda it: job.one(it, True), covers))
+    if cancel is not None and cancel.is_set():   # stopped: keep what's known so the next run continues
         for rel, e in entries.items():
-            new_entries.setdefault(rel, e)
-    _save(dest, {"format": fmt, "quality": quality, "library": str(library), "files": new_entries})
-    for e in new_entries.values():
+            job.new_entries.setdefault(rel, e)
+    else:
+        _tidy(dest, previous, {e["out"] for e in job.new_entries.values()}, res)
+    _save(dest, {"format": fmt, "quality": quality, "library": str(library), "files": job.new_entries})
+    for e in job.new_entries.values():
         try:
             res.copy_bytes += (dest / e["out"]).stat().st_size
         except OSError:
             pass
     return res
+
+
+_Item = tuple[str, Path, os.stat_result]      # (path inside the library, the file, its stat)
+
+
+def _library_files(library: Path, res: SyncResult) -> tuple[list[_Item], list[_Item]]:
+    """The library's songs and cover pictures (hidden folders left out)."""
+    songs: list[_Item] = []
+    covers: list[_Item] = []
+    for folder in walk.folders([library], enter=lambda e: not e.name.startswith(".")):
+        for entry in folder.entries:
+            p = Path(entry.path)
+            try:
+                if not entry.is_file():       # (a link to a song counts, as before)
+                    continue
+                st = p.stat()
+            except OSError:
+                continue
+            rel = p.relative_to(library).as_posix()
+            if entry.name.lower() in _COVERS:
+                covers.append((rel, p, st))
+            elif classify(p) == AUDIO:
+                songs.append((rel, p, st))
+                res.library_bytes += st.st_size
+    return songs, covers
+
+
+class _Sync:
+    """Songs and covers brought up to date, several at a time."""
+
+    def __init__(self, dest: Path, fmt: str, s: Settings, entries: dict[str, dict], res: SyncResult,
+                 progress: Callable[[str, int, int], None] | None, cancel: threading.Event | None, total: int):
+        self.dest, self.fmt, self.s, self.entries, self.res = dest, fmt, s, entries, res
+        self.progress, self.cancel, self.total = progress, cancel, total
+        self.new_entries: dict[str, dict] = {}
+        self.lock = threading.Lock()
+        self.done = 0
+
+    def up_to_date(self, rel: str, st: os.stat_result) -> bool:
+        e = self.entries.get(rel)
+        return e is not None and e.get("size") == st.st_size and e.get("mtime_ns") == st.st_mtime_ns \
+            and (self.dest / e["out"]).is_file()
+
+    def tick(self, what: str) -> None:
+        with self.lock:
+            self.done += 1
+            if self.progress:
+                self.progress(what, self.done, self.total)
+
+    def one(self, item: _Item, is_cover: bool) -> None:
+        rel, src, st = item
+        if self.cancel is not None and self.cancel.is_set():
+            return
+        if self.up_to_date(rel, st):
+            with self.lock:
+                self.new_entries[rel] = self.entries[rel]
+                self.res.unchanged += 1
+            self.tick(f"Up to date: {src.name}")
+            return
+        info = None if is_cover else probe_audio(src)
+        if not is_cover and info is None:
+            self.failed(rel, "can't be read", src)
+            return
+        encode = info is not None and is_lossless(info.codec)
+        out_rel = str(Path(rel).with_suffix(_ext(self.fmt)).as_posix()) if encode else rel
+        try:
+            self.make(src, st, info, self.dest / out_rel)
+        except Exception as e:  # noqa: BLE001 - one bad song doesn't stop the rest (its reason is shown)
+            self.failed(rel, str(e)[:200], src)
+            return
+        with self.lock:
+            self.new_entries[rel] = {"out": out_rel, "size": st.st_size, "mtime_ns": st.st_mtime_ns}
+            if encode:
+                self.res.encoded += 1
+            else:
+                self.res.copied += 1
+        self.tick(f"{'Encoded' if encode else 'Copied'} {src.name}")
+
+    def make(self, src: Path, st: os.stat_result, info, out: Path) -> None:
+        """Encode a lossless song (or copy anything else) to ``out``, with the original's modification time."""
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = temp_name(out.parent, out.suffix, "-sync")
+        meta = None
+        try:
+            if info is not None and is_lossless(info.codec):
+                meta = cover_metadata(src, info, out.parent) if self.fmt == "opus" else None
+                tools.run(build_args(src, tmp, info, self.s, self.fmt, False, meta), timeout=3600)
+                verify_audio(src, info, tmp, self.fmt, False, exact=False)
+            else:
+                shutil.copyfile(src, tmp)
+            os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+            os.replace(tmp, out)
+        except BaseException:
+            remove_quietly(tmp)
+            raise
+        finally:
+            remove_quietly(meta)
+
+    def failed(self, rel: str, why: str, src: Path) -> None:
+        with self.lock:
+            self.res.failed.append((rel, why))
+        self.tick(src.name)
+
+
+def _tidy(dest: Path, previous: dict[str, dict], keep: set[str], res: SyncResult) -> None:
+    """Copies we made whose song is gone (or that a new format replaced), and the folders they leave empty.
+    Never anything else."""
+    emptied: set[Path] = set()
+    for e in previous.values():
+        out_rel = e.get("out", "")
+        target = dest / out_rel
+        if out_rel and out_rel not in keep and _inside(target, dest) and target.is_file():
+            try:
+                target.unlink()
+                res.removed += 1
+                emptied.add(target.parent)
+            except OSError:
+                pass
+    for folder in emptied:   # only folders a removed copy was in, up to the copy's top folder
+        while folder != dest and _inside(folder, dest):
+            try:
+                folder.rmdir()
+            except OSError:
+                break
+            folder = folder.parent
 
 
 __all__ = ["sync", "SyncResult", "FORMATS", "QUALITIES", "MANIFEST"]

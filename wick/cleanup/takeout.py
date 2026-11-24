@@ -333,63 +333,83 @@ def _set_times(path: Path, ts: float) -> None:
         set_windows_creation_time(path, int(ts * 1_000_000_000))
 
 
-def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",  # noqa: C901 (to split up)
+def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",
           progress: Callable[[str, int, int], None] | None = None, cancel: threading.Event | None = None
           ) -> MergeResult:
     """Merge Takeout ``sources`` into ``output`` (see the module notes). Safe to run again: resumes."""
-    res = MergeResult()
     output.mkdir(parents=True, exist_ok=True)
-    out_root = output.resolve()
-    index = JsonIndex()
-    same: dict[tuple[int, int], list[tuple[Path, bool]]] = {}   # content -> [(output, in an album)]
-    outputs: dict[str, Path] = {}                                # rel -> output path
+    job = _Merge(output, albums)
     total = len(sources)
     for si, src in enumerate(sources):
         n = 0
         for m in members(src):
             if cancelled(cancel):
-                return res
-            if m.rel.lower().endswith(".json"):
-                try:
-                    with m.open() as f:
-                        data = json.loads(f.read().decode("utf-8", "replace"))
-                    if isinstance(data, dict):
-                        index.add(m.rel, data)
-                except (OSError, ValueError):
-                    pass
-                continue
-            if classify(Path(m.rel)) is None:
-                continue
-            folder = m.rel.split("/")[0] if "/" in m.rel else ""
-            in_album = bool(folder) and not _YEAR.match(folder)
-            if in_album and albums == "skip":
-                continue
-            dest = output.joinpath(*m.rel.split("/"))
-            if not dest.resolve().is_relative_to(out_root):       # belt and braces: never outside ``output``
-                continue
-            n += 1
-            if progress and n % 20 == 0:
-                progress(f"Copying from {src.name}… {n:,}", si, total)
-            outputs[m.rel] = dest
-            if dest.exists() and dest.stat().st_size == m.size:          # resuming: already in place
-                crc = m.crc if m.crc is not None else _file_crc(dest)
-                same.setdefault((m.size, crc), []).append((dest, in_album))
-                res.already += 1
-                continue
-            key = (m.size, m.crc) if m.crc is not None else None
-            known = same.get(key) if key is not None else None
-            if key is not None and known and in_album and albums == "link" and _link(known[0][0], dest):
-                same[key].append((dest, in_album))     # the zip's checksum says it's a repeat
-                res.linked += 1
-                res.written.append((f"{m.source}:{m.rel}", dest))
-                continue
-            crc = _write(m, dest)
-            same.setdefault((m.size, crc), []).append((dest, in_album))
-            res.copied += 1
-            res.written.append((f"{m.source}:{m.rel}", dest))
-    # Album copies that arrived before their year-folder twin: link them now.
+                return job.res
+            if job.take(m):
+                n += 1
+                if progress and n % 20 == 0:
+                    progress(f"Copying from {src.name}… {n:,}", si, total)
     if albums == "link":
-        for group in same.values():
+        job.link_album_copies()
+    if progress:
+        progress("Setting the dates the photos were taken…", total, total)
+    job.finish(edited, cancel)
+    return job.res
+
+
+class _Merge:
+    def __init__(self, output: Path, albums: str):
+        self.output, self.out_root, self.albums = output, output.resolve(), albums
+        self.res = MergeResult()
+        self.index = JsonIndex()
+        self.same: dict[tuple[int, int], list[tuple[Path, bool]]] = {}   # content -> [(output, in an album)]
+        self.outputs: dict[str, Path] = {}                                # rel -> output path
+
+    def take(self, m) -> bool:
+        """One file of an export: its metadata noted, or the photo copied (or linked to a copy already made).
+        True if it was a photo or video."""
+        if m.rel.lower().endswith(".json"):
+            self._note_metadata(m)
+            return False
+        if classify(Path(m.rel)) is None:
+            return False
+        folder = m.rel.split("/")[0] if "/" in m.rel else ""
+        in_album = bool(folder) and not _YEAR.match(folder)
+        if in_album and self.albums == "skip":
+            return False
+        dest = self.output.joinpath(*m.rel.split("/"))
+        if not dest.resolve().is_relative_to(self.out_root):       # belt and braces: never outside ``output``
+            return False
+        self.outputs[m.rel] = dest
+        if dest.exists() and dest.stat().st_size == m.size:          # resuming: already in place
+            crc = m.crc if m.crc is not None else _file_crc(dest)
+            self.same.setdefault((m.size, crc), []).append((dest, in_album))
+            self.res.already += 1
+            return True
+        key = (m.size, m.crc) if m.crc is not None else None
+        known = self.same.get(key) if key is not None else None
+        if key is not None and known and in_album and self.albums == "link" and _link(known[0][0], dest):
+            self.same[key].append((dest, in_album))     # the zip's checksum says it's a repeat
+            self.res.linked += 1
+        else:
+            crc = _write(m, dest)
+            self.same.setdefault((m.size, crc), []).append((dest, in_album))
+            self.res.copied += 1
+        self.res.written.append((f"{m.source}:{m.rel}", dest))
+        return True
+
+    def _note_metadata(self, m) -> None:
+        try:
+            with m.open() as f:
+                data = json.loads(f.read().decode("utf-8", "replace"))
+            if isinstance(data, dict):
+                self.index.add(m.rel, data)
+        except (OSError, ValueError):
+            pass
+
+    def link_album_copies(self) -> None:
+        """Album copies that arrived before their year-folder twin: linked now."""
+        for group in self.same.values():
             if len(group) < 2:
                 continue
             primary = next((d for d, alb in group if not alb), group[0][0])
@@ -397,40 +417,43 @@ def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: st
                 if d == primary or not alb or _same_file(primary, d):
                     continue
                 if _relink(primary, d):
-                    res.linked += 1
-                    res.copied -= 1
-    # Dates, and edited versions.
-    if progress:
-        progress("Setting the dates the photos were taken…", total, total)
-    rels = set(outputs)
-    removed: set[Path] = set()
-    for rel, dest in outputs.items():
-        if cancelled(cancel):
-            break
+                    self.res.linked += 1
+                    self.res.copied -= 1
+
+    def finish(self, edited: str, cancel: threading.Event | None) -> None:
+        """The dates the photos were taken, and only the edited (or original) version where asked."""
+        rels = set(self.outputs)
+        removed: set[Path] = set()
+        for rel, dest in self.outputs.items():
+            if cancelled(cancel):
+                break
+            if self._unwanted_version(rel, rels, edited):
+                try:
+                    os.remove(dest)
+                    removed.add(dest)
+                    self.res.removed_edited += 1
+                except OSError:
+                    pass
+                continue
+            data = self.index.find(rel)
+            ts = taken_time(data) if data else None
+            if ts is None:
+                self.res.undated += 1
+                continue
+            try:
+                _set_times(dest, ts)
+                self.res.dated += 1
+            except OSError:
+                self.res.undated += 1
+        if removed:
+            self.res.written = [(s_, p) for s_, p in self.res.written if p not in removed]
+
+    @staticmethod
+    def _unwanted_version(rel: str, rels: set[str], edited: str) -> bool:
         base = _edited_base(rel.rpartition("/")[2])
         original_rel = (rel.rpartition("/")[0] + "/" + base).lstrip("/") if base else None
-        if (edited == "edited" and not base and _has_edited(rel, rels)) or \
-                (edited == "original" and base and original_rel in rels):
-            try:
-                os.remove(dest)
-                removed.add(dest)
-                res.removed_edited += 1
-            except OSError:
-                pass
-            continue
-        data = index.find(rel)
-        ts = taken_time(data) if data else None
-        if ts is None:
-            res.undated += 1
-            continue
-        try:
-            _set_times(dest, ts)
-            res.dated += 1
-        except OSError:
-            res.undated += 1
-    if removed:
-        res.written = [(s_, p) for s_, p in res.written if p not in removed]
-    return res
+        return bool((edited == "edited" and not base and _has_edited(rel, rels))
+                    or (edited == "original" and base and original_rel in rels))
 
 
 def _same_file(a: Path, b: Path) -> bool:

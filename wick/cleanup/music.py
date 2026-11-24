@@ -31,7 +31,7 @@ from .extensions import TYPE_NAMES
 if TYPE_CHECKING:
     import numpy as np
 
-from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
+from .common import Candidate, Groups, ProgressFn, ScanResult, cancelled, walk_files
 from .similar import Ticker
 
 RATE = 5512
@@ -186,12 +186,40 @@ def _rank(d: dict, size: int) -> tuple:
 
 # ---------------------------------------------------------------- the scan
 
-def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500 * 1024,  # noqa: C901 (to split up)
+def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500 * 1024,
                     exclude: list[Path] | None = None, progress: ProgressFn | None = None,
                     cancel: threading.Event | None = None) -> ScanResult:
-    import numpy as np
-
     result = ScanResult("music")
+    files = _music_files(roots, min_size, exclude, progress, cancel)
+    if not cancelled(cancel):
+        infos, prints = _listen(files, by, progress, cancel)
+    if cancelled(cancel):
+        result.cancelled = True
+        return result
+    if progress:
+        progress("Comparing songs…", 0, 0)
+    ids = sorted(infos, key=lambda i: infos[i]["duration"])
+    groups = Groups(ids)
+    if by == "sound":
+        if not _join_by_sound(groups, ids, infos, prints, cancel):
+            result.cancelled = True
+            return result
+    else:
+        _join_by_tags(groups, ids, infos)
+    sets = [g for g in groups.sets() if len(g) > 1]
+    sets.sort(key=lambda g: sum(files[i][1].st_size for i in g), reverse=True)
+    for gi, members in enumerate(sets):
+        result.items += _copies(files, infos, members, f"music{gi}", by)
+    if sets:
+        result.notes.append(f"{plural(len(sets), 'song')} saved more than once. The best "
+                            "copy of each stays; right-click to keep a different one.")
+    elif not files:
+        result.notes.append("No music here.")
+    return result
+
+
+def _music_files(roots: list[Path], min_size: int, exclude: list[Path] | None, progress: ProgressFn | None,
+                 cancel: threading.Event | None) -> list[tuple[Path, os.stat_result]]:
     skip = [os.path.normcase(str(p)) for p in exclude or []]
     files: list[tuple[Path, os.stat_result]] = []
     for path, st in walk_files(roots, cancel=cancel):
@@ -200,13 +228,17 @@ def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500
             files.append((path, st))
             if progress and len(files) % 500 == 0:
                 progress(f"Finding music… {len(files):,}", len(files), 0)
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
+    return files
 
-    workers = min(8, os.cpu_count() or 2)
+
+def _listen(files: list[tuple[Path, os.stat_result]], by: str, progress: ProgressFn | None,
+            cancel: threading.Event | None) -> tuple[dict[int, dict], dict]:
+    """Each song's tags and length (and, by sound, its fingerprint): from the index when the file hasn't changed,
+    else read now (several at a time) and remembered."""
+    import numpy as np
+
     infos: dict[int, dict] = {}
-    prints: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+    prints: dict[int, tuple] = {}
     todo = []
     for i, (p, st) in enumerate(files):
         cached = index.lookup_value("music", p, st.st_size, st.st_mtime)
@@ -239,84 +271,73 @@ def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500
         done.append(i)
         ticker.step("Listening" if by == "sound" else "Reading tags", len(todo))
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 2)) as pool:
         list(pool.map(work, todo))
     index.store_values("music", [(files[i][0], files[i][1].st_size, files[i][1].st_mtime, {
         "v": _VERSION, "info": infos.get(i),
         "codes": prints[i][0].tobytes().hex() if i in prints else "",
         "env": prints[i][1].tobytes().hex() if i in prints else ""}) for i in done])
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
+    return infos, prints
 
-    if progress:
-        progress("Comparing songs…", 0, 0)
-    ids = sorted(infos, key=lambda i: infos[i]["duration"])
-    parent = {i: i for i in ids}
 
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
+def _join_by_sound(groups: Groups, ids: list[int], infos: dict[int, dict], prints: dict,
+                   cancel: threading.Event | None) -> bool:
+    """Songs of about the same length that sound the same. False if stopped."""
+    import numpy as np
 
-    if by == "sound":
-        heard = [i for i in ids if i in prints]
-        env = _envelopes([prints[i][1] for i in heard])
-        for n, a in enumerate(heard):
-            if cancelled(cancel):
-                result.cancelled = True
-                return result
-            end = n + 1
-            while end < len(heard) and infos[heard[end]]["duration"] - infos[a]["duration"] <= LENGTH_SLACK:
-                end += 1
-            if end == n + 1:
-                continue
-            close = _envelope_close(env[n], env[n + 1:end])
-            for k in np.flatnonzero(close):
-                b = heard[n + 1 + int(k)]
-                if root(a) != root(b) and bit_error(prints[a][0], prints[b][0]) <= SAME:
-                    parent[root(a)] = root(b)
-    else:
-        by_tag: dict[tuple[str, str], list[int]] = defaultdict(list)
-        for i in ids:
-            title, artist = _norm(infos[i]["title"]), _norm(infos[i]["artist"])
-            if title and artist:
-                by_tag[(title, artist)].append(i)
-        for group in by_tag.values():
-            for x, y in zip(group, group[1:], strict=False):
-                if infos[y]["duration"] - infos[x]["duration"] <= LENGTH_SLACK:
-                    parent[root(x)] = root(y)
+    heard = [i for i in ids if i in prints]
+    env = _envelopes([prints[i][1] for i in heard])
+    for n, a in enumerate(heard):
+        if cancelled(cancel):
+            return False
+        end = n + 1
+        while end < len(heard) and infos[heard[end]]["duration"] - infos[a]["duration"] <= LENGTH_SLACK:
+            end += 1
+        if end == n + 1:
+            continue
+        close = _envelope_close(env[n], env[n + 1:end])
+        for k in np.flatnonzero(close):
+            b = heard[n + 1 + int(k)]
+            if groups.root(a) != groups.root(b) and bit_error(prints[a][0], prints[b][0]) <= SAME:
+                groups.join(a, b)
+    return True
 
-    linked: dict[int, list[int]] = defaultdict(list)
+
+def _join_by_tags(groups: Groups, ids: list[int], infos: dict[int, dict]) -> None:
+    """Songs of about the same length with the same title and artist."""
+    by_tag: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i in ids:
-        linked[root(i)].append(i)
-    sets = [g for g in linked.values() if len(g) > 1]
-    sets.sort(key=lambda g: sum(files[i][1].st_size for i in g), reverse=True)
-    for gi, members in enumerate(sets):
-        best = max(members, key=lambda i: _rank(infos[i], files[i][1].st_size))
-        kp, kst = files[best]
-        kq = quality_label(infos[best], kp)
-        for i in members:
-            if i == best:
-                continue
-            p, st = files[i]
-            q = quality_label(infos[i], p)
-            worse = _rank(infos[i], st.st_size)[:2] <= _rank(infos[best], kst.st_size)[:2]
-            same_kind = infos[i]["codec"] == infos[best]["codec"]
-            detail = f"{q}; the copy that stays is {kq}" if q != kq else f"{q}, like the copy that stays"
-            result.items.append(Candidate(
-                path=p, size=st.st_size, keeper=kp, group=f"music{gi}", detail=detail,
-                # A lossy copy of a lossless song is often kept on purpose (for a phone): not pre-selected.
-                selected=worse and same_kind and by == "sound",
-                extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
-                       "keeper_label": kq}))
-    if sets:
-        result.notes.append(f"{plural(len(sets), 'song')} saved more than once. The best "
-                            "copy of each stays; right-click to keep a different one.")
-    elif not files:
-        result.notes.append("No music here.")
-    return result
+        title, artist = _norm(infos[i]["title"]), _norm(infos[i]["artist"])
+        if title and artist:
+            by_tag[(title, artist)].append(i)
+    for group in by_tag.values():
+        for x, y in zip(group, group[1:], strict=False):
+            if infos[y]["duration"] - infos[x]["duration"] <= LENGTH_SLACK:
+                groups.join(x, y)
+
+
+def _copies(files: list[tuple[Path, os.stat_result]], infos: dict[int, dict], members: list[int], group: str,
+            by: str) -> list[Candidate]:
+    """One song's extra copies: everything but the best one."""
+    best = max(members, key=lambda i: _rank(infos[i], files[i][1].st_size))
+    kp, kst = files[best]
+    kq = quality_label(infos[best], kp)
+    out = []
+    for i in members:
+        if i == best:
+            continue
+        p, st = files[i]
+        q = quality_label(infos[i], p)
+        worse = _rank(infos[i], st.st_size)[:2] <= _rank(infos[best], kst.st_size)[:2]
+        same_kind = infos[i]["codec"] == infos[best]["codec"]
+        detail = f"{q}; the copy that stays is {kq}" if q != kq else f"{q}, like the copy that stays"
+        out.append(Candidate(
+            path=p, size=st.st_size, keeper=kp, group=group, detail=detail,
+            # A lossy copy of a lossless song is often kept on purpose (for a phone): not pre-selected.
+            selected=worse and same_kind and by == "sound",
+            extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
+                   "keeper_label": kq}))
+    return out
 
 
 def group_title(g: str, items: list[Candidate]) -> str:

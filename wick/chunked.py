@@ -188,181 +188,215 @@ def _hide(folder: Path) -> None:
 
 
 # ---------------------------------------------------------------- encoding
-def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,  # noqa: C901 (to split up)
+def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,
            on_progress: Callable[[float], None] | None = None,
            cancel: threading.Event | None = None, fonts=None) -> tuple[Path, list[str]]:
     """Encode ``src`` scene by scene into ``out`` (with all the other tracks; ``fonts``: a subfonts.FontPlan).
     Returns (out, notes)."""
-    from . import quality
-    from .video import SMART_STEPS, build_args, crop_filter, encoder_quality, frame_size, measures_quality
+    job = _SceneEncode(src, info, s, encoder, grain, on_progress, cancel or threading.Event())
+    job.encode_parts()
+    job.join(out, fonts)
+    return out, job.notes()
 
-    cancel = cancel or threading.Event()
-    stop = threading.Event()               # set by the user's cancel, or when a part fails: the others stop too
-    prune()
-    folder = parts_folder(src, s, encoder, grain)
-    folder.mkdir(exist_ok=True)
-    _hide(folder)
-    _note_folder(folder)
-    state_path = folder / "parts.json"
-    try:
-        state = json.loads(state_path.read_text("utf-8"))
-    except (OSError, ValueError):
-        state = {}
-    lock = threading.Lock()
 
-    def save() -> None:
-        with lock:
-            state_path.write_text(json.dumps(state), "utf-8")
+class _SceneEncode:
+    """A video encoded in parts cut at scene changes, several at a time, each at the quality its scene needs.
+    The parts are kept in a folder (parts_folder) until the whole video is done, so a stopped job carries on."""
 
-    if not state.get("parts"):
-        steps.report("Finding the scene changes")
-        cuts = scene_cuts(src, info, cancel)
-        planned = plan_parts(info.duration, info.fps, cuts)
-        state = {"parts": planned, "starts": first_frames(src, info, planned), "q": {}, "done": []}
-        save()
-    parts: list[tuple[float, float]] = [tuple(p) for p in state["parts"]]  # type: ignore[misc]
-    done: set[int] = {i for i in state.get("done", []) if _part_ok(folder, i)}
-    resumed = len(done)
-    workers, threads = part_workers(info, s)
-    smart = measures_quality(s)
-    metric = quality.video_metric(s.video_metric)
-    size = frame_size(info, s)
-    lengths = [(b or info.duration) - a for a, b in parts]
-    progress = {i: 1.0 for i in done}
+    def __init__(self, src: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,
+                 on_progress: Callable[[float], None] | None, cancel: threading.Event):
+        from . import quality
+        from .video import frame_size, measures_quality
 
-    def report() -> None:
-        if on_progress:
-            with lock:
-                got = sum(lengths[i] * f for i, f in progress.items())
-            on_progress(min(1.0, got / max(0.001, info.duration)))
+        self.src, self.info, self.s, self.encoder, self.grain = src, info, s, encoder, grain
+        self.on_progress, self.cancel = on_progress, cancel
+        self.stop = threading.Event()          # set by the user's cancel, or when a part fails: the others stop too
+        self.lock = threading.Lock()
+        prune()
+        self.folder = parts_folder(src, s, encoder, grain)
+        self.folder.mkdir(exist_ok=True)
+        _hide(self.folder)
+        _note_folder(self.folder)
+        self.state_path = self.folder / "parts.json"
+        try:
+            self.state = json.loads(self.state_path.read_text("utf-8"))
+        except (OSError, ValueError):
+            self.state = {}
+        if not self.state.get("parts"):
+            steps.report("Finding the scene changes")
+            planned = plan_parts(info.duration, info.fps, scene_cuts(src, info, cancel))
+            self.state = {"parts": planned, "starts": first_frames(src, info, planned), "q": {}, "done": []}
+            self.save()
+        self.parts: list[tuple[float, float]] = [tuple(p) for p in self.state["parts"]]  # type: ignore[misc]
+        self.done: set[int] = {i for i in self.state.get("done", []) if _part_ok(self.folder, i)}
+        self.resumed = len(self.done)
+        self.workers, self.threads = part_workers(info, s)
+        self.smart = measures_quality(s)
+        self.metric = quality.video_metric(s.video_metric)
+        self.size = frame_size(info, s)
+        self.lengths = [(b or info.duration) - a for a, b in self.parts]
+        self.progress = {i: 1.0 for i in self.done}
 
-    def choose(i: int) -> tuple[int, int]:
+    def save(self) -> None:
+        with self.lock:
+            self.state_path.write_text(json.dumps(self.state), "utf-8")
+
+    def report(self) -> None:
+        if self.on_progress:
+            with self.lock:
+                got = sum(self.lengths[i] * f for i, f in self.progress.items())
+            self.on_progress(min(1.0, got / max(0.001, self.info.duration)))
+
+    def _segment(self, i: int) -> tuple[float, float]:
+        start, end = self.parts[i]
+        return start, end - start if end else 0
+
+    def choose(self, i: int) -> tuple[int, int]:
         """(quality setting, grain level) for part ``i``. A part whose target can't be reached with grain
         re-created (some textures don't survive the denoising) is encoded with its grain kept instead."""
-        if not smart:
-            return encoder_quality(s, encoder), grain
-        if str(i) in state["q"]:
-            return int(state["q"][str(i)]), int(state.get("grain", {}).get(str(i), grain))
-        start, end = parts[i]
-        length = lengths[i]
-        probe = folder / f"probe-{i:04d}.mkv"
-        target = "identical" if s.video_quality == "identical" else s.smart_target
-        ladder = SMART_STEPS[encoder]
+        from .video import SMART_STEPS, encoder_quality
 
-        def search(level: int):
-            def attempt(q: int):
-                if stop.is_set():
-                    raise tools.Cancelled()
-                try:
-                    tools.run(build_args(src, probe, info, s, encoder, q, segment=(start, end - start if end else 0),
-                                         progress=False, grain=level, threads=threads, probe=True), timeout=3600)
-                    score = quality.score_video_segment(src, start, length, probe, size, crop_filter(info), metric,
-                                                        level, subsample=4)
-                finally:
-                    remove_quietly(probe)
-                return score.meets(target), score
-
-            return quality.search(ladder, attempt)
-
-        level = grain
-        chosen = search(level)
+        if not self.smart:
+            return encoder_quality(self.s, self.encoder), self.grain
+        if str(i) in self.state["q"]:
+            return int(self.state["q"][str(i)]), int(self.state.get("grain", {}).get(str(i), self.grain))
+        level = self.grain
+        chosen = self._search(i, level)
         if chosen is None and level:
             level = 0
-            chosen = search(0)
+            chosen = self._search(i, 0)
         if chosen is None:
             from .images import NotWorthIt
             from .video import source_rate_limit
 
-            if source_rate_limit(info, s, encoder):
+            if source_rate_limit(self.info, self.s, self.encoder):
                 raise NotWorthIt("Requested video quality cannot be reached within the source bitrate budget; original kept")
-        q = chosen[0] if chosen else ladder[0]
-        with lock:
-            state["q"][str(i)] = q
-            state.setdefault("grain", {})[str(i)] = level
-        save()
+        q = chosen[0] if chosen else SMART_STEPS[self.encoder][0]
+        with self.lock:
+            self.state["q"][str(i)] = q
+            self.state.setdefault("grain", {})[str(i)] = level
+        self.save()
         return q, level
 
-    def one(i: int) -> None:
-        if stop.is_set():
+    def _search(self, i: int, level: int):
+        """The quality setting that meets the target for part ``i`` (encoding short probes of it)."""
+        from . import quality
+        from .video import SMART_STEPS, build_args, crop_filter
+
+        s, start = self.s, self.parts[i][0]
+        probe = self.folder / f"probe-{i:04d}.mkv"
+        target = "identical" if s.video_quality == "identical" else s.smart_target
+
+        def attempt(q: int):
+            if self.stop.is_set():
+                raise tools.Cancelled()
+            try:
+                tools.run(build_args(self.src, probe, self.info, s, self.encoder, q, segment=self._segment(i),
+                                     progress=False, grain=level, threads=self.threads, probe=True), timeout=3600)
+                score = quality.score_video_segment(self.src, start, self.lengths[i], probe, self.size,
+                                                    crop_filter(self.info), self.metric, level, subsample=4)
+            finally:
+                remove_quietly(probe)
+            return score.meets(target), score
+
+        return quality.search(SMART_STEPS[self.encoder], attempt)
+
+    def one(self, i: int) -> None:
+        """Encode part ``i`` (checked for its length) and mark it done."""
+        from .video import build_args
+
+        if self.stop.is_set():
             raise tools.Cancelled()
-        q, level = choose(i)
-        start, end = parts[i]
-        target = folder / f"part-{i:04d}.mkv"
-        tmp = folder / f"part-{i:04d}.tmp.mkv"
+        q, level = self.choose(i)
+        target = self.folder / f"part-{i:04d}.mkv"
+        tmp = self.folder / f"part-{i:04d}.tmp.mkv"
 
         def moved(f: float) -> None:
-            with lock:
-                progress[i] = f
-            report()
+            with self.lock:
+                self.progress[i] = f
+            self.report()
 
-        tools.run_ffmpeg_progress(build_args(src, tmp, info, s, encoder, q, segment=(start, end - start if end else 0),
-                                             grain=level, threads=threads), lengths[i], moved, stop)
+        tools.run_ffmpeg_progress(build_args(self.src, tmp, self.info, self.s, self.encoder, q,
+                                             segment=self._segment(i), grain=level, threads=self.threads),
+                                  self.lengths[i], moved, self.stop)
         got = probe_video(tmp)
-        if got is None or abs(got.duration - lengths[i]) > 1.5 / info.fps:
+        if got is None or abs(got.duration - self.lengths[i]) > 1.5 / self.info.fps:
             remove_quietly(tmp)
             raise tools.ToolError(["part"], 1, f"Part {i + 1} came out {got.duration if got else 0:.2f}s long, "
-                                               f"expected {lengths[i]:.2f}s")
+                                               f"expected {self.lengths[i]:.2f}s")
         os.replace(tmp, target)
-        (folder / f"part-{i:04d}.ok").write_text(str(target.stat().st_size), "utf-8")
-        with lock:
-            progress[i] = 1.0
-            state["done"] = sorted(set(state.get("done", [])) | {i})
-        save()
-        report()
+        (self.folder / f"part-{i:04d}.ok").write_text(str(target.stat().st_size), "utf-8")
+        with self.lock:
+            self.progress[i] = 1.0
+            self.state["done"] = sorted(set(self.state.get("done", [])) | {i})
+        self.save()
+        self.report()
 
-    todo = [i for i in range(len(parts)) if i not in done]
-    steps.report(f"Encoding {len(parts)} parts, {workers} at a time"
-                 + (f" ({resumed} already done earlier)" if resumed else "")
-                 + (": choosing the quality scene by scene" if smart else ""))
-    report()
-    if todo:
+    def encode_parts(self) -> None:
+        """The parts not done yet, several at a time; the first failure (or Stop) stops the others."""
+        todo = [i for i in range(len(self.parts)) if i not in self.done]
+        steps.report(f"Encoding {len(self.parts)} parts, {self.workers} at a time"
+                     + (f" ({self.resumed} already done earlier)" if self.resumed else "")
+                     + (": choosing the quality scene by scene" if self.smart else ""))
+        self.report()
+        if not todo:
+            return
+
         def watch() -> None:                 # the user's Stop reaches every part
-            while not stop.wait(0.2):
-                if cancel.is_set():
-                    stop.set()
+            while not self.stop.wait(0.2):
+                if self.cancel.is_set():
+                    self.stop.set()
 
         threading.Thread(target=watch, daemon=True).start()
         try:
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="part") as pool:
-                futures = [pool.submit(one, i) for i in todo]
+            with ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="part") as pool:
+                futures = [pool.submit(self.one, i) for i in todo]
                 wait(futures, return_when=FIRST_EXCEPTION)
                 if any(f.done() and not f.cancelled() and f.exception() is not None for f in futures):
-                    stop.set()                       # one part failed (or Stop): the rest stop too
+                    self.stop.set()                       # one part failed (or Stop): the rest stop too
                     for f in futures:
                         f.cancel()
                     wait(futures)
                     errors = [f.exception() for f in futures if f.done() and not f.cancelled()
                               and f.exception() is not None]
                     real = [e for e in errors if not isinstance(e, tools.Cancelled)]
-                    raise real[0] if real and not cancel.is_set() else tools.Cancelled()  # type: ignore[misc]
+                    raise real[0] if real and not self.cancel.is_set() else tools.Cancelled()  # type: ignore[misc]
         finally:
-            stop.set()
+            self.stop.set()
 
-    steps.report("Joining the parts")
-    listing = folder / "parts.txt"
-    starts = state["starts"]
-    listing.write_text("ffconcat version 1.0\n" + "".join(
-        f"file '{(folder / f'part-{i:04d}.mkv').as_posix()}'\n"
-        + (f"duration {starts[i + 1] - starts[i]:.6f}\n" if i + 1 < len(parts) else "")
-        for i in range(len(parts))), "utf-8")
-    joined = folder / "joined.mkv"
-    ffmpeg = tools.require("ffmpeg")
-    tools.run([ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i",
-               str(listing), "-c", "copy", str(joined)], timeout=3600)
-    steps.report("Adding the soundtrack, subtitles and chapters")
-    tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, video_from=joined, grain=grain,
-                                         fonts=fonts), info.duration, None, cancel)
-    notes = [f"encoded scene by scene in {len(parts)} parts" + (f", {resumed} carried over" if resumed else "")]
-    kept = sum(1 for v in state.get("grain", {}).values() if grain and not int(v))
-    if kept:
-        notes.append(f"grain kept in {plural(kept, 'part')} (needed for the quality target)")
-    if smart and state["q"]:
-        qs = [int(v) for v in state["q"].values()]
-        from .video import quality_label
+    def join(self, out: Path, fonts) -> None:
+        """The parts joined into one video, then the soundtrack, subtitles and chapters added from the source."""
+        from .video import build_args
 
-        notes.append(f"{quality_label(encoder)} {min(qs)}–{max(qs)} by scene" if min(qs) != max(qs)
-                     else f"{quality_label(encoder)} {qs[0]}")
-    return out, notes
+        steps.report("Joining the parts")
+        listing = self.folder / "parts.txt"
+        starts = self.state["starts"]
+        n = len(self.parts)
+        listing.write_text("ffconcat version 1.0\n" + "".join(
+            f"file '{(self.folder / f'part-{i:04d}.mkv').as_posix()}'\n"
+            + (f"duration {starts[i + 1] - starts[i]:.6f}\n" if i + 1 < n else "")
+            for i in range(n)), "utf-8")
+        joined = self.folder / "joined.mkv"
+        ffmpeg = tools.require("ffmpeg")
+        tools.run([ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i",
+                   str(listing), "-c", "copy", str(joined)], timeout=3600)
+        steps.report("Adding the soundtrack, subtitles and chapters")
+        tools.run_ffmpeg_progress(build_args(self.src, out, self.info, self.s, self.encoder, video_from=joined,
+                                             grain=self.grain, fonts=fonts), self.info.duration, None, self.cancel)
+
+    def notes(self) -> list[str]:
+        notes = [f"encoded scene by scene in {len(self.parts)} parts"
+                 + (f", {self.resumed} carried over" if self.resumed else "")]
+        kept = sum(1 for v in self.state.get("grain", {}).values() if self.grain and not int(v))
+        if kept:
+            notes.append(f"grain kept in {plural(kept, 'part')} (needed for the quality target)")
+        if self.smart and self.state["q"]:
+            from .video import quality_label
+
+            qs = [int(v) for v in self.state["q"].values()]
+            notes.append(f"{quality_label(self.encoder)} {min(qs)}–{max(qs)} by scene" if min(qs) != max(qs)
+                         else f"{quality_label(self.encoder)} {qs[0]}")
+        return notes
 
 
 def _part_ok(folder: Path, i: int) -> bool:

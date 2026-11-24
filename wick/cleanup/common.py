@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -260,4 +261,27 @@ def known_folder(name: str) -> Path | None:
                 ignored("cleanup.common.known_folder")
     p = home() / name
     return p if p.is_dir() else None
+
+class Groups:
+    """Items joined into sets of the same thing (union-find): look-alike photos, the same song..."""
+
+    def __init__(self, ids: list[int]):
+        self.parent = {i: i for i in ids}
+
+    def root(self, i: int) -> int:
+        parent = self.parent
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def join(self, a: int, b: int) -> None:
+        self.parent[self.root(a)] = self.root(b)
+
+    def sets(self) -> list[list[int]]:
+        linked: dict[int, list[int]] = defaultdict(list)
+        for i in self.parent:
+            linked[self.root(i)].append(i)
+        return list(linked.values())
+
 
