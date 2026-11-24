@@ -356,13 +356,6 @@ class CompressTab(QWidget):
     def input_paths(self) -> list[Path]:
         return list(self.paths)
 
-    def set_inputs_text(self, value: str) -> None:
-        parts = [p.strip().strip('"') for p in value.split(";")]
-        self.paths = [Path(p) for p in parts if p]
-
-    def inputs_text(self) -> str:
-        return " ; ".join(str(p) for p in self.paths)
-
     def add_paths(self, paths: list[str], scan: bool = True) -> None:
         keys = {os.path.normcase(str(p)) for p in self.paths}
         for p in paths:
@@ -911,11 +904,6 @@ class CompressTab(QWidget):
     def _fail(self, msg: str) -> None:
         self.job_status.hide()
         warn(self, msg)
-
-    def _open_row(self, proxy_index) -> None:
-        r = self._row_at(proxy_index)
-        path = r.result.output if r.result and r.result.output else r.entry.path
-        open_in_file_manager(str(path))
 
     def _table_menu(self, pos) -> None:
         idx = self.table.indexAt(pos)

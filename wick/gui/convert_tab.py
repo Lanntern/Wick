@@ -180,10 +180,6 @@ class ConvertTab(FileJobPage):
         return classify(path) != DOCUMENT or path.suffix.lower() in (*PANDOC_INPUTS, *OFFICE_EXTS, ".pdf")
 
     # ---- Pandoc, for documents
-    def _has_documents(self) -> bool:
-        from ..formats import DOC, DOCUMENT
-
-        return any(e.kind in (DOC, DOCUMENT) for e in self.entries)
 
     def _show_pandoc(self) -> None:
         from .. import addons, tools

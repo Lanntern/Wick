@@ -138,18 +138,6 @@ class FileTableModel(QAbstractTableModel):
         self._index = {id(r.entry): i for i, r in enumerate(self.rows)}
         self.endResetModel()
 
-    def add_entries(self, entries: list[FileEntry], settings: Settings) -> None:
-        known = set(self._index)
-        new = [e for e in entries if id(e) not in known]
-        if not new:
-            return
-        self.beginInsertRows(QModelIndex(), len(self.rows), len(self.rows) + len(new) - 1)
-        for e in new:
-            p = plan_entry(e, settings)
-            self._index[id(e)] = len(self.rows)
-            self.rows.append(Row(e, p, p.convert))
-        self.endInsertRows()
-
     def replan(self, settings: Settings) -> None:
         for r in self.rows:
             if r.result is not None and r.result.status == DONE:

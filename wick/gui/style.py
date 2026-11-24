@@ -843,12 +843,6 @@ def _native_round_corners(w: QWidget, small: bool = False) -> None:
 _style_obj = None
 
 
-def _rich(value: str) -> bool:
-    from PySide6 import QtGui
-
-    return bool(QtGui.Qt.mightBeRichText(value))
-
-
 def keyboard_focus(w: QWidget) -> bool:
     """Whether ``w`` has the focus and got it from the keyboard (Tab, a shortcut, or a key pressed while focused):
     only then is the focus ring drawn, as in Windows. Clicks and windows opening don't show it."""
@@ -1108,8 +1102,3 @@ def apply_style(mode: str) -> Tokens:
     app.setFont(ui_font())
     app.setStyleSheet(stylesheet(_current))
     return _current
-
-
-def is_mac() -> bool:
-    return sys.platform == "darwin"
-

@@ -833,8 +833,7 @@ def convert_video(src: Path, info: VideoInfo, target: str, s: Settings,
         steps.report("Encoding " + re.sub(r",[^)]*\)", ")", VIDEO_TARGETS[target][0]))     # "MP4 (H.264)"
         tools.run_ffmpeg_progress(args, info.duration, on_progress, cancel)
         steps.report("Checking the result")
-        verify_video(info, out, VIDEO_TARGETS[target][2], dst_is_mp4=out.suffix == ".mp4",
-                     expected_size=s.video_target_size(info.width, info.height)
+        verify_video(info, out, VIDEO_TARGETS[target][2], expected_size=s.video_target_size(info.width, info.height)
                      if VIDEO_TARGETS[target][2] in ("av1", "hevc") or s.video_max_height else None, src_path=src)
         if codec in ("av1", "hevc") and measures_quality(vs) and source_rate_limit(info, vs, encoder):
             steps.report("Measuring how close it looks to the original")

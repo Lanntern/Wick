@@ -236,7 +236,7 @@ class VerifyDecodeTests(unittest.TestCase):
 
         with patch.object(video, "probe_video", return_value=info), \
                 patch.object(tools, "require", return_value="ffmpeg"), patch.object(tools, "run", side_effect=run):
-            video.verify_video(info, Path("out.mkv"), "h264", dst_is_mp4=False, src_path=Path("in.mp4"))
+            video.verify_video(info, Path("out.mkv"), "h264", src_path=Path("in.mp4"))
 
     def test_messages_the_original_has_too_are_accepted(self):
         self._verify("[h264 @ 0x55d1] non-existing PPS 0 referenced at 12.0",

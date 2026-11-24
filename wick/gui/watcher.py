@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import threading
-import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
@@ -145,12 +144,3 @@ def _readable(path: str) -> bool:
         return True
     except OSError:
         return False
-
-
-def wait_until(predicate, timeout: float) -> bool:  # small helper for tests
-    end = time.time() + timeout
-    while time.time() < end:
-        if predicate():
-            return True
-        time.sleep(0.05)
-    return False

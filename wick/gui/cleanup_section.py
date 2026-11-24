@@ -14,7 +14,7 @@ from pathlib import Path
 from PySide6.QtCore import QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget,
 )
 
@@ -392,13 +392,6 @@ class ToolSection(QWidget):
                                      "Other selected folders are treated as individual apps/games." if is_apps else ""))
         if dialog.exec() == QDialog.Accepted:
             self.folders = dialog.paths()
-            self.save_folders()
-            self._show_folders()
-
-    def _add_folder(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Add a folder", str(self.folders[0] if self.folders else Path.home()))
-        if d and Path(d) not in self.folders:
-            self.folders.append(Path(os.path.normpath(d)))
             self.save_folders()
             self._show_folders()
 

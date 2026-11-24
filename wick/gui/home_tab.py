@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtWidgets import QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QTreeWidget, QWidget
+from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QTreeWidget, QWidget
 
 from .. import overview
 from ..fileops import BIN_NAME
@@ -273,13 +273,6 @@ class HomeTab(Page):
         dialog = FolderManager(self, self.roots, default_roots, self.qs, read_only=self.busy())
         if dialog.exec() == QDialog.Accepted and not self.busy():
             self.roots = dialog.paths()
-            self.qs.setValue("home/folders", [str(p) for p in self.roots])
-            self._show_folders()
-
-    def _add(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Include a folder", str(Path.home()))
-        if d and Path(d) not in self.roots:
-            self.roots.append(Path(os.path.normpath(d)))
             self.qs.setValue("home/folders", [str(p) for p in self.roots])
             self._show_folders()
 

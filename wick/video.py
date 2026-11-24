@@ -1403,7 +1403,7 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
             tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
                                       on_progress, cancel)
             steps.report("Checking the result")
-            verify_video(info, out, info.codec, dst_is_mp4=is_mp4(out.suffix), audio_tracks=len(keep_audio),
+            verify_video(info, out, info.codec, audio_tracks=len(keep_audio),
                          src_path=src, copied=True)
             done = ["picture untouched", "rewrapped from a TV recording" if info.container == "mpegts" else "",
                     tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix), True)]
@@ -1459,8 +1459,7 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
 
     def finish(used: str) -> tuple[Path, str]:
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix),
-                     expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
+        verify_video(info, out, codec, expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
         steps.report("Measuring how close it looks to the original")
         score = measure(src, info, out, s, cancel, grain if used == "libsvtav1" else 0)
         if score is not None:
@@ -1566,7 +1565,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
                                                   f"(it made {human(got)})")
             video_kbps = max(30, int(video_kbps * limit / got * 0.93))     # overshot: aim lower
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix), expected_size=size,
+        verify_video(info, out, codec, expected_size=size,
                      audio_tracks=audio_tracks, src_path=src)
         plan.outcome = f"{video_kbps:,} kbps, {size[0]}×{size[1]} to fit under {human(limit)}"
         return out, encoder
@@ -1575,7 +1574,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
         raise
 
 
-def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
+def verify_video(src: VideoInfo, out: Path, codec: str,
                  expected_size: tuple[int, int] | None = None, audio_tracks: int | None = None,
                  src_path: Path | None = None, copied: bool = False) -> None:
     """``copied``: the picture was copied as it is (a Dolby Vision layer may stay); else it must be gone."""
