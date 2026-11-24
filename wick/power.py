@@ -116,7 +116,7 @@ def awake(enabled: bool = True) -> Iterator[None]:
 
             win = ctypes.windll.kernel32
             win.SetThreadExecutionState(_ES_CONTINUOUS | _ES_SYSTEM_REQUIRED)
-        except Exception:  # noqa: BLE001
+        except OSError:
             win = None
     else:
         with _lock:
@@ -214,7 +214,7 @@ def background():
 
             k = ctypes.windll.kernel32   # type: ignore[attr-defined]
             started = bool(k.SetThreadPriority(k.GetCurrentThread(), _THREAD_MODE_BACKGROUND_BEGIN))
-        except Exception:  # noqa: BLE001
+        except OSError:
             started = False
     try:
         yield

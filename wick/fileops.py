@@ -98,7 +98,7 @@ def set_windows_creation_time(path: Path, ns: int) -> None:
             kernel32.SetFileTime(handle, ctypes.byref(ctime), None, None)
         finally:
             kernel32.CloseHandle(handle)
-    except Exception:
+    except Exception:  # noqa: BLE001 - logged; the copy keeps its own creation time
         from wick.log import ignored
         ignored("fileops.set_windows_creation_time")
 

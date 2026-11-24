@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from .formats import plural
+from .log import ignored
 
 _REL = re.compile(r"<Relationship\b[^>]*?/?>", re.S)
 _ATTR = re.compile(r'([\w:]+)="([^"]*)"')
@@ -108,6 +109,7 @@ def remove_orphans(pkg: Package) -> int:
         try:
             rels = _rels(pkg)
         except Exception:  # noqa: BLE001 - relationships we can't read: nothing is removed
+            ignored("officeslim: relationships")
             return 0
         used = {r["_target"] for items in rels.values() for r in items}
         # Only in folders the relationships do point into: a package without them (an odd writer) keeps all.
@@ -148,6 +150,7 @@ def bitmaps_to_png(pkg: Package) -> int:
     try:
         rels = _rels(pkg)
     except Exception:  # noqa: BLE001
+        ignored("officeslim: relationships")
         return 0
     done = 0
     for name in list(pkg.names):
@@ -166,6 +169,7 @@ def bitmaps_to_png(pkg: Package) -> int:
             if not same_pixels(pkg.data[name], png):
                 continue
         except Exception:  # noqa: BLE001 - this picture stays as it is
+            ignored("officeslim: picture to PNG")
             continue
         stem = name.rsplit(".", 1)[0]
         new = stem + ".png"
@@ -214,6 +218,7 @@ def crop_pictures(pkg: Package, lossy_ok: bool) -> int:
     try:
         rels = _rels(pkg)
     except Exception:  # noqa: BLE001
+        ignored("officeslim: relationships")
         return 0
     by_part = {_source_of(n): {r.get("Id"): r["_target"] for r in items} for n, items in rels.items()}
     uses: dict[str, int] = {}
@@ -264,6 +269,7 @@ def crop_pictures(pkg: Package, lossy_ok: bool) -> int:
                     part_img.save(buf, "PNG", icc_profile=im.info.get("icc_profile"))
                     new = shrink_png(buf.getvalue())
         except Exception:  # noqa: BLE001
+            ignored("officeslim: cropping a picture")
             continue
         if len(new) >= len(pkg.data[name]):
             continue
@@ -396,6 +402,7 @@ def epub_fonts(pkg: Package) -> int:
                 if not subset(src, dst, chars):
                     continue
             except Exception:  # noqa: BLE001 - not a font we can read (or not this key): it stays as it is
+                ignored("officeslim: cutting a font")
                 continue
             new = dst.read_bytes()
             pkg.set(name, _xor(new, keys[algo], lengths[algo]) if algo else new)

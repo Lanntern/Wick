@@ -24,6 +24,8 @@ import struct
 from pathlib import Path
 from typing import Any
 
+from .log import ignored
+
 ICO_SIZES = (16, 20, 24, 32, 40, 48, 64, 96, 128, 256)
 ICO_PRESETS = {
     "web": ("Website (16, 32, 48)", (16, 32, 48)),
@@ -107,6 +109,7 @@ def png_bytes(img) -> bytes:
 
         return oxipng.optimize_from_memory(data, level=4, strip=oxipng.StripChunks.safe())
     except Exception:  # noqa: BLE001 - an unoptimized PNG is still right
+        ignored("icons: oxipng")
         return data
 
 

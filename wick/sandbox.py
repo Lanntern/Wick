@@ -114,7 +114,8 @@ class _Worker:
         self.proc.join(5)
 
 
-def _borrow() -> _Worker:
+def _borrow() -> _Worker | None:
+    """An idle worker, or a new one; None if workers can't be started here (logged once)."""
     global _unavailable
     with _lock:
         if _idle:
@@ -128,7 +129,7 @@ def _borrow() -> _Worker:
             if _unavailable is None:
                 _unavailable = str(e)
                 log.warning("Decoding files in Wick itself: separate decoder processes aren't available (%s)", e)
-        raise
+        return None
     with _lock:
         if not _started:
             from .log import log
@@ -171,9 +172,8 @@ def call(fn: str, *args, timeout: float = 120.0, max_bytes: int = 0) -> tuple[di
         except Exception as e:  # noqa: BLE001 - the same as a worker's failure
             raise DecoderFailed(f"{type(e).__name__}: {e}") from None
         return {"ok": True, **header}, payload or b""
-    try:
-        w = _borrow()
-    except Exception:  # noqa: BLE001 - (logged once in _borrow): decode here
+    w = _borrow()
+    if w is None:          # (decode here: available() now says so)
         return call(fn, *args, timeout=timeout, max_bytes=max_bytes)
     try:
         header, payload = w.ask(fn, list(args), timeout, max_bytes)
@@ -211,11 +211,9 @@ def prewarm() -> None:
         return
 
     def start() -> None:
-        try:
-            _give_back(_borrow())
-        except Exception:  # noqa: BLE001 - (logged once in _borrow; the first real call tries again)
-            from .log import ignored
-            ignored("sandbox.prewarm")
+        w = _borrow()             # (None: logged once in _borrow, and files are decoded in Wick itself)
+        if w is not None:
+            _give_back(w)
 
     threading.Thread(target=start, name="decoder-prewarm", daemon=True).start()
 

@@ -114,7 +114,7 @@ def trash_paths(item: Candidate, writer: journal.RunWriter, label: str) -> Outco
             if not p.exists() or not trash_available(p):
                 continue
             move_to_trash(p, size)
-        except Exception:  # noqa: BLE001 - in use, or gone
+        except OSError:  # in use, or gone
             skipped += 1
             continue
         _record(writer, Candidate(p, size), "removed", label, size, at)

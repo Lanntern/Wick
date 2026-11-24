@@ -99,12 +99,9 @@ def _convert_items(kind: str, presets: dict | None = None) -> list[tuple[str, li
     from . import convert_presets
 
     if presets is None:
-        try:
-            from .main_window import open_qsettings
+        from .main_window import open_qsettings
 
-            presets = convert_presets.load(open_qsettings())
-        except Exception:  # noqa: BLE001 - the menu still works without them
-            presets = {}
+        presets = convert_presets.load(open_qsettings())     # ({} when none are saved or they can't be read)
     items = [(label, ["--convert", target]) for label, target in CONVERT_MENUS[kind]]
     items += [(name, ["--convert", f"preset:{name}"]) for name, p in sorted(presets.items(), key=lambda kv: kv[0].lower())
               if kind in convert_presets.kinds(p)]
@@ -485,7 +482,7 @@ def _autostart_file() -> Path:
 def _server_name() -> str:
     try:
         user = getpass.getuser()
-    except Exception:  # noqa: BLE001
+    except (OSError, KeyError):
         user = "user"
     return f"{APP_NAME}-{user}"
 

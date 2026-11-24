@@ -68,3 +68,37 @@ def test_tests_fake_another_system_through_sys_platform():
             if isinstance(first, ast.Constant) and first.value == "os.name":
                 found.append(f"{path.relative_to(TESTS.parent)}:{node.lineno}")
     assert not found, "patch sys.platform instead:\n" + "\n".join(found)
+
+
+def _handles(handler: ast.ExceptHandler) -> bool:
+    """The handler re-raises, writes the error to the log, or passes it on (as a message or a result)."""
+    for node in ast.walk(handler):
+        if isinstance(node, ast.Raise):
+            return True
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
+            if name in {"ignored", "exception", "warning", "error", "info", "debug"}:
+                return True
+        if handler.name and isinstance(node, ast.Name) and node.id == handler.name:
+            return True
+    return False
+
+
+def test_no_error_is_swallowed_without_a_trace():
+    """A catch-all (``except Exception``) re-raises, logs the error (log.ignored keeps "this is optional" from
+    hiding a real bug) or hands it on: never a silent ``pass``. Where the error is known, catch that one."""
+    found = []
+    for path in sorted(WICK.rglob("*.py")):
+        if path.name == "_ssimulacra2.py":       # (vendored)
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            t = node.type
+            caught = [] if t is None else t.elts if isinstance(t, ast.Tuple) else [t]
+            names = {e.id if isinstance(e, ast.Name) else e.attr if isinstance(e, ast.Attribute) else ""
+                     for e in caught} or {"<bare>"}
+            if names & {"Exception", "BaseException", "<bare>"} and not _handles(node):
+                found.append(f"{path.relative_to(WICK.parent)}:{node.lineno}")
+    assert not found, "\n".join(found)

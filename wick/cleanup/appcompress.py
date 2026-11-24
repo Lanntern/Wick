@@ -332,7 +332,7 @@ def find_compressible(folders: list[Path], progress: ProgressFn | None = None,
             try:
                 ratio, samples = sample_ratio(folder, selected_algorithm, skipped, cancel)
                 estimate_source = f"sample estimate ({samples} files)"
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - logged; the sample is only an estimate
                 if cancelled(cancel):
                     result.cancelled = True
                     break

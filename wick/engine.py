@@ -33,7 +33,7 @@ from .fileops import (
 )
 from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human, plural
 from .images import NotWorthIt, VerificationFailed, convert_image
-from .log import log
+from .log import ignored, log
 from .plan import Plan
 from .scanner import FileEntry, preload_codecs
 from .settings import Settings
@@ -558,6 +558,7 @@ class Gate:
             try:
                 self._busy = bool(self.busy())
             except Exception:  # noqa: BLE001
+                ignored("engine: busy check")
                 self._busy = False
         return max(1, self.limit // 2) if self._busy else self.limit
 

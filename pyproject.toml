@@ -59,7 +59,7 @@ extend-exclude = ["wick/_ssimulacra2.py"]   # vendored (BSD), kept as published
 
 [tool.ruff.lint]
 # Bugs first: pyflakes, pycodestyle errors, bugbear, pylint errors.
-select = ["E4", "E7", "E9", "E501", "F", "B", "PLE", "W6", "C901", "I", "UP"]
+select = ["E4", "E7", "E9", "E501", "F", "B", "BLE", "PLE", "W6", "C901", "I", "UP"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["wick"]

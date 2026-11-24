@@ -9,6 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..formats import VIDEO_EXTS, human, plural
+from ..log import ignored
 from ..protected import CLOUD_ONLY_ATTRS
 from .common import Candidate, ScanResult, publish, walk_files
 
@@ -80,6 +81,7 @@ def find_large_files(roots: list[Path], min_mb: float, kind: str = "all",
         try:
             found = _from_everything(roots, min_size)
         except Exception:  # noqa: BLE001 - Everything's answer is a bonus: any problem, walk instead
+            ignored("large files: Everything's answer")
             found = None
     if found is None:
         found = _walk(roots, min_size, progress, cancel, kind)

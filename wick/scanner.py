@@ -40,6 +40,7 @@ from .formats import (
     read_image_info,
     sniff,
 )
+from .log import ignored
 from .probe import NOT_MEASURED, AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
 from .protected import cloud_only, inside_library, is_hidden, is_library
 from .settings import Settings
@@ -264,6 +265,7 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
         try:
             return spotlight.listing_for(root, _LISTED_EXTS, progress)
         except Exception:  # noqa: BLE001 - Spotlight's answer is a bonus: any problem, the usual way
+            ignored("scanner: Spotlight's answer")
             return None
     if sys.platform == "win32" and _big_scope(root):
         from . import everything
@@ -271,6 +273,7 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
         try:
             listing = everything.listing_for(root, _LISTED_EXTS, progress)
         except Exception:  # noqa: BLE001 - Everything's answer is a bonus: any problem, the usual way
+            ignored("scanner: Everything's answer")
             listing = None
         if listing is not None:
             return listing

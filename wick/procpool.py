@@ -10,6 +10,8 @@ import atexit
 import os
 import threading
 
+from .log import ignored
+
 _lock = threading.Lock()
 _pool = None
 _broken = False
@@ -61,7 +63,7 @@ def stop(pool) -> None:
     for p in processes:
         try:
             p.terminate()
-        except Exception:  # noqa: BLE001 - already gone
+        except (OSError, ValueError):  # already gone
             pass
     for p in processes:
         try:
@@ -70,7 +72,7 @@ def stop(pool) -> None:
                 p.kill()
                 p.join(2)
         except Exception:  # noqa: BLE001
-            pass
+            ignored("procpool: stopping a worker")
 
 
 def shutdown() -> None:

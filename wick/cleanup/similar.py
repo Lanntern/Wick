@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .. import index
 from ..formats import HEIC, IMAGE_KINDS, classify, plural, register_heif
+from ..log import ignored
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 STRICTNESS = {"very": 3, "similar": 6}   # max differing bits of 64
@@ -87,6 +88,7 @@ def inspect(path: Path, px: int = 256):
             sharp = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0]
             return sharp, gray.resize((px, px), Image.Resampling.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
+        ignored("similar photos: reading a picture")
         return 0.0, None
 
 

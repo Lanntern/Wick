@@ -102,6 +102,10 @@ The lint job checks most of these; the rest are here so a change doesn't have to
     called, they pick up the replacement.
 - **Private names stay private:** `_name` is for its own module. If another module needs it, give it a
   public name (`tests/test_code_rules.py` checks).
+- **Errors:** catch the error you expect (`OSError`, `sqlite3.Error`, `tools.ToolError`...). A catch-all
+  (`except Exception`) is for code that reads untrusted files or third-party libraries that can raise anything;
+  it carries `# noqa: BLE001 - why`, and writes the error to the log (`log.ignored("where")`), re-raises, or
+  hands it on as a message. A silent one fails `tests/test_code_rules.py`.
 - **Functions under 25 branches** (ruff C901). The few older ones over it are marked `noqa: C901 (to split up)`.
 - **Tests that fake another system** change `sys.platform` (`monkeypatch.setattr(sys, "platform", "linux")`);
   changing `os.name` does nothing, and `tests/test_code_rules.py` rejects it.

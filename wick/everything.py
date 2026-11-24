@@ -248,7 +248,7 @@ def long_path(p: Path) -> Path:
         buf = ctypes.create_unicode_buffer(32768)
         n = ctypes.windll.kernel32.GetLongPathNameW(str(p), buf, len(buf))   # type: ignore[attr-defined]
         return Path(buf.value) if 0 < n < len(buf) else p
-    except Exception:  # noqa: BLE001
+    except (OSError, ValueError):
         return p
 
 

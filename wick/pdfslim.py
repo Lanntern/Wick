@@ -17,6 +17,8 @@ from __future__ import annotations
 import hashlib
 import io
 
+from .log import ignored
+
 
 def drop_thumbnails(pdf) -> int:
     """Remove every page's thumbnail. Returns how many there were."""
@@ -60,6 +62,7 @@ def dedupe_streams(pdf) -> int:
         try:
             key = _key(obj)
         except Exception:  # noqa: BLE001 - a stream that can't be read is left alone
+            ignored("pdfslim: reading a stream")
             continue
         if key in first:
             replace[obj.objgen] = first[key]

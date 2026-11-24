@@ -87,6 +87,7 @@ def _journal_enabled() -> bool:
         qs = QSettings(path, QSettings.Format.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
         return bool(qs.value("history_enabled", True, bool))
     except Exception:  # noqa: BLE001
+        ignored("log: history setting")
         return True
 
 
@@ -150,13 +151,13 @@ def diagnostics(include_log: bool = True) -> str:
         from PySide6.QtCore import qVersion
 
         out.append(f"Qt: {qVersion()} (PySide6 {PySide6.__version__})")
-    except Exception:  # noqa: BLE001
+    except ImportError:
         pass
     try:
         from PIL import __version__ as pil
 
         out.append(f"Pillow: {pil}")
-    except Exception:  # noqa: BLE001
+    except ImportError:
         pass
     out.append(f"Data folder: {data_dir()}")
     out.append(f"CPU threads: {os.cpu_count()}")
@@ -176,12 +177,12 @@ def diagnostics(include_log: bool = True) -> str:
 
         out.append(f"Smart quality metrics: {image_metric()} (images), {'VMAF' if has_vmaf() else 'SSIM'} (videos)")
     except Exception:  # noqa: BLE001
-        pass
+        ignored("diagnostics: quality metrics")
     try:
         n, size = index.stats()
         out.append(f"File index: {n} files, {size // 1024} KB")
     except Exception:  # noqa: BLE001
-        pass
+        ignored("diagnostics: file index")
     crash = log_dir() / "crash-previous.txt"
     try:
         if crash.is_file() and crash.stat().st_size:

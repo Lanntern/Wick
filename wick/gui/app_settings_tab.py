@@ -415,10 +415,7 @@ class AppSettingsTab(Page):
             self._counted_connected = True
 
         def count() -> None:
-            try:
-                n, size = index.stats()
-            except Exception:  # noqa: BLE001 - only a description
-                n, size = 0, 0
+            n, size = index.stats()          # (0, 0 when the index can't be read)
             self.index_counted.emit(n, size)
 
 

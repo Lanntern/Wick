@@ -37,6 +37,7 @@ from .formats import (
     register_heif,
 )
 from .images import Ctx, VerificationFailed, decoded_path, filtered_meta, load_frames, load_static, open_image
+from .log import ignored
 from .plan import Plan
 from .probe import VideoInfo, probe_audio, probe_video
 from .settings import Settings
@@ -719,6 +720,7 @@ def _save_static(img, target: str, ctx: Ctx, opts: ConvertOptions, meta: md.Meta
             img.save(out, "TIFF", compression="tiff_adobe_deflate",
                      **({**kw, "exif": md.EXIF_HEADER + meta.exif} if meta.exif else kw))
         except Exception:  # noqa: BLE001 - libtiff rejects some EXIF layouts: keep the image, drop EXIF
+            ignored("TIFF with EXIF")
             remove_quietly(out)
             img.save(out, "TIFF", compression="tiff_adobe_deflate", **kw)
     elif target == "bmp":

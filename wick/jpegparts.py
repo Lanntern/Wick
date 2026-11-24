@@ -14,6 +14,8 @@ from __future__ import annotations
 import io
 import struct
 
+from .log import ignored
+
 SOI, EOI, SOS = 0xD8, 0xD9, 0xDA
 MPF_PREVIEW_TYPES = (0x010001, 0x010002, 0x010003)       # large thumbnails: VGA, full HD, 4K
 GAIN_MAP_MARKS = (b"hdrgm:", b'xmlns:hdrgm="', b"urn:iso:std:iso:ts:21496", b":aux:hdrgainmap")
@@ -251,6 +253,7 @@ def compact_icc(icc: bytes | None) -> bytes | None:
                                         renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC)
         diff = np.abs(np.asarray(out, dtype=np.int16) - grid.astype(np.int16)).max()
     except Exception:  # noqa: BLE001 - a profile we can't read stays as it is
+        ignored("jpegparts: color profile")
         return None
     return _compact_srgb() if diff <= 1 else None
 

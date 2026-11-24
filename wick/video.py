@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
@@ -342,7 +343,7 @@ def _test_encode(ffmpeg: str, encoder: str, options: tuple[str, ...] | None = No
         rejected = re.search(r"Error parsing option|Unrecognized option|Unknown option|not supported",
                              proc.stderr or "", re.I)
         return proc.returncode == 0 and not (options is not None and rejected)
-    except Exception:
+    except Exception:  # noqa: BLE001 - logged; an encoder that can't be tried isn't offered
         from wick.log import ignored
         ignored("video._test_encode")
         return False
@@ -978,7 +979,7 @@ def _encoder_option(encoder: str, option: str) -> bool:
     try:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-h", f"encoder={encoder}"], timeout=30,
                         check=False).stdout or ""
-    except Exception:  # noqa: BLE001
+    except (OSError, RuntimeError, subprocess.SubprocessError):
         return False
     return f"-{option} " in out
 

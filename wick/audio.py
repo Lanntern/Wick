@@ -22,6 +22,7 @@ from pathlib import Path
 from . import steps, tools
 from .fileops import remove_quietly, temp_name
 from .images import VerificationFailed
+from .log import ignored
 from .plan import Plan
 from .probe import AudioInfo, probe_audio
 from .settings import Settings
@@ -127,6 +128,7 @@ def cover_metadata(src: Path, info: AudioInfo, folder: Path | None = None) -> Pa
         with Image.open(io.BytesIO(data)) as im:
             w, h = im.size
     except Exception:  # noqa: BLE001
+        ignored("audio: size of embedded cover art")
         w = h = 0
     m = mime.encode()
     block = (struct.pack(">II", 3, len(m)) + m + struct.pack(">I", 0) + struct.pack(">IIII", w, h, 24, 0)

@@ -20,6 +20,7 @@ import tempfile
 from io import BytesIO
 from pathlib import Path
 
+from .log import ignored
 from .subfonts import BASE
 
 # ---------------------------------------------------------------- Office
@@ -68,6 +69,7 @@ def _readable(data: bytes) -> bool:
         with TTFont(BytesIO(data), lazy=True) as f:
             return "glyf" in f or "CFF " in f
     except Exception:  # noqa: BLE001
+        ignored("docfonts: reading a font")
         return False
 
 

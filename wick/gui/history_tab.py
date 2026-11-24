@@ -16,6 +16,7 @@ from .. import journal, pending, report, trash_restore
 from .. import log as applog
 from ..engine import cannot_undo
 from ..formats import human, plural
+from ..log import ignored
 from .cleanup_tools import tools
 from .dialogs import ask, inform
 from .filelist import (
@@ -58,6 +59,7 @@ class _BinCheck(QThread):
                 if reason:
                     out[(run_id, rec.original)] = reason
         except Exception:  # noqa: BLE001 - a hint, never a reason to fail the page
+            ignored("history: what can't be undone")
             out = {}
         self.done.emit(out)
 

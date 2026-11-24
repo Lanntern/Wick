@@ -21,6 +21,7 @@ from pathlib import Path
 
 from .fileops import remove_quietly, temp_name
 from .images import NotWorthIt, VerificationFailed
+from .log import ignored
 
 OFFICE_EXTS = {".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
                ".odt", ".ods", ".odp", ".odg", ".epub", ".cbz"}
@@ -62,6 +63,7 @@ def shrink_jpeg(data: bytes) -> bytes:
 
         out = mlo.optimize(data)
     except Exception:  # noqa: BLE001 - odd JPEGs (CMYK, arithmetic...) stay as they are
+        ignored("documents: mozjpeg")
         return data
     return out if len(out) < len(data) and same_pixels(data, out) else data
 
@@ -72,6 +74,7 @@ def shrink_png(data: bytes) -> bytes:
 
         out = oxipng.optimize_from_memory(data, level=3)
     except Exception:  # noqa: BLE001
+        ignored("documents: oxipng")
         return data
     return out if len(out) < len(data) and same_pixels(data, out) else data
 
@@ -99,6 +102,7 @@ def reduce_picture(data: bytes, ext: str, long_edge: int) -> bytes:
                 return min(shrink_png(buf.getvalue()), data, key=len)
             out = buf.getvalue()
     except Exception:  # noqa: BLE001
+        ignored("documents: shrinking a picture")
         return data
     return out if len(out) < len(data) else data
 
