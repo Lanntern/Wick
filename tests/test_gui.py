@@ -2615,13 +2615,18 @@ def test_the_command_bar_finds_pages_tools_and_actions(win, monkeypatch):
     assert titles and titles[0] == "Duplicates"
     assert [c.title for c in matches(commands, "hibernation")] == ["What Else Takes Space"]
     assert not matches(commands, "zzzz nothing")
+    # Only tools that can run on this system are offered.
+    from wick.gui.cleanup_tools import tools
+
+    offered = {c.title for c in commands if c.where == "Clean Up"}
+    assert all((t.tab in offered) == (not t.available()) for t in tools())
     bar = CommandBar(commands, win)
-    bar.field.setText("apps")
+    bar.field.setText("large files")
     QApplication.processEvents()
-    assert bar.list.currentItem().data(Qt.UserRole).title == "Apps"
+    assert bar.list.currentItem().data(Qt.UserRole).title == "Large Files"
     bar._run_current()
     assert win.pages.currentWidget() is win.cleanup
-    assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "apps"
+    assert win.cleanup._tools[win.cleanup.tabs.currentIndex()].key == "large"
     bar.field.setText("history")
     bar._run_current()
     assert win.pages.currentWidget() is win.history
@@ -2784,3 +2789,39 @@ def test_before_and_after_show_in_whichever_order_they_arrive(win, tmp_path):
     assert not strip.isHidden() and "50% smaller" in strip.note.text()
     strip._got("after", 6, png.read_bytes())               # (a stale one from an earlier file is ignored)
 
+
+
+def test_clean_up_offers_only_this_systems_tools_and_matches_other_pages(win):
+    from wick.gui.cleanup_tools import tools
+
+    win.go_to(win.cleanup)
+    cu = win.cleanup
+    hidden = [i for i, t in enumerate(cu._tools) if t.available()]
+    assert hidden, "this test needs a tool that can't run here (Windows', Mac's or both)"
+    for i in hidden:
+        assert not cu.tabs.isTabVisible(i) and cu.picker.view().isRowHidden(i)
+    # Ctrl+Tab goes around only the tools offered here.
+    seen = set()
+    for _ in range(len(cu._tools) + 2):
+        cu.step(1)
+        seen.add(cu.tabs.currentIndex())
+    assert seen == {i for i in range(len(cu._tools)) if i not in hidden}
+    # A link straight to one still opens it, saying why it can't run (instead of "Press Scan").
+    key = cu._tools[hidden[0]].key
+    win.open_cleanup_tool(key)
+    section = cu.stack.currentWidget()
+    assert cu.picker.currentIndex() == hidden[0] and not section.scan_btn.isEnabled()
+    assert "can't run here" in section.placeholder.message
+    # The picker shows the tool on screen, and the list says what to do once, not twice.
+    win.open_cleanup_tool("large")
+    assert cu.picker.currentText() == "Large Files" and cu.stack.currentWidget().summary.isHidden()
+    # "Scan Several Tools" is a page action, in the header like other pages' actions.
+    assert any(cu.action_bar.itemAt(i).widget().text() == "Scan Several Tools…" for i in range(cu.action_bar.count()))
+    assert len(tools()) == len(cu._tools)
+
+
+def test_page_titles_line_up_with_or_without_header_buttons(win):
+    from wick.gui.style import Size
+
+    for page in (win.home, win.app_settings, win.cleanup, win.history):
+        assert page.title.minimumHeight() >= Size.CONTROL

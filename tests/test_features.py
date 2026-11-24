@@ -242,7 +242,7 @@ def test_repeated_frames_detected_and_removed(tmp_path):
     from wick import mediainfo
     from wick.engine import DONE, run_job
     from wick.plan import plan_entry
-    from wick.probe import detect_cadence, probe_video
+    from wick.probe import NOT_MEASURED, detect_cadence, probe_video
     from wick.scanner import scan
 
     ffmpeg("-f", "lavfi", "-i", "testsrc2=s=640x360:r=24:d=8", "-vf", "fps=30", "-c:v", "libx264", "-crf", "20",
@@ -251,14 +251,23 @@ def test_repeated_frames_detected_and_removed(tmp_path):
            cwd=tmp_path)
     assert detect_cadence(tmp_path / "real.mp4", probe_video(tmp_path / "real.mp4")) == 0
 
+    ffmpeg("-i", "padded.mp4", "-c:v", "libx265", "-x265-params", "log-level=error", "-crf", "20",
+           "padded-hevc.mkv", cwd=tmp_path)
+
     s = Settings(video_codec="hevc", video_encoder="cpu", min_video_mb=0, output_mode="suffix", image_format="none")
-    entry = next(e for e in scan([tmp_path], s).entries if e.path.name == "padded.mp4")
-    assert entry.video.cadence == 5 and round(entry.video.content_fps) == 24, _cadence_report(entry.path, entry.video)
-    assert "30→24 fps" in mediainfo.describe(entry) and "padded" in mediainfo.cadence_note(entry.video)
+    entries = {e.path.name: e for e in scan([tmp_path], s).entries}
+    # An efficient codec: the repeated frames are the reason to re-encode, so they're looked for while scanning.
+    hevc = entries["padded-hevc.mkv"]
+    assert hevc.video.cadence == 5 and round(hevc.video.content_fps) == 24, _cadence_report(hevc.path, hevc.video)
+    assert "30→24 fps" in mediainfo.describe(hevc) and "padded" in mediainfo.cadence_note(hevc.video)
+    assert "repeated frames removed" in plan_entry(hevc, s).reason
+    # H.264 is re-encoded either way: looked for just before encoding instead (a quicker scan).
+    entry = entries["padded.mp4"]
+    assert entry.video.cadence == NOT_MEASURED
     plan = plan_entry(entry, s)
-    assert "repeated frames removed" in plan.reason
+    assert plan.convert
     results, _ = run_job([(entry, plan)], s, tmp_path)
-    assert results[0].status == DONE
+    assert results[0].status == DONE and entry.video.cadence == 5, results[0].message
     out = probe_video(results[0].output)
     assert round(out.fps) == 24 and abs(out.duration - entry.video.duration) < 0.5
 

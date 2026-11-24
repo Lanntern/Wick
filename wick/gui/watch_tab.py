@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QCheckBox, QCombo
 
 from .. import presets
 from ..engine import DONE, FAILED, run_job
-from ..formats import human
+from ..formats import count, human
 from ..plan import plan_entry
 from ..scanner import scan
 from ..settings import Settings
@@ -50,7 +50,7 @@ class WatchJobThread(QThread):
                 from ..log import log
 
                 log.exception("Watched files failed")
-                self.log.emit(f"Couldn't process {len(paths)} new file(s): {e}")
+                self.log.emit(f"Couldn't process {count(len(paths), 'new file')}: {e}")
                 o, d, f, b = [], 0, len(paths), 0
             outputs += o
             done, failed, saved = done + d, failed + f, saved + b
@@ -158,7 +158,7 @@ class WatchTab(Page):
         self.body.addWidget(self.music)
 
         activity = Card()
-        self.status = text("Not watching.", Type.FOOTNOTE, secondary=True)
+        self.status = text("Not watching", Type.FOOTNOTE, secondary=True)
         activity.lay.addLayout(hbox(text("Activity", Type.HEADLINE, bold=True), None, self.status))
         self.logw = _list("Activity log")
         self.logw.setSelectionMode(QAbstractItemView.NoSelection)
@@ -303,18 +303,18 @@ class WatchTab(Page):
             self.switch.blockSignals(True)
             self.switch.setChecked(False)
             self.switch.blockSignals(False)
-            self.status.setText("Add a folder first.")
+            self.status.setText("Add a folder first")
             return
         self.qs.setValue("watch_enabled", on)
         self.switch_label.setText("On" if on else "Off")
         self.switch.setAccessibleDescription("on" if on else "off")
         if on:
             self.watcher.start(self.folder_paths(), self.recursive.isChecked())
-            self.status.setText(f"Watching {len(self.folder_paths())} folder(s)")
+            self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')}")
             self._log("Started watching")
         else:
             self.watcher.stop()
-            self.status.setText("Not watching.")
+            self.status.setText("Not watching")
             self._log("Stopped watching")
         self.state_changed.emit(on)
 
@@ -332,7 +332,7 @@ class WatchTab(Page):
                 self.switch.setChecked(False)
                 return
             self.watcher.start(self.folder_paths(), self.recursive.isChecked())
-            self.status.setText(f"Watching {len(self.folder_paths())} folder(s)")
+            self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')}")
 
     def ignore(self, paths) -> None:
         for p in paths:
@@ -355,7 +355,7 @@ class WatchTab(Page):
             return
         self._waiting_for_quiet = False
         batch, self.queue = self.queue[:200], self.queue[200:]
-        self._log(f"Compressing {len(batch)} new file(s)…")
+        self._log(f"Compressing {count(len(batch), 'new file')}…")
         groups: dict[str, tuple[list[str], Settings]] = {}
         for path in batch:
             s = self.settings_for(path)
@@ -370,11 +370,11 @@ class WatchTab(Page):
     def _batch_done(self, outputs: list, done: int, failed: int, saved: int) -> None:
         self.ignore(outputs)
         self.saved_total += saved
-        self.status.setText(f"Watching {len(self.folder_paths())} folder(s) · saved {human(self.saved_total)} "
+        self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')} · saved {human(self.saved_total)} "
                             f"this session")
         self.win.history.refresh()
         if done or failed:
-            self.win.tray_message(f"Compressed {done} new file(s), saved {human(saved)}"
+            self.win.tray_message(f"Compressed {count(done, 'new file')}, saved {human(saved)}"
                                   + (f"; {failed} failed" if failed else ""),
                                   actions=[("Show in History", "history")], launch="watch")
 

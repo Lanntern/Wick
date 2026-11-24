@@ -14,7 +14,7 @@ from .widgets import button, dialog_buttons, dialog_layout, hbox
 def summary(paths, label=str):
     paths = list(paths)
     if not paths:
-        return "No folders selected"
+        return "No folders chosen"
     return label(paths[0]) + (f" (+{len(paths) - 1} more)" if len(paths) > 1 else "")
 
 

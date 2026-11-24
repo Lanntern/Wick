@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .formats import (
     _EXT_KIND, AUDIO, AUDIO_EXTS, CONVERT_INPUTS, CONVERT_ONLY_KINDS, DOC, DOCUMENT, DOCUMENT_EXTS, HEIC, IMAGE_KINDS,
-    ARCHIVE, COMIC, COMIC_EXTS, FONT, JXL, PDF, SVG, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
+    ARCHIVE, COMIC, COMIC_EXTS, FONT, JPEG, JXL, PDF, SVG, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
     ImageInfo, classify, read_image_info, sniff,
 )
 from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
@@ -67,6 +67,7 @@ class ScanResult:
     skipped_libraries: list[Path] = field(default_factory=list)    # Photos and other apps' libraries
     unreadable_dirs: list[Path] = field(default_factory=list)
     cloud_only_files: int = 0
+    cloud_only_live: list[Path] = field(default_factory=list)   # cloud-only photos and .MOVs (Live Photo halves)
     jxl_files: int = 0          # JPEG XL files seen (already efficient; not listed as entries)
     jxl_bytes: int = 0
     dirs_scanned: int = 0
@@ -146,7 +147,7 @@ def scan(
             result.cancelled = True
             return result
 
-    mark_live_photos(result.entries)
+    mark_live_photos(result.entries, result.cloud_only_live)
     if listed is not None:
         listed(list(result.entries))
     if probe:
@@ -160,9 +161,16 @@ def scan(
 _LIVE_PHOTO_EXTS = {".heic", ".heif", ".jpg", ".jpeg"}
 
 
-def mark_live_photos(entries: list[FileEntry]) -> None:
+def mark_live_photos(entries: list[FileEntry], also_listed: Iterable[Path] = ()) -> None:
     """Flag Apple Live Photos: a photo and a .MOV with the same name in the same folder belong together
-    (Photos apps pair them by name; converting either one breaks the pair)."""
+    (Photos apps pair them by name; converting either one breaks the pair).
+
+    Files found by listing their folder are paired from the names already listed (``also_listed``: ones that are
+    listed but not entries, such as cloud-only files), with no extra look at the disk: on a network drive, each
+    look is a round trip. Files chosen by themselves are looked up."""
+    names: dict[Path, set[str]] = {}
+    for p in (*(e.path for e in entries), *also_listed):
+        names.setdefault(p.parent, set()).add(p.name)
     for e in entries:
         ext = e.path.suffix.lower()
         if ext in _LIVE_PHOTO_EXTS:
@@ -171,7 +179,11 @@ def mark_live_photos(entries: list[FileEntry]) -> None:
             partners = [e.path.with_suffix(x) for x in (".HEIC", ".heic", ".JPG", ".jpg", ".JPEG", ".jpeg")]
         else:
             continue
-        e.live_pair = any(p.is_file() for p in partners)
+        if e.root is not None:
+            listed = names.get(e.path.parent, set())
+            e.live_pair = any(p.name in listed for p in partners)
+        else:
+            e.live_pair = any(p.is_file() for p in partners)
 
 
 def _kind(p: Path, settings: Settings | None) -> str | None:
@@ -308,7 +320,8 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
         for size, mtime, fattrs, fname in listing.files.get(d, []):
             if cancel is not None and cancel.is_set():
                 return
-            if fname.startswith(TEMP_PREFIX) or fattrs & REPARSE:
+            if (fname.startswith(TEMP_PREFIX) or fattrs & REPARSE
+                    or os.path.splitext(fname)[1].lower() not in _LISTED_EXTS):
                 continue
             if not settings.include_hidden and (fname.startswith(".") or fattrs & (HIDDEN | SYSTEM)):
                 continue
@@ -321,6 +334,8 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
                 continue
             if fattrs & CLOUD_ONLY:
                 result.cloud_only_files += 1
+                if kind in (VIDEO, JPEG, HEIC):
+                    result.cloud_only_live.append(p)
                 continue
             key = os.path.normcase(str(p))
             if key in seen:
@@ -376,6 +391,8 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     continue
                 if not c.is_file(follow_symlinks=False) or c.name.startswith(TEMP_PREFIX):
                     continue
+                if os.path.splitext(c.name)[1].lower() not in _LISTED_EXTS:
+                    continue            # (most files: no path made, and on a Mac no extra look for the hidden flag)
                 if not settings.include_hidden and _is_hidden(c):
                     continue
                 p = Path(c.path)
@@ -388,6 +405,8 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                 st = c.stat(follow_symlinks=False)
                 if _cloud_only(st):
                     result.cloud_only_files += 1
+                    if kind in (VIDEO, JPEG, HEIC):
+                        result.cloud_only_live.append(p)
                     continue
                 key = os.path.normcase(c.path)
                 if key in seen:
@@ -435,6 +454,15 @@ def preload_codecs(heif: bool = True) -> None:
         register_heif()
 
 
+def cadence_at_scan(info: VideoInfo) -> bool:
+    """Whether to look for repeated frames while scanning. That takes several times longer than reading the video's
+    details, and it only changes the plan for a video in an efficient codec (repeated frames are the reason to
+    re-encode it at all). Other videos are re-encoded anyway: they're checked just before encoding (video.py)."""
+    from .plan import EFFICIENT_VIDEO_CODECS
+
+    return info.codec in EFFICIENT_VIDEO_CODECS
+
+
 def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
                   cancel: threading.Event | None = None, settings: Settings | None = None,
                   ready: Callable[[list[FileEntry]], None] | None = None) -> None:
@@ -452,7 +480,7 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         cached = index.lookup(e.path, e.size, e.mtime, e.kind)
         if cached is None:
             todo.append(e)
-        elif e.kind == VIDEO and cadence and cached.cadence == NOT_MEASURED:
+        elif e.kind == VIDEO and cadence and cached.cadence == NOT_MEASURED and cadence_at_scan(cached):
             todo.append(e)                        # (scanned with the option off: look for repeated frames now)
         elif e.kind == VIDEO:
             e.video = cached
@@ -472,12 +500,26 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         batch.clear()
         last_sent[0] = time.monotonic()
 
+    index.refresh_seen()
     if not todo:
         send(True)
         return
     preload_codecs(heif=any(e.kind == HEIC for e in entries))
     done = 0
     lock = threading.Lock()
+    unsaved: list[FileEntry] = []         # read but not yet in the index
+    last_saved = [time.monotonic()]
+
+    def save(force: bool = False) -> None:
+        # Saved as they come in (every 200 files or 5 seconds), so a long scan that's cancelled, or a crash, doesn't
+        # lose what was already read. Called outside ``lock``.
+        with lock:
+            if not unsaved or (not force and len(unsaved) < 200 and time.monotonic() - last_saved[0] < 5):
+                return
+            items = [(e.path, e.size, e.mtime, e.kind, e.info) for e in unsaved if e.info is not None]
+            unsaved.clear()
+            last_saved[0] = time.monotonic()
+        index.store(items)
     with lock:
         send(True)                     # (cached ones first)
 
@@ -487,28 +529,45 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
             return
         if e.kind not in (VIDEO, AUDIO, *CONVERT_ONLY_KINDS):   # (a RAW photo is a TIFF inside, and so on)
             # Images are named by whoever saved them (phones save HEIC as .jpg, sites PNGs as .jpg): read what
-            # the file really is, so it's decoded and compressed as that.
-            real = sniff(e.path)
-            if real is not None and real[0] != e.kind and real[0] in (*IMAGE_KINDS, VIDEO, AUDIO):
-                e.kind, e.real_ext = real
-        if e.kind == VIDEO:
+            # the file really is, so it's decoded and compressed as that. The file is opened once for both.
+            read = True
+            try:
+                f = open(e.path, "rb")
+            except OSError:
+                f = None
+            if f is not None:
+                with f:
+                    real = sniff(e.path, f.read(64))
+                    if real is not None and real[0] != e.kind and real[0] in (*IMAGE_KINDS, VIDEO, AUDIO):
+                        e.kind, e.real_ext = real
+                    read = e.kind not in (VIDEO, AUDIO)
+                    if read:
+                        e.image = read_image_info(e.path, e.kind, f)
+        else:
+            read = False
+        if read:
+            pass                                # (a picture: read above, or unreadable)
+        elif e.kind == VIDEO:
             e.video = probe_video(e.path)
             if e.video is not None:
-                e.video.cadence = detect_cadence(e.path, e.video) if cadence else NOT_MEASURED
+                e.video.cadence = (detect_cadence(e.path, e.video) if cadence and cadence_at_scan(e.video)
+                                   else NOT_MEASURED)
         elif e.kind == AUDIO:
             e.audio = probe_audio(e.path)
         else:
             e.image = read_image_info(e.path, e.kind)
         with lock:
             done += 1
+            unsaved.append(e)
             if ready is not None:
                 batch.append(e)
                 send()
             if progress and (done % 20 == 0 or e.kind in (VIDEO, AUDIO)):
                 progress(f"Reading file info: {e.path.name}", done, len(todo))
+        save()
 
     with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2))) as pool:
         list(pool.map(work, todo))
     with lock:
         send(True)
-    index.store([(e.path, e.size, e.mtime, e.kind, e.info) for e in todo if e.info is not None])
+    save(force=True)

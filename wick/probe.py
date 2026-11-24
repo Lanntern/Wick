@@ -124,17 +124,10 @@ def _ratio(v) -> float:
         return 0.0
 
 
-def _mastering(path: Path, index: int) -> dict:
-    """HDR10 mastering-display and content-light metadata from the first frame (kept when re-encoding)."""
-    try:
-        ffprobe = tools.require("ffprobe")
-        proc = tools.run([ffprobe, "-v", "error", "-select_streams", str(index), "-read_intervals", "%+#1",
-                          "-show_frames", "-print_format", "json", str(path)], timeout=60, check=False)
-        frames = json.loads(proc.stdout or "{}").get("frames", [])
-    except Exception:  # noqa: BLE001
-        return {}
+def _side_data_mastering(side_data: list) -> dict:
+    """HDR10 mastering-display and content-light values from ffprobe side data (a stream's or a frame's)."""
     out: dict = {}
-    for sd in (frames[0].get("side_data_list", []) if frames else []):
+    for sd in side_data or []:
         t = str(sd.get("side_data_type", ""))
         if "Mastering display" in t:
             for k in ("red_x", "red_y", "green_x", "green_y", "blue_x", "blue_y", "white_point_x", "white_point_y",
@@ -145,6 +138,22 @@ def _mastering(path: Path, index: int) -> dict:
             out["max_content"] = int(sd.get("max_content", 0) or 0)
             out["max_average"] = int(sd.get("max_average", 0) or 0)
     return out
+
+
+def _mastering(path: Path, index: int, stream_side_data: list | None = None) -> dict:
+    """HDR10 mastering-display and content-light metadata (kept when re-encoding). MKV and MP4 files usually carry
+    it in the stream's own information, already read; only otherwise is the first frame read for it."""
+    known = _side_data_mastering(stream_side_data or [])
+    if known:
+        return known
+    try:
+        ffprobe = tools.require("ffprobe")
+        proc = tools.run([ffprobe, "-v", "error", "-select_streams", str(index), "-read_intervals", "%+#1",
+                          "-show_frames", "-print_format", "json", str(path)], timeout=60, check=False)
+        frames = json.loads(proc.stdout or "{}").get("frames", [])
+    except Exception:  # noqa: BLE001
+        return {}
+    return _side_data_mastering(frames[0].get("side_data_list", []) if frames else [])
 
 
 def probe_video(path: Path) -> VideoInfo | None:
@@ -219,7 +228,7 @@ def probe_video(path: Path) -> VideoInfo | None:
         interlaced=main.get("field_order") in ("tt", "bb", "tb", "bt"),
         hdr=hdr,
         color=color,
-        mastering=(_mastering(path, int(main.get("index", 0)))
+        mastering=(_mastering(path, int(main.get("index", 0)), side_data)
                    if hdr == "HDR10" or (hdr and color.get("transfer") == "smpte2084") else {}),
         dv_profile=_int(dovi.get("dv_profile")) if dovi else 0,
         dv_compat=_int(dovi.get("dv_bl_signal_compatibility_id")) if dovi else -1,
@@ -286,7 +295,7 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
             proc = tools.run([ffmpeg, "-hide_banner", "-nostdin", *hw,
                               "-ss", f"{start:.2f}", "-t", f"{seconds:.2f}", "-i", str(path),
                               "-map", f"0:{info.main_video_index}", "-an", "-sn", "-vf",
-                              "scale=192:-2,format=gray,tblend=all_mode=difference,signalstats,"
+                              "scale=192:-2:flags=fast_bilinear,format=gray,tblend=all_mode=difference,signalstats,"
                               "metadata=print:key=lavfi.signalstats.YAVG:file=-", "-f", "null", "-"],
                              timeout=120, check=False)
         except Exception:  # noqa: BLE001 - detection is optional

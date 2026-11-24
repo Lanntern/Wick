@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME, cfa
 from ..cleanup import actions, appcompress, duplicates
 from ..cleanup.common import Candidate, ScanResult, known_folder
-from ..formats import classify, human
+from ..formats import count, classify, human
 from ..log import log
 from .dialogs import ask, choose, inform
 from .filelist import (
@@ -165,7 +165,6 @@ class _Purge(QThread):
 
 # ---------------------------------------------------------------- one tool
 
-_IDLE_SUMMARY = "Scan to see what can be cleaned up."
 
 
 class ToolSection(QWidget):
@@ -248,8 +247,9 @@ class ToolSection(QWidget):
 
         # ------------------------------------------------ results
         results = Card(padding=0, spacing=0, inset=True)
-        self.summary = text(_IDLE_SUMMARY, Type.BODY, secondary=True, wrap=True)
+        self.summary = text("", Type.BODY, secondary=True, wrap=True)
         self.summary.setContentsMargins(Space.L, Space.M, Space.L, Space.S)
+        self.summary.hide()              # (until there are results: the empty list says what to do)
         self.hide_unsuggested = QCheckBox("Hide not suggested")
         self.hide_unsuggested.setToolTip("Hide items that aren't suggested. Each item shows why it isn't.")
         self.hide_unsuggested.setChecked(self.qs.value("cleanup/hide_not_suggested", True, bool))
@@ -295,7 +295,8 @@ class ToolSection(QWidget):
         keyboard_list(self.tree, self._menu)
         click_to_check(self.tree, C_NAME)
         self.placeholder = ListPlaceholder(self.tree)
-        self.placeholder.show_message("Nothing listed yet. Press Scan to look for things to clean up.")
+        self.placeholder.show_message(f"{reason} This tool can't run here." if reason else
+                                      "Nothing listed yet. Press Scan to look for things to clean up.")
         results.lay.addWidget(self.tree, 1)
         self.hover = HoverPreviewer(self.tree, self._hover_info, self)
         self.hover.enabled = self.qs.value("hover_preview", True, bool)
@@ -452,7 +453,7 @@ class ToolSection(QWidget):
         self.worker.finished.connect(self._finished)
         self._set_busy(True, "Scanning…")
         self.placeholder.show_loading("Scanning…")
-        self.summary.setText(_IDLE_SUMMARY)
+        self.summary.hide()
         self.worker.start()
 
     def _progress(self, msg: str, done: int, total: int) -> None:
@@ -490,6 +491,7 @@ class ToolSection(QWidget):
             self._apply_hidden()
         self.placeholder.clear()
         self.summary.setText(f"{len(self.result.items):,} results so far · still scanning. You can browse now.")
+        self.summary.show()
         self._update_buttons()
 
     def _hide_toggled(self, on: bool) -> None:
@@ -816,6 +818,7 @@ class ToolSection(QWidget):
                    + (f" · {' · '.join(self.result.notes)}" if self.result.notes else ""))
         self.summary.setTextFormat(Qt.RichText)
         self.summary.setText(msg)
+        self.summary.show()
         self._update_buttons()
 
     def _names(self) -> str:
@@ -888,7 +891,9 @@ class ToolSection(QWidget):
         elif action_id == actions.HARDLINK:
             other_drive = [c for c in items if not c.extra.get("same_volume", True)]
             if other_drive:
-                inform(self, f"{len(other_drive)} duplicate(s) are on a different drive than the copy that stays",
+                n_other = len(other_drive)
+                inform(self, f"{count(n_other, 'duplicate')} {'is' if n_other == 1 else 'are'} on a different drive "
+                       "than the copy that stays",
                        "Hard links only work within one drive. Those will be skipped.")
             q = (f"Replace {n} duplicate{'s' if n != 1 else ''} with hard links?",
                  "Every file stays where it is, but identical contents are only stored once. Editing one linked "
@@ -1034,7 +1039,7 @@ class ToolSection(QWidget):
             info.append(f"{n_b} {'are' if len(blocked) != 1 else 'is'} in folders that Windows protects. "
                         + cfa.HOW)
         if others:
-            info.append(f"{len(others)} item(s) were skipped:\n" + "\n".join(
+            info.append(f"{count(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
                 f"• {o.item.title}: {o.message}" for o in others[:12]))
         if not ok:                           # nothing at all was done: say so, not "Freed 0 B from 0 items"
             title = (f"Nothing was changed: Windows' Controlled folder access blocked {APP_NAME}"
