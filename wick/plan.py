@@ -14,7 +14,6 @@ from .settings import Settings
 # Codecs that are already efficient; re-encoding them saves little and costs quality.
 EFFICIENT_VIDEO_CODECS = {"hevc", "av1", "vp9", "vvc"}
 WEBP_MAX_DIM = 16383
-AVIF_MAX_DIM = 65536
 
 # Image routes (see images.py):
 #   jxl_transcode  JPEG -> JXL, lossless & reversible (cjxl)

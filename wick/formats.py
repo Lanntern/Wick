@@ -39,8 +39,6 @@ COMIC_EXTS = (".cbz", ".cb7", ".cbt")
 IMAGE_KINDS = (JPEG, PNG, GIF, WEBP, TIFF, BMP, HEIC, AVIF)
 # Sources whose pixels are exact (lossless): can be converted losslessly.
 LOSSLESS_SOURCE_KINDS = (PNG, GIF, TIFF, BMP)
-# Already lossy-compressed photo formats.
-LOSSY_PHOTO_KINDS = (HEIC, AVIF)
 
 _EXT_KIND = {
     ".jpg": JPEG, ".jpeg": JPEG, ".jpe": JPEG, ".jfif": JPEG,
@@ -80,9 +78,6 @@ KIND_LABEL = {JPEG: "JPEG", PNG: "PNG", GIF: "GIF", WEBP: "WebP", TIFF: "TIFF", 
               HEIC: "HEIC", AVIF: "AVIF", VIDEO: "Video", AUDIO: "Audio", DOCUMENT: "Document", JXL: "JPEG XL",
               RAW: "RAW", PSD: "Photoshop", SVG: "SVG", ICO: "Icon", DOC: "Document", PDF: "PDF", FONT: "Font",
               PICTURE: "Picture", COMIC: "Comic book", ARCHIVE: "Archive"}
-# Extension used when an image keeps its format.
-KEEP_EXT = {JPEG: ".jpg", PNG: ".png", GIF: ".gif", WEBP: ".webp", TIFF: ".tif", BMP: ".png",
-            HEIC: ".heic", AVIF: ".avif", JXL: ".jxl"}
 
 _MP4_SOURCES = {".mp4", ".m4v", ".mov", ".3gp"}
 

@@ -23,7 +23,6 @@ from .common import Candidate, ProgressFn, ScanResult, cancelled
 
 IS_WINDOWS = os.name == "nt"
 IS_MAC = sys.platform == "darwin"
-ESTIMATED_RATIO = 0.62   # typical size after LZX for programs/games (shown as an estimate)
 ALGORITHMS = {
     "xpress4k": ("XPRESS4K", "Fastest reads; smaller savings. Prefer for loading-sensitive games.", 0.80),
     "xpress8k": ("XPRESS8K", "Balanced reads and savings. Recommended starting point.", 0.74),

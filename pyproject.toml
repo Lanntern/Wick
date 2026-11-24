@@ -65,6 +65,14 @@ select = ["E4", "E7", "E9", "E501", "F", "B", "PLE", "W6"]
 "wick/gui/style.py" = ["E501"]                # icon paths and stylesheet text
 "wick/gui/file_model.py" = ["B008"]           # Qt's own QModelIndex() default argument idiom
 
+[tool.vulture]
+# Unused code (CI's lint job). Qt and pytest call these names themselves; the allow-list holds the rest.
+paths = ["wick", "tests", ".github/vulture_allowlist.py"]
+exclude = ["wick/_ssimulacra2.py"]
+min_confidence = 60
+ignore_names = ["*Event", "paintSection", "filterAcceptsRow", "expandingDirections", "hasHeightForWidth",
+                "actualSize", "pytest_*", "pytestmark"]
+
 [tool.mypy]
 python_version = "3.12"     # (CI's Python; numpy's own type stubs need 3.12 syntax)
 ignore_missing_imports = true

@@ -80,11 +80,6 @@ def _unique(path: Path) -> Path:
     return candidate
 
 
-NAME_FIELDS = {"%name%": "the original name", "%ext%": "its extension", "%date%": "today (2026-11-06)",
-               "%time%": "the time (14-05-09)", "%datetime%": "both", "%unix%": "seconds since 1970",
-               "%modified%": "the file's modified date"}
-
-
 def output_name(src: Path, template: str, now: float | None = None) -> str:
     """The new file's name (without extension). Plain text is a suffix ("_compressed" → photo_compressed);
     with placeholders it's a pattern ("%name% %date%" → photo 2026-11-06). Never contains characters a file

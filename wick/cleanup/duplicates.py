@@ -13,7 +13,6 @@ from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 PARTIAL = 64 * 1024
-KEEP_RULES = ("oldest", "newest", "shortest_path", "folder")
 HASH_READERS = 4               # files read and hashed at once on SSDs (one on hard drives: see drives.readers)
 
 

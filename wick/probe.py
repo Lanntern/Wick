@@ -408,16 +408,3 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
         pictures=pictures,
     )
 
-
-def image_dimensions(path: Path) -> tuple[int, int] | None:
-    """Width/height of an image ffmpeg can decode (PNG, JPEG, WebP)."""
-    try:
-        data = probe_raw(path)
-    except Exception:
-        from wick.log import ignored
-        ignored("probe.image_dimensions")
-        return None
-    for s in data.get("streams", []):
-        if s.get("codec_type") == "video":
-            return int(s.get("width") or 0), int(s.get("height") or 0)
-    return None

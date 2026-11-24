@@ -500,19 +500,6 @@ def _turn_jpeg(src: Path, opts: ConvertOptions) -> Path:
         raise
 
 
-def _orientation_of(exif: bytes) -> int:
-    from PIL import Image
-
-    ex = Image.Exif()
-    try:
-        ex.load(md.EXIF_HEADER + exif)
-    except Exception:  # noqa: BLE001
-        from wick.log import ignored
-        ignored("convert._orientation_of")
-        return 1
-    return int(ex.get(md.ORIENTATION, 1) or 1)
-
-
 def video_rotation(path: Path) -> int:
     """The video's display rotation in degrees counter-clockwise (what ffmpeg's -display_rotation takes)."""
     import json as _json
