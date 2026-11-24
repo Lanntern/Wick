@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import asdict, dataclass, fields
 
 IMAGE_FORMATS = ("keep", "jxl", "webp", "avif", "none")
@@ -117,7 +118,6 @@ class Settings:
         """Images (and audio) processed at once, unless set: one per CPU thread (measured ~25% faster than half
         with JPEG XL, whose own threading scales less well), but no more than memory allows (~1 GB per job
         for large photos), and at most 16."""
-        import os
 
         if self.workers:
             return self.workers
@@ -128,7 +128,6 @@ class Settings:
     def threads_per_job(self) -> int:
         """CPU threads each multi-threaded encoder (cjxl) gets, so parallel jobs share the CPU fairly
         (-1 lets the encoder decide; used by the speed test to reproduce the old behavior)."""
-        import os
 
         if self.encoder_threads:
             return self.encoder_threads
@@ -138,7 +137,7 @@ class Settings:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "Settings":
+    def from_dict(cls, data: dict | None) -> Settings:
         s = cls()
         if not data:
             return s

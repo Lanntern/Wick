@@ -7,7 +7,9 @@ When Windows High Contrast is on, no custom styling is applied at all.
 
 from __future__ import annotations
 
-import os
+import dataclasses
+import functools
+import hashlib
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -96,7 +98,6 @@ def _mix(a: QColor, b: QColor, t: float) -> str:
 def with_accent(t: Tokens, accent: str) -> Tokens:
     """``t`` with every accent color derived from ``accent``, each nudged until it meets the same contrast
     rules as the app's own blue (AA: 4.5:1 for text on buttons, and for accent-colored text on cards)."""
-    import dataclasses
 
     base = QColor(accent)
     on = "#FFFFFF"                  # as Windows does with light accents: a deeper shade behind white text
@@ -124,7 +125,7 @@ def tokens() -> Tokens:
 
 def high_contrast_active() -> bool:
     """Windows High Contrast mode: the user's colors must win, so we don't style."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import ctypes
@@ -141,7 +142,6 @@ def high_contrast_active() -> bool:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("gui.style.high_contrast_active")
-        pass
     return False
 
 
@@ -149,16 +149,16 @@ def high_contrast_tokens(pal: QPalette) -> Tokens:
     """The app's colors taken from Windows' contrast theme (the user's own choices), for everything the app
     draws itself: icons, switches, the sidebar, charts. No color coding of its own: success, warning and
     danger use the theme's text color (the words and icons still say which is which)."""
-    def c(role, group=QPalette.Active) -> str:
+    def c(role, group=QPalette.ColorGroup.Active) -> str:
         return pal.color(group, role).name().upper()
 
-    bg, fg = c(QPalette.Window), c(QPalette.WindowText)
-    hi, on_hi = c(QPalette.Highlight), c(QPalette.HighlightedText)
-    button, button_text = c(QPalette.Button), c(QPalette.ButtonText)
+    bg, fg = c(QPalette.ColorRole.Window), c(QPalette.ColorRole.WindowText)
+    hi, on_hi = c(QPalette.ColorRole.Highlight), c(QPalette.ColorRole.HighlightedText)
+    button, button_text = c(QPalette.ColorRole.Button), c(QPalette.ColorRole.ButtonText)
     return Tokens(
-        dark=QColor(bg).lightness() < 128, window=bg, sidebar=bg, card=c(QPalette.Base), card_alt=c(QPalette.Base),
-        border=fg, separator=fg, text=fg, text2=fg, text3=c(QPalette.WindowText, QPalette.Disabled),
-        accent=hi, accent_hover=hi, accent_pressed=hi, accent_text=c(QPalette.Link), on_accent=on_hi,
+        dark=QColor(bg).lightness() < 128, window=bg, sidebar=bg, card=c(QPalette.ColorRole.Base), card_alt=c(QPalette.ColorRole.Base),
+        border=fg, separator=fg, text=fg, text2=fg, text3=c(QPalette.ColorRole.WindowText, QPalette.ColorGroup.Disabled),
+        accent=hi, accent_hover=hi, accent_pressed=hi, accent_text=c(QPalette.ColorRole.Link), on_accent=on_hi,
         accent_soft=hi, control=button, control_hover=button, control_border=button_text,
         success=fg, success_soft=bg, danger=fg, danger_soft=bg, warning=fg, warning_soft=bg, neutral_soft=bg,
         canvas=bg)
@@ -278,7 +278,7 @@ def pt(role: float) -> float:
     return round(base_point_size() * role, 1)
 
 
-def ui_font(scale: float = Type.BODY, weight: QFont.Weight = QFont.Normal) -> QFont:
+def ui_font(scale: float = Type.BODY, weight: QFont.Weight = QFont.Weight.Normal) -> QFont:
     f = QFont()
     f.setFamilies(UI_FAMILIES)
     f.setPointSizeF(pt(scale))
@@ -371,16 +371,16 @@ def _fluent_char(name: str) -> str:
 
 def _paint_icon(p: QPainter, rect: QRectF, name: str, color: str, stroke: float) -> None:
     """Draw the icon into ``rect`` as vectors, so it's sharp at whatever scale the painter has."""
-    p.setRenderHint(QPainter.Antialiasing)
-    p.setRenderHint(QPainter.TextAntialiasing)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
     glyph = _fluent_char(name)
     if glyph:
         font = QFont(_fluent_family())
         font.setPixelSize(max(1, round(rect.height() * 0.84)))   # (the font's glyphs fill ~5/6 of the em)
-        font.setHintingPreference(QFont.PreferNoHinting)
+        font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         p.setFont(font)
         p.setPen(QColor(color))
-        p.drawText(rect, Qt.AlignCenter, glyph)
+        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, glyph)
     else:
         QSvgRenderer(QByteArray(icon_svg(name, color, stroke))).render(p, rect)
 
@@ -400,7 +400,7 @@ def icon_pixmap(name: str, color: str, size: int, dpr: float | None = None, stro
 @lru_cache(maxsize=512)
 def _icon_pixmap(name: str, color: str, size: int, dpr: float, stroke: float) -> QPixmap:
     pm = QPixmap(max(1, round(size * dpr)), max(1, round(size * dpr)))
-    pm.fill(Qt.transparent)
+    pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
     try:
         _paint_icon(p, QRectF(0, 0, pm.width(), pm.height()), name, color, stroke)
@@ -419,7 +419,7 @@ class _IconEngine(QIconEngine):
         self._name, self._colors, self._stroke = name, colors, stroke
 
     def _color(self, mode) -> str:
-        return self._colors.get(mode) or self._colors[QIcon.Normal]
+        return self._colors.get(mode) or self._colors[QIcon.Mode.Normal]
 
     def paint(self, painter, rect, mode, state) -> None:
         _paint_icon(painter, QRectF(rect), self._name, self._color(mode), self._stroke)
@@ -445,15 +445,14 @@ def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
     """The named icon in the theme's colors (``color`` for normal and selected, when given). ``size`` is
     unused: the icon is drawn at whatever size it's shown."""
     t = tokens()
-    return QIcon(_IconEngine(name, {QIcon.Normal: color or t.text2, QIcon.Disabled: t.text3,
-                                    QIcon.Selected: color or t.accent_text}))
+    return QIcon(_IconEngine(name, {QIcon.Mode.Normal: color or t.text2, QIcon.Mode.Disabled: t.text3,
+                                    QIcon.Mode.Selected: color or t.accent_text}))
 
 
 # ---------------------------------------------------------------- stylesheet assets
 # Qt stylesheets need files for arrows/indicators; they're generated per theme.
 
 def _asset(name: str, svg: str) -> str:
-    import hashlib
 
     from ..journal import data_dir
 
@@ -477,7 +476,7 @@ def _checkbox_svg(fill: str, border: str, check: str | None) -> str:
             f'rx="6" fill="{fill}" stroke="{border}" stroke-width="1.6"/>{mark}</svg>')
 
 
-def assets(t: "Tokens") -> dict[str, str]:
+def assets(t: Tokens) -> dict[str, str]:
     return {
         "down": _asset("down", _stroke_svg('<path d="m7 10 5 5 5-5"/>', t.text2)),
         "down_disabled": _asset("down", _stroke_svg('<path d="m7 10 5 5 5-5"/>', t.text3)),
@@ -498,19 +497,19 @@ def assets(t: "Tokens") -> dict[str, str]:
 def palette(t: Tokens) -> QPalette:
     p = QPalette()
     roles = {
-        QPalette.Window: t.window, QPalette.WindowText: t.text, QPalette.Base: t.card,
-        QPalette.AlternateBase: t.card_alt, QPalette.ToolTipBase: t.card, QPalette.ToolTipText: t.text,
-        QPalette.Text: t.text, QPalette.Button: t.control, QPalette.ButtonText: t.text,
-        QPalette.BrightText: t.danger, QPalette.Highlight: t.accent, QPalette.HighlightedText: t.on_accent,
-        QPalette.Link: t.accent_text, QPalette.PlaceholderText: t.text3, QPalette.Mid: t.border,
-        QPalette.Midlight: t.separator, QPalette.Dark: t.control_border, QPalette.Light: t.card,
-        QPalette.Shadow: "#000000",
+        QPalette.ColorRole.Window: t.window, QPalette.ColorRole.WindowText: t.text, QPalette.ColorRole.Base: t.card,
+        QPalette.ColorRole.AlternateBase: t.card_alt, QPalette.ColorRole.ToolTipBase: t.card, QPalette.ColorRole.ToolTipText: t.text,
+        QPalette.ColorRole.Text: t.text, QPalette.ColorRole.Button: t.control, QPalette.ColorRole.ButtonText: t.text,
+        QPalette.ColorRole.BrightText: t.danger, QPalette.ColorRole.Highlight: t.accent, QPalette.ColorRole.HighlightedText: t.on_accent,
+        QPalette.ColorRole.Link: t.accent_text, QPalette.ColorRole.PlaceholderText: t.text3, QPalette.ColorRole.Mid: t.border,
+        QPalette.ColorRole.Midlight: t.separator, QPalette.ColorRole.Dark: t.control_border, QPalette.ColorRole.Light: t.card,
+        QPalette.ColorRole.Shadow: "#000000",
     }
     for role, color in roles.items():
         p.setColor(role, QColor(color))
-    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
-        p.setColor(QPalette.Disabled, role, QColor(t.text3))
-    p.setColor(QPalette.Inactive, QPalette.Highlight, QColor(t.accent))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        p.setColor(QPalette.ColorGroup.Disabled, role, QColor(t.text3))
+    p.setColor(QPalette.ColorGroup.Inactive, QPalette.ColorRole.Highlight, QColor(t.accent))
     return p
 
 
@@ -697,7 +696,6 @@ QSlider[kbfocus="true"]::handle:horizontal:focus {{ border: 2px solid {t.accent}
 def safe_filter(fn):
     """Event filters can still receive events while Qt tears objects down at exit; ignore those quietly
     instead of printing 'already deleted' errors."""
-    import functools
 
     @functools.wraps(fn)
     def wrapper(self, obj, ev):
@@ -745,7 +743,7 @@ def _polish_widget(obj: QWidget) -> None:
             # Qt ignores the spin box's own padding for its text field; inset the field itself.
             le.setStyleSheet(css)
     if cls in ("QComboBoxPrivateContainer", "QTipLabel") or isinstance(obj, QMenu):
-        if os.name == "nt":
+        if sys.platform == "win32":
             # Windows: translucent popup windows can render black outside the rounded border. Paint them
             # opaque and let the system round the window itself (Windows 11; see _native_round_corners).
             if cls == "QComboBoxPrivateContainer":
@@ -756,7 +754,7 @@ def _polish_widget(obj: QWidget) -> None:
                 obj.setProperty("_rounding", True)
                 obj.installEventFilter(_popup_filter())
         else:
-            obj.setAttribute(Qt.WA_TranslucentBackground, True)
+            obj.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
             css = "QComboBoxPrivateContainer { background: transparent; border: none; }"
             if cls == "QComboBoxPrivateContainer" and obj.styleSheet() != css:
                 obj.setStyleSheet(css)
@@ -767,7 +765,7 @@ class _PopupFilter(QObject):
 
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
-        if ev.type() == QEvent.Show:
+        if ev.type() == QEvent.Type.Show:
             _native_round_corners(obj, small=obj.metaObject().className() == "QTipLabel")
         return False
 
@@ -778,7 +776,7 @@ class _InnerNames(QObject):
 
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
-        if ev.type() in (QEvent.Show, QEvent.FocusIn) and not obj.accessibleName():
+        if ev.type() in (QEvent.Type.Show, QEvent.Type.FocusIn) and not obj.accessibleName():
             from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
 
             owner = obj.parent()
@@ -837,16 +835,9 @@ def _native_round_corners(w: QWidget, small: bool = False) -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("gui.style._native_round_corners")
-        pass
 
 
 _style_obj = None
-
-
-def _rich(value: str) -> bool:
-    from PySide6 import QtGui
-
-    return bool(QtGui.Qt.mightBeRichText(value))
 
 
 def keyboard_focus(w: QWidget) -> bool:
@@ -860,8 +851,8 @@ class _FocusVisible(QObject):
     rings and keyboard_focus() go by), and unmarks it when the focus leaves. Also gives dialogs' title bars the
     dialog's colors on Windows 11 (see _tint_title_bar)."""
 
-    _KEYBOARD = (Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason)
-    _IGNORE = (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta)
+    _KEYBOARD = (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason, Qt.FocusReason.ShortcutFocusReason)
+    _IGNORE = (Qt.Key.Key_Shift, Qt.Key.Key_Control, Qt.Key.Key_Alt, Qt.Key.Key_Meta)
 
     @staticmethod
     def _mark(w: QWidget, on: bool) -> None:
@@ -874,15 +865,15 @@ class _FocusVisible(QObject):
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
         kind = ev.type()
-        if kind == QEvent.FocusIn and isinstance(obj, QWidget):
+        if kind == QEvent.Type.FocusIn and isinstance(obj, QWidget):
             self._mark(obj, ev.reason() in self._KEYBOARD)
-        elif kind == QEvent.FocusOut and isinstance(obj, QWidget):
+        elif kind == QEvent.Type.FocusOut and isinstance(obj, QWidget):
             self._mark(obj, False)
-        elif kind == QEvent.Show and os.name == "nt" and isinstance(obj, QWidget) and obj.isWindow() \
+        elif kind == QEvent.Type.Show and sys.platform == "win32" and isinstance(obj, QWidget) and obj.isWindow() \
                 and obj.inherits("QDialog") and not obj.property("_titleTinted"):
             obj.setProperty("_titleTinted", True)
             _tint_title_bar(obj)
-        elif kind == QEvent.KeyPress and isinstance(obj, QWidget) and obj.hasFocus() \
+        elif kind == QEvent.Type.KeyPress and isinstance(obj, QWidget) and obj.hasFocus() \
                 and ev.key() not in self._IGNORE:
             self._mark(obj, True)          # (arrow keys or Space on something clicked: now it's the keyboard's)
         return False
@@ -905,14 +896,13 @@ def _tint_title_bar(w: QWidget) -> None:
 
         hwnd = ctypes.c_void_p(int(w.winId()))
         dwm = ctypes.windll.dwmapi  # type: ignore[attr-defined]
-        for attribute, color in ((35, w.palette().color(QPalette.Window)),      # DWMWA_CAPTION_COLOR
+        for attribute, color in ((35, w.palette().color(QPalette.ColorRole.Window)),      # DWMWA_CAPTION_COLOR
                                  (36, QColor(tokens().text))):                  # DWMWA_TEXT_COLOR
             value = colorref(color)
             dwm.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
     except Exception:  # noqa: BLE001 - the default title bar is fine too
         from wick.log import ignored
         ignored("gui.style._tint_title_bar")
-        pass
 
 
 class _TipCard(QWidget):
@@ -926,12 +916,12 @@ class _TipCard(QWidget):
         from PySide6.QtCore import QPropertyAnimation, QTimer
         from PySide6.QtWidgets import QLabel, QVBoxLayout
 
-        super().__init__(None, Qt.ToolTip | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        super().__init__(None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.label = QLabel(self)
-        self.label.setTextFormat(Qt.AutoText)
+        self.label.setTextFormat(Qt.TextFormat.AutoText)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(Space.M, Space.S, Space.M, Space.S)
         lay.addWidget(self.label)
@@ -944,7 +934,7 @@ class _TipCard(QWidget):
     def paintEvent(self, _e) -> None:  # noqa: N802
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setBrush(QColor(t.card))
         p.setPen(QColor(t.border))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), Radius.CONTROL, Radius.CONTROL)
@@ -1028,13 +1018,13 @@ class _Tooltips(QObject):
 
     def eventFilter(self, obj, ev):  # noqa: N802
         kind = ev.type()
-        if kind == QEvent.ToolTip and isinstance(obj, QWidget):
+        if kind == QEvent.Type.ToolTip and isinstance(obj, QWidget):
             from PySide6.QtWidgets import QAbstractItemView
 
             view = obj.parentWidget()
             if isinstance(view, QAbstractItemView) and view.viewport() is obj:
                 index = view.indexAt(ev.pos())
-                tip = index.data(Qt.ToolTipRole) if index.isValid() else ""
+                tip = index.data(Qt.ItemDataRole.ToolTipRole) if index.isValid() else ""
                 if tip:
                     show_tip(str(tip), obj, view.visualRect(index), ev.globalPos().x())
                 else:
@@ -1046,7 +1036,7 @@ class _Tooltips(QObject):
                 return False
             show_tip(tip, obj, x=ev.globalPos().x() if obj.width() > self.WIDE else None)
             return True
-        if kind in (QEvent.MouseButtonPress, QEvent.KeyPress, QEvent.Wheel, QEvent.WindowDeactivate):
+        if kind in (QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress, QEvent.Type.Wheel, QEvent.Type.WindowDeactivate):
             hide_tip()
         return False
 
@@ -1108,8 +1098,3 @@ def apply_style(mode: str) -> Tokens:
     app.setFont(ui_font())
     app.setStyleSheet(stylesheet(_current))
     return _current
-
-
-def is_mac() -> bool:
-    return sys.platform == "darwin"
-

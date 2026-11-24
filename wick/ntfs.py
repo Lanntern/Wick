@@ -15,10 +15,15 @@ from __future__ import annotations
 import gzip
 import os
 import struct
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import winapi
+from .formats import classify
+from .scanner import PROGRAM_MARKER_EXTS
 
 ROOT = 5                    # the MFT record of the root folder
 _FILETIME_EPOCH = 116444736000000000
@@ -309,7 +314,7 @@ def drive_of(path: Path) -> str | None:
 
 
 def is_ntfs(path: Path) -> bool:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import ctypes
@@ -331,7 +336,6 @@ def dump(f, roots_parts: list[list[str]], keep: Callable[[str], bool], out: Path
     Lines: ``R\\t<record>\\t<root index>`` for each root found, ``D\\t<record>\\t<parent>\\t<attrs>\\t<marker>\\t<name>``
     for folders (marker: it holds a program library), ``F\\t<parent>\\t<size>\\t<mtime>\\t<attrs>\\t<name>``.
     """
-    from .scanner import PROGRAM_MARKER_EXTS
 
     tree = read_tree(f, progress)
     with gzip.open(out, "wt", encoding="utf-8", newline="\n") as w:
@@ -391,7 +395,6 @@ def load(path: Path) -> Listing:
 
 def helper_command(drive: str, out: Path, roots_parts: list[list[str]]) -> tuple[str, str]:
     """(program, arguments) that run ``dump`` for ``drive`` (the app itself when frozen)."""
-    import subprocess
 
     args = ["--ntfs-dump", drive, str(out), *("\\".join(p) for p in roots_parts)]
     if getattr(sys, "frozen", False):
@@ -401,39 +404,17 @@ def helper_command(drive: str, out: Path, roots_parts: list[list[str]]) -> tuple
 
 def run_elevated(program: str, params: str, cancel=None) -> int | None:
     """Run ``program params`` as administrator (Windows asks the user), hidden; wait. Exit code, or None if
-    the user said no (or it couldn't start)."""
-    import ctypes
-    import time
-    from ctypes import wintypes
+    the user said no (or it couldn't start, or it was stopped)."""
 
-    class SHELLEXECUTEINFOW(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
-                    ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
-                    ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
-                    ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
-                    ("dwHotKey", wintypes.DWORD), ("hIconOrMonitor", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
-
-    info = SHELLEXECUTEINFOW()
-    info.cbSize = ctypes.sizeof(info)
-    info.fMask = 0x00000040 | 0x00000400            # SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI
-    info.lpVerb, info.lpFile, info.lpParameters, info.nShow = "runas", program, params, 0   # SW_HIDE
-    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
-        return None
-    k32 = ctypes.windll.kernel32
     try:
-        while k32.WaitForSingleObject(info.hProcess, 200) == 0x102:       # WAIT_TIMEOUT
-            if cancel is not None and cancel.is_set():
-                k32.TerminateProcess(info.hProcess, 1)
-                time.sleep(0.2)
-                return None
-        code = wintypes.DWORD()
-        k32.GetExitCodeProcess(info.hProcess, ctypes.byref(code))
-        return code.value
-    finally:
-        k32.CloseHandle(info.hProcess)
+        return winapi.run_and_wait(program, params, admin=True, hidden=True, cancel=cancel, kill_on_cancel=True)
+    except OSError:
+        return None
 
 
 def is_admin() -> bool:
+    if sys.platform != "win32":
+        return False
     try:
         import ctypes
 
@@ -473,12 +454,11 @@ def listing_for(roots: list[Path], keep: Callable[[str], bool], tmp_dir: Path, c
             pass
 
 
-def _main(argv: list[str]) -> int:
+def main(argv: list[str]) -> int:
     """``--ntfs-dump C: out.tsv.gz root\\parts ...`` (run as administrator by listing_for)."""
     if len(argv) < 3 or argv[0] != "--ntfs-dump":
         print("usage: python -m wick.ntfs --ntfs-dump C: OUT [ROOT ...]", file=sys.stderr)
         return 2
-    from .formats import classify
 
     drive, out = argv[1], Path(argv[2])
     roots = [[p for p in r.split("\\") if p] for r in argv[3:]] or [[]]
@@ -492,7 +472,7 @@ def _main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(_main(sys.argv[1:]))
+    sys.exit(main(sys.argv[1:]))
 
 
 __all__ = ["read_tree", "Tree", "Node", "Volume", "NotNTFS", "runs", "dump", "load", "Listing", "listing_for",

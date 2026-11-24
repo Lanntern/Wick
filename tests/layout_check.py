@@ -21,8 +21,18 @@ from PIL import Image  # noqa: E402
 from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QThread  # noqa: E402
 from PySide6.QtGui import QFont, QFontMetrics  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QAbstractButton, QAbstractItemView, QAbstractScrollArea, QApplication, QComboBox, QLabel, QMenu, QScrollBar,
-    QSizePolicy, QTabBar, QToolButton, QWidget,
+    QAbstractButton,
+    QAbstractItemView,
+    QAbstractScrollArea,
+    QApplication,
+    QComboBox,
+    QLabel,
+    QMenu,
+    QScrollBar,
+    QSizePolicy,
+    QTabBar,
+    QToolButton,
+    QWidget,
 )
 
 app = QApplication([])
@@ -56,9 +66,10 @@ from wick.gui.preview import PreviewDialog  # noqa: E402
 from wick.gui.theme import apply_theme  # noqa: E402
 from wick.gui.tradeoff_dialog import TradeoffDialog  # noqa: E402
 from wick.gui.welcome import WelcomeDialog  # noqa: E402
-from wick.gui.widgets import _BodyScroll  # noqa: E402
+from wick.gui.widgets import BodyScroll  # noqa: E402
 from wick.scanner import scan  # noqa: E402
 from wick.settings import Settings  # noqa: E402
+
 
 class _StrayWindows(QObject):
     """A widget shown before it has a parent becomes a window of its own for a moment (a flash on screen)."""
@@ -106,11 +117,11 @@ def name(x: QWidget) -> str:
 found: dict[str, set] = {}
 
 
-def check(root: QWidget, where: str) -> None:
+def check(root: QWidget, where: str) -> None:  # noqa: C901 (to split up)
     def flag(problem: str) -> None:
         found.setdefault(problem, set()).add(where)
 
-    for sc in root.findChildren(_BodyScroll):
+    for sc in root.findChildren(BodyScroll):
         if sc.isVisible() and sc.widget().width() > sc.viewport().width() + 1:
             flag(f"page content cut off at the right ({sc.widget().width()} > {sc.viewport().width()})")
     for t in root.findChildren(QTabBar):

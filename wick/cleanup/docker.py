@@ -8,6 +8,7 @@ on, or with a container running, is listed but not pre-selected.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -50,7 +51,6 @@ def _run(args: list[str], timeout: float = 60) -> subprocess.CompletedProcess | 
 
 
 def _lines(proc) -> list[dict]:
-    import json
 
     out = []
     for line in (proc.stdout if proc is not None else "").splitlines():
@@ -119,7 +119,6 @@ def find(active: dict[str, str] | None = None, idle_days: int = 30) -> tuple[lis
     notes = ["Docker volumes hold data such as databases and are never listed."]
     if note:
         notes.append(note)
-    import json
 
     proc = _run(["system", "df", "-v", "--format", "{{json .}}"], timeout=120)
     try:

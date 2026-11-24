@@ -58,7 +58,7 @@ class CommandBar(QDialog):
         self.list.clear()
         for c in matches(self.commands, query):
             item = QListWidgetItem(f"{c.title}    ·  {c.where}")
-            item.setData(Qt.UserRole, c)
+            item.setData(Qt.ItemDataRole.UserRole, c)
             self.list.addItem(item)
         self.empty.setVisible(self.list.count() == 0)
         if self.list.count():
@@ -67,8 +67,8 @@ class CommandBar(QDialog):
     def eventFilter(self, obj, ev):  # noqa: N802 - arrow keys move through the list while typing
         from PySide6.QtCore import QEvent
 
-        if obj is self.field and ev.type() == QEvent.KeyPress and ev.key() in (Qt.Key_Down, Qt.Key_Up):
-            row = self.list.currentRow() + (1 if ev.key() == Qt.Key_Down else -1)
+        if obj is self.field and ev.type() == QEvent.Type.KeyPress and ev.key() in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+            row = self.list.currentRow() + (1 if ev.key() == Qt.Key.Key_Down else -1)
             if 0 <= row < self.list.count():
                 self.list.setCurrentRow(row)
             return True
@@ -78,7 +78,7 @@ class CommandBar(QDialog):
         item = self.list.currentItem()
         if item is None:
             return
-        command: Command = item.data(Qt.UserRole)
+        command: Command = item.data(Qt.ItemDataRole.UserRole)
         self.accept()
         command.run()
 

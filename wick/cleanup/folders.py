@@ -16,6 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..formats import plural
 from .common import Candidate, ScanResult, cancelled, cloud_only
 
 TOP_FILES = 30                       # largest files listed per folder
@@ -122,7 +123,7 @@ def _children(dirs: list[_Dir], i: int) -> Callable[[], list[Candidate]]:
         rest = own - sum(s for s, _ in top)
         others = node.files - sum(dirs[k].files for k in node.subdirs) - len(top)
         if others > 0:
-            out.append(Candidate(Path(node.path), rest, title=f"{others:,} smaller file{'s' if others != 1 else ''}",
+            out.append(Candidate(Path(node.path), rest, title=f"{plural(others, 'smaller file')}",
                                  detail=f"{_pct(rest, node.size)} of {name}", selected=False,
                                  extra={"locked": True, "location": True}))
         out.sort(key=lambda c: -c.size)
@@ -134,7 +135,7 @@ def _folder(dirs: list[_Dir], i: int, whole: int, parent_name: str) -> Candidate
     node = dirs[i]
     p = Path(node.path)
     locked = p.name.lower() in LOCKED or node.parent < 0
-    detail = f"{node.files:,} file{'s' if node.files != 1 else ''}"
+    detail = f"{plural(node.files, 'file')}"
     if whole:
         detail = f"{_pct(node.size, whole)} of {parent_name} · {detail}"
     if locked and node.parent >= 0:

@@ -2,32 +2,48 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import shutil
 import sys
+import threading
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QGridLayout, QHBoxLayout, QMainWindow, QMenu, QStackedWidget, QSystemTrayIcon,
-    QVBoxLayout, QWidget,
+    QApplication,
+    QDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QMainWindow,
+    QMenu,
+    QStackedWidget,
+    QSystemTrayIcon,
+    QVBoxLayout,
+    QWidget,
 )
 
-from .. import APP_NAME, __version__, tools
+from .. import APP_NAME, FORMER_NAMES, __version__, scanner, tools, tradeoff
 from ..formats import human
-from ..log import log
+from ..log import diagnostics, log
 from ..settings import Settings
 from . import style
-from .home_tab import HomeTab
 from .compress_tab import CompressTab
-from .dialogs import ask
+from .dialogs import ask, inform
+from .filelist import set_all_checked
+from .home_tab import HomeTab
+from .sidebar import Sidebar
 from .style import Space, Type
 from .watch_tab import WatchTab
-from .sidebar import Sidebar
-from .widgets import Card, button, refresh_icons, text
+from .widgets import Card, button, keys, refresh_icons, text
 from .workers import EncoderProbeThread
+
+if TYPE_CHECKING:
+    from ..cleanup.gamewatch import GameWatcher
 
 MIN_W, MIN_H = 760, 540
 SIDEBAR_COMPACT_BELOW = 1040   # window width at which the sidebar shows icons only
@@ -74,13 +90,12 @@ LAZY_PAGES = {"history": (".history_tab", "HistoryTab"),
 def open_qsettings() -> QSettings:
     """The app's settings store (an .ini file instead when WICK_SETTINGS_FILE is set, e.g. for tests)."""
     path = os.environ.get("WICK_SETTINGS_FILE")
-    return QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+    return QSettings(path, QSettings.Format.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
 
 
 def carry_over_settings() -> int:
     """The app was renamed: copy the settings saved under its former name, once (only while there are none
     under the new name). Returns how many were copied."""
-    from .. import FORMER_NAMES
 
     if os.environ.get("WICK_SETTINGS_FILE"):
         return 0
@@ -103,14 +118,22 @@ def app_icon() -> QIcon:
     icon = QIcon()
     for size in (16, 20, 24, 32, 48, 64, 128, 256):
         pm = QPixmap(size, size)
-        pm.fill(Qt.transparent)
+        pm.fill(Qt.GlobalColor.transparent)
         p = QPainter(pm)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         s = size / 64
         p.setBrush(QColor("#0A6CDB"))
-        p.setPen(Qt.NoPen)
+        p.setPen(Qt.PenStyle.NoPen)
         p.drawRoundedRect(QRectF(2 * s, 2 * s, 60 * s, 60 * s), 15 * s, 15 * s)
-        p.setPen(QPen(QColor("white"), max(1.5, 5 * s), Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setPen(
+            QPen(
+                QColor("white"),
+                max(1.5, 5 * s),
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+                Qt.PenJoinStyle.RoundJoin,
+            )
+        )
         path = QPainterPath()
         for x0, x1 in ((12, 26), (52, 38)):
             path.moveTo(x0 * s, 32 * s)
@@ -120,7 +143,7 @@ def app_icon() -> QIcon:
             path.lineTo(x1 * s, 32 * s)
             path.lineTo((x1 - d) * s, 38 * s)
         p.drawPath(path)
-        p.setPen(QPen(QColor("white"), max(1.0, 3 * s), Qt.SolidLine, Qt.RoundCap))
+        p.setPen(QPen(QColor("white"), max(1.0, 3 * s), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         p.drawLine(QPointF(32 * s, 18 * s), QPointF(32 * s, 46 * s))
         p.end()
         icon.addPixmap(pm)
@@ -129,10 +152,9 @@ def app_icon() -> QIcon:
 
 def native(seq: str) -> str:
     """A shortcut as this system writes it (⌘O on a Mac); also lists such as "Ctrl+A / Ctrl+Shift+A"."""
-    from .widgets import keys
 
     if sys.platform != "darwin" and len(seq) > 1 and "/" not in seq and " " not in seq:
-        return QKeySequence(seq).toString(QKeySequence.NativeText)
+        return QKeySequence(seq).toString(QKeySequence.SequenceFormat.NativeText)
     return keys(seq)
 
 
@@ -159,7 +181,7 @@ class ShortcutsDialog(QDialog):
             grid.setVerticalSpacing(Space.S)
             for r, (seq, desc) in enumerate(rows):
                 k = text(native(seq), Type.BODY, bold=True)
-                k.setTextInteractionFlags(Qt.TextSelectableByMouse)
+                k.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
                 grid.addWidget(k, r, 0)
                 grid.addWidget(text(desc, Type.BODY, secondary=True), r, 1)
             grid.setColumnStretch(1, 1)
@@ -180,11 +202,11 @@ class ShortcutsDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    power_changed = Signal(bool)          # plugged in / on battery (see battery_pause)
-    _low_space_done = Signal(str, object, object)   # drive name, free bytes, bytes cleared (from a thread)
+    power_changed = Signal(bool)  # plugged in / on battery (see battery_pause)
+    _low_space_done = Signal(str, object, object)  # drive name, free bytes, bytes cleared (from a thread)
 
     def __init__(self):
-        style.scale_to_text()   # text-bound sizes follow the text size before anything is built (once)
+        style.scale_to_text()  # text-bound sizes follow the text size before anything is built (once)
         super().__init__()
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(app_icon())
@@ -194,7 +216,7 @@ class MainWindow(QMainWindow):
         self.qsettings = open_qsettings()
         from .taskbar import Taskbar
 
-        self.taskbar = Taskbar(self, self.qsettings)     # progress and Pause/Stop on the taskbar button
+        self.taskbar = Taskbar(self, self.qsettings)  # progress and Pause/Stop on the taskbar button
         self._housekeeping()
         self._quitting = False
         self._tray_hint_shown = False
@@ -203,16 +225,19 @@ class MainWindow(QMainWindow):
         root = QHBoxLayout(central)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        self.sidebar = Sidebar(APP_NAME, [
-            ("Home", "home", native("Ctrl+1")),
-            ("Compress", "compress", native("Ctrl+2")),
-            ("Convert", "convert", native("Ctrl+3")),
-            ("Metadata", "tag", native("Ctrl+4")),
-            ("Clean Up", "broom", native("Ctrl+5")),
-            ("Watch Folders", "watch", native("Ctrl+6")),
-            ("History", "history", native("Ctrl+7")),
-            ("Settings", "settings", native("Ctrl+,")),
-        ])
+        self.sidebar = Sidebar(
+            APP_NAME,
+            [
+                ("Home", "home", native("Ctrl+1")),
+                ("Compress", "compress", native("Ctrl+2")),
+                ("Convert", "convert", native("Ctrl+3")),
+                ("Metadata", "tag", native("Ctrl+4")),
+                ("Clean Up", "broom", native("Ctrl+5")),
+                ("Watch Folders", "watch", native("Ctrl+6")),
+                ("History", "history", native("Ctrl+7")),
+                ("Settings", "settings", native("Ctrl+,")),
+            ],
+        )
         root.addWidget(self.sidebar)
         self.pages = QStackedWidget()
         root.addWidget(self.pages, 1)
@@ -235,21 +260,22 @@ class MainWindow(QMainWindow):
         self._prebuild = QTimer(self, interval=400)
         self._prebuild.timeout.connect(self._prebuild_next)
         QTimer.singleShot(2500, self._prebuild.start)
-        self.qsettings.remove("last_inputs")   # (older versions reopened the last session's files: no longer)
+        self.qsettings.remove("last_inputs")  # (older versions reopened the last session's files: no longer)
         from . import support
 
         support.note_start(self.qsettings)
         hints = QApplication.styleHints()
-        if hasattr(hints, "colorSchemeChanged"):          # Windows switched light/dark: follow it at once
+        if hasattr(hints, "colorSchemeChanged"):  # Windows switched light/dark: follow it at once
             hints.colorSchemeChanged.connect(lambda *_: self._system_theme_changed())
         self.sidebar.support_btn.clicked.connect(lambda: self.show_support())
-        self.compress.hover.enabled = self.qsettings.value("hover_preview", True, bool)
+        self.compress.hover.enabled = bool(self.qsettings.value("hover_preview", True, bool))
         self.compress.update_summary()
 
         missing = [n for n, p in tools.tool_status().items() if not p and n not in tools.OPTIONAL_TOOLS]
         if missing:
             self.compress.page.subtitle.setText(
-                "Some encoders are missing (" + ", ".join(missing) + "). See Settings → Encoders.")
+                "Some encoders are missing (" + ", ".join(missing) + "). See Settings → Encoders."
+            )
         geo = self.qsettings.value("geometry")
         if geo is not None:
             self.restoreGeometry(geo)
@@ -284,6 +310,7 @@ class MainWindow(QMainWindow):
         self.probe.result.connect(self.compress.panel.show_encoders)
         self.compress.panel.presets_changed.connect(self._presets_changed)
         from . import integration
+
         QTimer.singleShot(2000, integration.refresh_context_menu)  # keep the menu's preset list current
         if integration.installed_copy() and not integration.file_types_registered():
             # (an install for everyone: each user gets Default apps / Open with at their first start)
@@ -302,7 +329,6 @@ class MainWindow(QMainWindow):
         return self.__dict__.get(name)
 
     def _build_page(self, name: str) -> QWidget:
-        import importlib
 
         module, cls = LAZY_PAGES[name]
         page = getattr(importlib.import_module(module, __package__), cls)(self)
@@ -322,7 +348,7 @@ class MainWindow(QMainWindow):
         waiting = list(self.__dict__.get("_placeholders", {}))
         if not waiting:
             self._prebuild.stop()
-        elif self.isVisible() and QApplication.mouseButtons() == Qt.NoButton:
+        elif self.isVisible() and QApplication.mouseButtons() == Qt.MouseButton.NoButton:
             self._build_page(waiting[0])
 
     def _go(self, index: int) -> None:
@@ -357,20 +383,27 @@ class MainWindow(QMainWindow):
         view = getattr(page, "table", None) or getattr(page, "tree", None)
         model = view.model() if view is not None else None
         if view is not None and view.isVisible() and model is not None and model.rowCount():
-            view.setFocus(Qt.ShortcutFocusReason)
+            view.setFocus(Qt.FocusReason.ShortcutFocusReason)
             return
-        page.setFocus(Qt.ShortcutFocusReason)
+        page.setFocus(Qt.FocusReason.ShortcutFocusReason)
         page.focusNextChild()
 
     # On a Mac these live in the menu bar (_setup_mac_menus): a key can't be both a menu item and a window shortcut.
-    MAC_MENU_KEYS = {"Ctrl+O", "Ctrl+Shift+O", "Ctrl+,", "Ctrl+K", "Ctrl+Q", "Ctrl+/",
-                     *(f"Ctrl+{n}" for n in range(1, 8))}
+    MAC_MENU_KEYS = {
+        "Ctrl+O",
+        "Ctrl+Shift+O",
+        "Ctrl+,",
+        "Ctrl+K",
+        "Ctrl+Q",
+        "Ctrl+/",
+        *(f"Ctrl+{n}" for n in range(1, 8)),
+    }
 
     def _setup_shortcuts(self) -> None:
         c = self.compress
-        page_ctx = Qt.WidgetWithChildrenShortcut
+        page_ctx = Qt.ShortcutContext.WidgetWithChildrenShortcut
 
-        def add(seq, slot, parent=None, ctx=Qt.WindowShortcut):
+        def add(seq, slot, parent=None, ctx=Qt.ShortcutContext.WindowShortcut):
             if sys.platform == "darwin" and parent is None and seq in self.MAC_MENU_KEYS:
                 return None
             return self._shortcut(seq, slot, parent, ctx)
@@ -386,19 +419,18 @@ class MainWindow(QMainWindow):
         add("Ctrl+Return", lambda: c.start_job(), c, page_ctx)
         add("Ctrl+Enter", lambda: c.start_job(), c, page_ctx)
         add("Esc", lambda: c.cancel() if c.busy() else None, c, page_ctx)
-        add("Space", c.preview_selected, c.table, Qt.WidgetShortcut)
-        add("Delete", c.exclude_selected, c.table, Qt.WidgetShortcut)
+        add("Space", c.preview_selected, c.table, Qt.ShortcutContext.WidgetShortcut)
+        add("Delete", c.exclude_selected, c.table, Qt.ShortcutContext.WidgetShortcut)
         add("Ctrl+A", c.select_all.click, c.page, page_ctx)
         add("Ctrl+Shift+A", c.select_none.click, c.page, page_ctx)
         add("Ctrl+Shift+R", c.retry_failed, c, page_ctx)
         add("Ctrl+I", lambda: (self.go_to(c), c.toggle_options()))
-        add("Delete", self.watch.remove_folder, self.watch.folders, Qt.WidgetShortcut)
+        add("Delete", self.watch.remove_folder, self.watch.folders, Qt.ShortcutContext.WidgetShortcut)
         for n in range(1, 8):
             add(f"Ctrl+{n}", lambda i=n - 1: (self._go(i), self.focus_page()))
         add("Ctrl+R", self.home.analyze, self.home, page_ctx)
-        add("Insert", c.include_selected, c.table, Qt.WidgetShortcut)
+        add("Insert", c.include_selected, c.table, Qt.ShortcutContext.WidgetShortcut)
         # Home
-        from .filelist import set_all_checked
 
         h = self.home
         add("Ctrl+A", lambda: set_all_checked(h.tree, True, 0, h._update_send), h, page_ctx)
@@ -432,17 +464,24 @@ class MainWindow(QMainWindow):
         act(file, "Add Folder…", lambda: self._add_files(folder=True), "Ctrl+Shift+O")
         file.addSeparator()
         act(file, "Close Window", self.close, "Ctrl+W")
-        act(file, f"About {APP_NAME}", self.show_about, role=QAction.AboutRole)
-        act(file, "Settings…", lambda: (self.go_to(self.app_settings), self.focus_page()), "Ctrl+,",
-            QAction.PreferencesRole)
-        act(file, f"Quit {APP_NAME}", self.quit, "Ctrl+Q", QAction.QuitRole)
+        act(file, f"About {APP_NAME}", self.show_about, role=QAction.MenuRole.AboutRole)
+        act(
+            file,
+            "Settings…",
+            lambda: (self.go_to(self.app_settings), self.focus_page()),
+            "Ctrl+,",
+            QAction.MenuRole.PreferencesRole,
+        )
+        act(file, f"Quit {APP_NAME}", self.quit, "Ctrl+Q", QAction.MenuRole.QuitRole)
 
-        edit = bar.addMenu("Edit")             # (for text fields: forwarded to whatever has the focus)
+        edit = bar.addMenu("Edit")  # (for text fields: forwarded to whatever has the focus)
         for label, method, seq in (("Cut", "cut", "Ctrl+X"), ("Copy", "copy", "Ctrl+C"), ("Paste", "paste", "Ctrl+V")):
             act(edit, label, lambda m=method: getattr(QApplication.focusWidget(), m, lambda: None)(), seq)
 
         go = bar.addMenu("Go")
-        for n, name in enumerate(("Home", "Compress", "Convert", "Metadata", "Clean Up", "Watch Folders", "History"), 1):
+        for n, name in enumerate(
+            ("Home", "Compress", "Convert", "Metadata", "Clean Up", "Watch Folders", "History"), 1
+        ):
             act(go, name, lambda i=n - 1: (self._go(i), self.focus_page()), f"Ctrl+{n}")
         go.addSeparator()
         act(go, "Go to Anything…", self.show_command_bar, "Ctrl+K")
@@ -455,12 +494,15 @@ class MainWindow(QMainWindow):
 
         help_menu = bar.addMenu("Help")
         act(help_menu, "Keyboard Shortcuts", self.show_shortcuts, "Ctrl+/")
-        act(help_menu, f"{APP_NAME} on macOS",
-            lambda: __import__("webbrowser").open("https://github.com/Lanntern/Wick/blob/main/docs/macos.md"))
+        act(
+            help_menu,
+            f"{APP_NAME} on macOS",
+            lambda: __import__("webbrowser").open("https://github.com/Lanntern/Wick/blob/main/docs/macos.md"),
+        )
         act(help_menu, "Report a Problem…", lambda: __import__("wick.gui.dialogs", fromlist=["x"]).report_problem(self))
         self._mac_menus = bar
 
-    def _shortcut(self, seq, slot, parent=None, ctx=Qt.WindowShortcut):
+    def _shortcut(self, seq, slot, parent=None, ctx=Qt.ShortcutContext.WindowShortcut):
         sc = QShortcut(QKeySequence(seq), parent or self)
         sc.setContext(ctx)
         sc.activated.connect(slot)
@@ -468,9 +510,8 @@ class MainWindow(QMainWindow):
 
     def _page_shortcuts(self, name: str, page: QWidget) -> None:
         """Shortcuts that belong to a page built on demand (installed when it's built)."""
-        from .filelist import set_all_checked
 
-        add, page_ctx = self._shortcut, Qt.WidgetWithChildrenShortcut
+        add, page_ctx = self._shortcut, Qt.ShortcutContext.WidgetWithChildrenShortcut
         if name == "history":
             add("Ctrl+Z", page.undo_selected, page, page_ctx)
             add("F5", page.reload, page, page_ctx)
@@ -490,10 +531,8 @@ class MainWindow(QMainWindow):
             add("Ctrl+Return", lambda: tool().run_primary(), cu, page_ctx)
             add("Ctrl+Enter", lambda: tool().run_primary(), cu, page_ctx)
             add("Esc", lambda: tool().stop() if tool().busy() else None, cu, page_ctx)
-            add("Ctrl+Tab", lambda: cu.step(1), cu,
-                page_ctx)
-            add("Ctrl+Shift+Tab", lambda: cu.step(-1),
-                cu, page_ctx)
+            add("Ctrl+Tab", lambda: cu.step(1), cu, page_ctx)
+            add("Ctrl+Shift+Tab", lambda: cu.step(-1), cu, page_ctx)
 
     def _add_files(self, folder: bool) -> None:
         """Ctrl+O / Ctrl+Shift+O add to the page you're on (Convert, Metadata), else to Compress."""
@@ -508,13 +547,14 @@ class MainWindow(QMainWindow):
 
     def commands(self) -> list:
         """Everything the command bar (Ctrl+K) offers."""
-        from .command_bar import Command
         from .cleanup_tools import tools
+        from .command_bar import Command
 
         def page(attr: str):
             def go() -> None:
                 self.go_to(getattr(self, attr))
                 self.focus_page()
+
             return go
 
         def scan_home() -> None:
@@ -523,9 +563,6 @@ class MainWindow(QMainWindow):
 
         def copy_diagnostics() -> None:
             from PySide6.QtGui import QGuiApplication
-
-            from ..log import diagnostics
-            from .dialogs import inform
 
             QGuiApplication.clipboard().setText(diagnostics())
             inform(self, "Diagnostics copied", "Paste them into an email or bug report.")
@@ -548,32 +585,42 @@ class MainWindow(QMainWindow):
 
             report_problem(self)
 
-        out = [Command("Home", "Page", page("home"), "start overview savings storage"),
-               Command("Compress", "Page", page("compress"), "shrink photos videos music"),
-               Command("Convert", "Page", page("converter"), "format change heic jpeg mp4 pdf"),
-               Command("Metadata", "Page", page("metadata"), "location gps exif privacy"),
-               Command("Clean Up", "Page", page("cleanup"), "free space"),
-               Command("Watch Folders", "Page", page("watch"), "automatic new files"),
-               Command("History", "Page", page("history"), "undo restore"),
-               Command("Settings", "Page", page("app_settings"), "preferences options")]
+        out = [
+            Command("Home", "Page", page("home"), "start overview savings storage"),
+            Command("Compress", "Page", page("compress"), "shrink photos videos music"),
+            Command("Convert", "Page", page("converter"), "format change heic jpeg mp4 pdf"),
+            Command("Metadata", "Page", page("metadata"), "location gps exif privacy"),
+            Command("Clean Up", "Page", page("cleanup"), "free space"),
+            Command("Watch Folders", "Page", page("watch"), "automatic new files"),
+            Command("History", "Page", page("history"), "undo restore"),
+            Command("Settings", "Page", page("app_settings"), "preferences options"),
+        ]
+
         def tool(key: str):
             def go() -> None:
                 self.open_cleanup_tool(key)
+
             return go
 
         out += [Command(t.tab, "Clean Up", tool(t.key), t.key) for t in tools() if not t.available()]
-        out += [Command("Add Files…", "Action", lambda: self._add_files(False), "open"),
-                Command("Add Folder…", "Action", lambda: self._add_files(True), "open"),
-                Command("Scan My Folders", "Action", scan_home, "home analyze"),
-                Command("What Else Takes Space", "Action", explain_space,
-                        "hidden system hibernation restore points wsl everything else"),
-                Command("Check for Updates", "Action", lambda: self.check_for_updates(manual=True), "new version"),
-                Command("Report a Problem…", "Action", report, "bug issue crash"),
-                Command("Copy Diagnostics", "Action", copy_diagnostics, "bug log versions"),
-                Command("Open Log Folder", "Action", open_log_folder, "logs crash"),
-                Command("Keyboard Shortcuts", "Action", self.show_shortcuts, "keys help"),
-                Command("About Wick", "Action", self.show_about, "version licenses privacy"),
-                Command("Quit Wick", "Action", self.quit, "exit close")]
+        out += [
+            Command("Add Files…", "Action", lambda: self._add_files(False), "open"),
+            Command("Add Folder…", "Action", lambda: self._add_files(True), "open"),
+            Command("Scan My Folders", "Action", scan_home, "home analyze"),
+            Command(
+                "What Else Takes Space",
+                "Action",
+                explain_space,
+                "hidden system hibernation restore points wsl everything else",
+            ),
+            Command("Check for Updates", "Action", lambda: self.check_for_updates(manual=True), "new version"),
+            Command("Report a Problem…", "Action", report, "bug issue crash"),
+            Command("Copy Diagnostics", "Action", copy_diagnostics, "bug log versions"),
+            Command("Open Log Folder", "Action", open_log_folder, "logs crash"),
+            Command("Keyboard Shortcuts", "Action", self.show_shortcuts, "keys help"),
+            Command("About Wick", "Action", self.show_about, "version licenses privacy"),
+            Command("Quit Wick", "Action", self.quit, "exit close"),
+        ]
         return out
 
     def show_command_bar(self) -> None:
@@ -585,7 +632,7 @@ class MainWindow(QMainWindow):
         """The "star on GitHub / donate" window (the sidebar's Support link, or the one-time prompt)."""
         from . import support
 
-        dlg = support.SupportDialog(int(self.qsettings.value(support.SAVED_MOST, 0, int)), self, asked=asked)
+        dlg = support.SupportDialog(int(str(self.qsettings.value(support.SAVED_MOST, 0, int))), self, asked=asked)
         dlg.show()
         self._support_dialog = dlg
 
@@ -605,9 +652,14 @@ class MainWindow(QMainWindow):
         from .. import power
 
         busy = self.compress.busy() or any(p.busy() for p in lazy) or power.user_busy()
-        if not support.due(self.qsettings) or busy or not self.isVisible() or self.isMinimized() \
-                or QApplication.activeModalWidget() is not None:
-            return                          # (checked again the next time the History total changes)
+        if (
+            not support.due(self.qsettings)
+            or busy
+            or not self.isVisible()
+            or self.isMinimized()
+            or QApplication.activeModalWidget() is not None
+        ):
+            return  # (checked again the next time the History total changes)
         self.qsettings.setValue(support.ASKED, True)
         self.show_support(asked=True)
 
@@ -620,7 +672,7 @@ class MainWindow(QMainWindow):
     def apply_theme(self, mode: str) -> None:
         from PySide6.QtWidgets import QApplication
 
-        QApplication.setOverrideCursor(Qt.WaitCursor)   # restyling every widget takes about a second
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)  # restyling every widget takes about a second
         try:
             style.apply_style(mode)
             self.refresh_colors()
@@ -654,34 +706,37 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ own title bar (Windows)
     def nativeEvent(self, event_type, message):  # noqa: N802
-        if os.name == "nt" and getattr(self, "taskbar", None) is not None:
+        if sys.platform == "win32" and getattr(self, "taskbar", None) is not None:
             from ctypes import wintypes
 
             if self.taskbar.native_event(wintypes.MSG.from_address(int(message))):
                 return True, 0
-        if getattr(self, "frame", None) is not None:
-            handled, result = self.frame.native_event(message)
+        frame = getattr(self, "frame", None)
+        if frame is not None:
+            handled, result = frame.native_event(message)
             if handled:
                 return True, result
         return super().nativeEvent(event_type, message)
 
     def changeEvent(self, e) -> None:  # noqa: N802
         super().changeEvent(e)
-        if getattr(self, "frame", None) is not None:
-            self.frame.changed(e)
-        if e.type() == QEvent.ActivationChange and self.isActiveWindow() and getattr(self, "taskbar", None):
-            self.taskbar.clear_error()        # a failed job's red taskbar bar has been seen
+        frame = getattr(self, "frame", None)
+        if frame is not None:
+            frame.changed(e)
+        if e.type() == QEvent.Type.ActivationChange and self.isActiveWindow() and getattr(self, "taskbar", None):
+            self.taskbar.clear_error()  # a failed job's red taskbar bar has been seen
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
-        if getattr(self, "frame", None) is not None:
-            self.frame.place()
+        frame = getattr(self, "frame", None)
+        if frame is not None:
+            frame.place()
         self.sidebar.set_compact(self.width() < SIDEBAR_COMPACT_BELOW)
         self.compress.adapt_to_width(self.width())
 
     # ------------------------------------------------------------------ settings
     def load_settings(self) -> Settings:
-        raw = self.qsettings.value("settings", "", str)
+        raw = str(self.qsettings.value("settings", "", str))
         try:
             return Settings.from_dict(json.loads(raw) if raw else None)
         except ValueError:
@@ -714,16 +769,16 @@ class MainWindow(QMainWindow):
         """Startup chores: file index on/off, history retention, stale index entries."""
         from .. import index, journal
 
-        index.set_enabled(self.qsettings.value("index_enabled", True, bool))
+        index.set_enabled(bool(self.qsettings.value("index_enabled", True, bool)))
         try:
-            removed = journal.prune(self.qsettings.value("history_days", 0, int))
+            removed = journal.prune(float(str(self.qsettings.value("history_days", 0, int))))
             if removed:
                 log.info("Removed %d run(s) older than the history limit", removed)
         except OSError:
             pass
         QTimer.singleShot(5000, index.prune)
 
-        def prune_parts() -> None:              # videos stopped part-way and not carried on for two weeks
+        def prune_parts() -> None:  # videos stopped part-way and not carried on for two weeks
             from .. import chunked
 
             try:
@@ -734,27 +789,27 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(7000, prune_parts)
         self._recompress: QThread | None = None
         if self.qsettings.value("appcompress/recompress", True, bool):
-            QTimer.singleShot(3 * 60 * 1000, self.recompress_updated_games)   # after start-up settles
+            QTimer.singleShot(3 * 60 * 1000, self.recompress_updated_games)  # after start-up settles
         self._recompress_timer = QTimer(self, interval=15 * 60 * 1000)
         self._recompress_timer.timeout.connect(self.recompress_updated_games)
         self._recompress_timer.start()
-        self._game_watcher = None
+        self._game_watcher: GameWatcher | None = None
         self._refresh_game_watcher()
         self._game_event_timer = QTimer(self, interval=30 * 1000)
         self._game_event_timer.timeout.connect(self._game_update_event)
         self._game_event_timer.start()
 
     MONTHLY_DAYS = 30
-    MONTHLY_MIN = 1024 ** 3          # only worth a notification from 1 GB
+    MONTHLY_MIN = 1024**3  # only worth a notification from 1 GB
 
     def _setup_monthly(self) -> None:
         """Settings › Check for savings once a month (off by default): a quiet look through Home's folders,
         and one notification if there's a good amount to free. Nothing is ever changed by it."""
         self._monthly_running = False
-        self._monthly_timer = QTimer(self, interval=60 * 60 * 1000)      # hourly: is a check due?
+        self._monthly_timer = QTimer(self, interval=60 * 60 * 1000)  # hourly: is a check due?
         self._monthly_timer.timeout.connect(self._monthly_due)
         self._monthly_timer.start()
-        QTimer.singleShot(10 * 60 * 1000, self._monthly_due)              # ten minutes after start-up
+        QTimer.singleShot(10 * 60 * 1000, self._monthly_due)  # ten minutes after start-up
         self.home.analyzed.connect(self._monthly_result)
         if self.tray is not None:
             self.tray.messageClicked.connect(self._message_clicked)
@@ -762,10 +817,10 @@ class MainWindow(QMainWindow):
     def _monthly_due(self) -> bool:
         if not self.qsettings.value("monthly_check", False, bool) or self._monthly_running:
             return False
-        if time.time() - self.qsettings.value("monthly/last", 0.0, float) < self.MONTHLY_DAYS * 86400:
+        if time.time() - float(str(self.qsettings.value("monthly/last", 0.0, float))) < self.MONTHLY_DAYS * 86400:
             return False
         if self.home.busy() or self.compress.busy():
-            return False                                 # busy now: the next hourly look will try again
+            return False  # busy now: the next hourly look will try again
         self._monthly_running = True
         self.home.analyze(background=True)
         return True
@@ -786,8 +841,9 @@ class MainWindow(QMainWindow):
         if total < self.MONTHLY_MIN:
             return
         self._last_notice = "monthly"
-        self.tray_message(f"About {human(total)} could be freed. Open Wick to see where. Nothing has been changed "
-                          "yet.", force=True)
+        self.tray_message(
+            f"About {human(total)} could be freed. Open Wick to see where. Nothing has been changed yet.", force=True
+        )
 
     def _message_clicked(self) -> None:
         if getattr(self, "_last_notice", "") in ("monthly", "low_space"):
@@ -797,10 +853,9 @@ class MainWindow(QMainWindow):
     # When a drive is almost full (Settings › When a drive is almost full): "off", "notify", or "clean", which
     # also clears the app caches Clean Up marks as safe. Those are deleted for good: on a full drive, moving them
     # to the Recycle Bin (on the same drive) wouldn't free anything. Apps rebuild them.
-    LOW_SPACE_CHOICES = {"off": "Do nothing", "notify": "Let me know",
-                         "clean": "Let me know and clear app caches"}
-    LOW_SPACE_FRACTION = 0.10        # almost full: less than 10% free…
-    LOW_SPACE_CAP = 20 * 1024 ** 3   # …or less than 20 GB on big drives
+    LOW_SPACE_CHOICES = {"off": "Do nothing", "notify": "Let me know", "clean": "Let me know and clear app caches"}
+    LOW_SPACE_FRACTION = 0.10  # almost full: less than 10% free…
+    LOW_SPACE_CAP = 20 * 1024**3  # …or less than 20 GB on big drives
 
     @classmethod
     def almost_full(cls, total: int, free: int) -> bool:
@@ -812,10 +867,10 @@ class MainWindow(QMainWindow):
         self._low_space_timer = QTimer(self, interval=30 * 60 * 1000)
         self._low_space_timer.timeout.connect(self.check_low_space)
         self._low_space_timer.start()
-        QTimer.singleShot(2 * 60 * 1000, self.check_low_space)           # once start-up has settled
+        QTimer.singleShot(2 * 60 * 1000, self.check_low_space)  # once start-up has settled
 
     def _watched_drives(self) -> list[Path]:
-        system = Path((os.environ.get("SystemDrive") or "C:") + "\\") if os.name == "nt" else Path("/")
+        system = Path((os.environ.get("SystemDrive") or "C:") + "\\") if sys.platform == "win32" else Path("/")
         drives = [system]
         for root in getattr(self.home, "roots", [])[:1]:
             anchor = Path(Path(root).anchor or "/")
@@ -826,7 +881,6 @@ class MainWindow(QMainWindow):
     def check_low_space(self) -> list[Path]:
         """Drives that are almost full and haven't been mentioned today; mentions them (and clears caches in
         "clean" mode). Returns them."""
-        import shutil
 
         mode = str(self.qsettings.value("low_space", "notify", str))
         if mode == "off" or self._low_space_busy:
@@ -838,8 +892,10 @@ class MainWindow(QMainWindow):
             except OSError:
                 continue
             key = "low_space/last/" + (drive.drive or str(drive)).replace("\\", "").replace("/", "root")
-            if not self.almost_full(usage.total, usage.free) \
-                    or time.time() - self.qsettings.value(key, 0.0, float) < 86400:
+            if (
+                not self.almost_full(usage.total, usage.free)
+                or time.time() - float(str(self.qsettings.value(key, 0.0, float))) < 86400
+            ):
                 continue
             self.qsettings.setValue(key, time.time())
             low.append((drive, usage.free))
@@ -849,8 +905,9 @@ class MainWindow(QMainWindow):
         name = drive.drive or "Your main drive"
         self._last_notice = "low_space"
         if mode != "clean":
-            self.tray_message(f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
-                              force=True)
+            self.tray_message(
+                f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.", force=True
+            )
             return [d for d, _ in low]
         self._low_space_busy = True
 
@@ -864,10 +921,9 @@ class MainWindow(QMainWindow):
                 freed = actions.empty_from_trash(outcomes)[1]
             except Exception:  # noqa: BLE001 - the notice still goes out
                 from ..log import ignored
+
                 ignored("gui.main_window.check_low_space")
             self._low_space_done.emit(name, int(free), int(freed))
-
-        import threading
 
         threading.Thread(target=clear, name="low-space-clean", daemon=True).start()
         return [d for d, _ in low]
@@ -875,21 +931,22 @@ class MainWindow(QMainWindow):
     def _low_space_cleared(self, name: str, free, freed) -> None:
         self._low_space_busy = False
         self._last_notice = "low_space"
-        self.tray_message(f"{name} is almost full. Wick cleared {human(freed)} of app caches; open it to see what "
-                          f"else can be freed." if freed else
-                          f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
-                          force=True)
+        self.tray_message(
+            f"{name} is almost full. Wick cleared {human(freed)} of app caches; open it to see what else can be freed."
+            if freed
+            else f"{name} is almost full ({human(free)} free). Open Wick to see what can be freed.",
+            force=True,
+        )
 
     def _setup_power(self) -> None:
         from .. import power
 
-        power.ENABLED = self.qsettings.value("keep_awake", True, bool)
-        from .. import scanner
+        power.ENABLED = bool(self.qsettings.value("keep_awake", True, bool))
 
-        scanner.FAST_DRIVES = self.qsettings.value("fast_drive_scan", True, bool)
+        scanner.FAST_DRIVES = bool(self.qsettings.value("fast_drive_scan", True, bool))
         from .. import everything
 
-        everything.ENABLED = self.qsettings.value("use_everything", True, bool)
+        everything.ENABLED = bool(self.qsettings.value("use_everything", True, bool))
         self.on_battery = power.on_battery()
         self._power_timer = QTimer(self, interval=15_000)
         self._power_timer.timeout.connect(self._poll_power)
@@ -905,7 +962,7 @@ class MainWindow(QMainWindow):
 
     def battery_pause(self) -> bool:
         """Should jobs pause now? (On battery, and Settings › Pause on battery power is on.)"""
-        return bool(self.on_battery) and self.qsettings.value("pause_on_battery", False, bool)
+        return bool(self.on_battery) and bool(self.qsettings.value("pause_on_battery", False, bool))
 
     def _setup_updates(self) -> None:
         """Show an update found earlier, and check again when Settings' frequency says so (in the background)."""
@@ -914,13 +971,15 @@ class MainWindow(QMainWindow):
         self.sidebar.update_btn.clicked.connect(self._show_update)
         from .. import updates
 
-        cached = self.qsettings.value("updates/available", "", str)
-        if cached and updates.newer(cached):     # remembered from an earlier check: no network needed
-            self.sidebar.set_update(cached, self.qsettings.value("updates/security", False, bool))
-        last = self.qsettings.value("updates/last_check", 0.0, float)
-        if updates.due(updates.frequency(self.qsettings), last, time.time()) \
-                and os.environ.get("WICK_NO_NETWORK") != "1":       # tests and offline builds
-            QTimer.singleShot(30 * 1000, self.check_for_updates)   # once start-up has settled
+        cached = str(self.qsettings.value("updates/available", "", str))
+        if cached and updates.newer(cached):  # remembered from an earlier check: no network needed
+            self.sidebar.set_update(cached, bool(self.qsettings.value("updates/security", False, bool)))
+        last = float(str(self.qsettings.value("updates/last_check", 0.0, float)))
+        if (
+            updates.due(updates.frequency(self.qsettings), last, time.time())
+            and os.environ.get("WICK_NO_NETWORK") != "1"
+        ):  # tests and offline builds
+            QTimer.singleShot(30 * 1000, self.check_for_updates)  # once start-up has settled
 
     def check_for_updates(self, manual: bool = False) -> None:
         """Ask GitHub whether a newer version exists (in the background). ``manual``: from Check Now, so say
@@ -959,9 +1018,12 @@ class MainWindow(QMainWindow):
             if settings_page is not None:
                 settings_page.show_update_status()
             if release and not manual:
-                self.tray_message(f"{APP_NAME} {release.version} is available"
-                                  + (" with security fixes." if release.security else "."),
-                                  actions=[("Details", "update")], launch="update")
+                self.tray_message(
+                    f"{APP_NAME} {release.version} is available"
+                    + (" with security fixes." if release.security else "."),
+                    actions=[("Details", "update")],
+                    launch="update",
+                )
             if manual and release:
                 self._show_update()
 
@@ -984,8 +1046,11 @@ class MainWindow(QMainWindow):
         security = self._release.security if self._release else self.qsettings.value("updates/security", False, bool)
         url = self._release.url if self._release else updates.PAGE
         notes = (self._release.notes.strip() if self._release else "")[:600]
-        info = ("It includes security fixes for components that open your files, so it's worth installing soon. "
-                if security else "") + (f"\n\n{notes}" if notes else "")
+        info = (
+            "It includes security fixes for components that open your files, so it's worth installing soon. "
+            if security
+            else ""
+        ) + (f"\n\n{notes}" if notes else "")
         title = f"{APP_NAME} {version} is available (you have {__version__})."
         source = updates.install_source()
         if source in updates.PACKAGE_MANAGERS:
@@ -1005,15 +1070,14 @@ class MainWindow(QMainWindow):
         background (games that are running, use DirectStorage or need administrator rights are skipped)."""
         if not self.qsettings.value("appcompress/recompress", True, bool) or self.battery_pause():
             return
-        import threading
 
         from PySide6.QtCore import QThread, Signal
 
         from ..cleanup import appcompress
+
         self._refresh_game_watcher()
         if self.qsettings.value("appcompress/idle_only", True, bool) and appcompress.idle_seconds() < 300:
             return
-        import json
 
         try:
             folder_preferences = json.loads(str(self.qsettings.value("appcompress/folder_options", "{}", str)))
@@ -1025,8 +1089,9 @@ class MainWindow(QMainWindow):
 
         if not appcompress.supported() or (self._recompress is not None and self._recompress.isRunning()):
             return
-        if self.compress.busy() or any(p.busy() for p in (self.built("converter"), self.built("metadata"),
-                                                         self.built("cleanup")) if p is not None):
+        if self.compress.busy() or any(
+            p.busy() for p in (self.built("converter"), self.built("metadata"), self.built("cleanup")) if p is not None
+        ):
             return
         if self._game_watcher is not None:
             self._game_watcher.changed.clear()
@@ -1044,13 +1109,15 @@ class MainWindow(QMainWindow):
 
                 try:
                     with power.background():
-                        self.done.emit(*appcompress.recompress_updated(progress=self.progress.emit, cancel=self.cancel,
-                                                                      preferences=folder_preferences))
+                        self.done.emit(
+                            *appcompress.recompress_updated(
+                                progress=self.progress.emit, cancel=self.cancel, preferences=folder_preferences
+                            )
+                        )
                 except Exception as e:  # noqa: BLE001 - a background nicety
                     log.warning("Re-compressing updated games failed: %s", e)
 
         def finished(done, notes) -> None:
-            from ..formats import human
 
             if done:
                 saved = sum(b for _, b in done)
@@ -1070,8 +1137,11 @@ class MainWindow(QMainWindow):
         from ..cleanup import appcompress
         from ..cleanup.gamewatch import GameWatcher
 
-        folders = [p for p, _ in appcompress.compressed_folders()] if self.qsettings.value(
-            "appcompress/recompress", True, bool) else []
+        folders = (
+            [p for p, _ in appcompress.compressed_folders()]
+            if self.qsettings.value("appcompress/recompress", True, bool)
+            else []
+        )
         wanted = tuple(sorted({str(p.resolve()) for p in folders}))
         previous = getattr(self, "_game_watcher", None)
         if previous is not None and previous.folders == wanted:
@@ -1096,8 +1166,16 @@ class MainWindow(QMainWindow):
         self.watch.refresh_presets()
 
     # --open=TARGET → the page's attribute name (see app.open_target).
-    OPEN_PAGES = {"home": "home", "compress": "compress", "convert": "converter", "metadata": "metadata",
-                  "cleanup": "cleanup", "watch": "watch", "history": "history", "settings": "app_settings"}
+    OPEN_PAGES = {
+        "home": "home",
+        "compress": "compress",
+        "convert": "converter",
+        "metadata": "metadata",
+        "cleanup": "cleanup",
+        "watch": "watch",
+        "history": "history",
+        "settings": "app_settings",
+    }
 
     def apply_fix(self, key: str, retry=None, rescan=None) -> None:
         """A failure's fix button (fixes.py) on a job's progress panel."""
@@ -1129,13 +1207,13 @@ class MainWindow(QMainWindow):
     def open_target(self, target: str) -> None:
         """Show a page (jump list, tray), or pick files on one: compress-files, convert-files."""
         self.show_window()
-        if target == "undo-last":                       # a notification's "Undo" button (asks first)
+        if target == "undo-last":  # a notification's "Undo" button (asks first)
             run_id = getattr(self, "_last_run", None)
             if run_id:
                 self.go_to(self.compress)
                 QTimer.singleShot(0, lambda: self.compress._undo_job(run_id))
             return
-        if target == "show-files":                      # ...and its "Show Files"
+        if target == "show-files":  # ...and its "Show Files"
             outputs = [p for p in getattr(self, "_last_outputs", []) if p.exists()]
             if outputs:
                 from .file_model import open_in_file_manager_many
@@ -1148,7 +1226,7 @@ class MainWindow(QMainWindow):
             self.go_to(page)
             page.tabs.setCurrentIndex(index)
             return
-        if target == "update":                         # a notification's "Details" button
+        if target == "update":  # a notification's "Details" button
             self._show_update()
             return
         page_name, _, action = target.partition("-")
@@ -1158,10 +1236,11 @@ class MainWindow(QMainWindow):
         page = getattr(self, attr)
         self.go_to(page)
         if action == "files" and hasattr(page, "browse_files"):
-            QTimer.singleShot(0, page.browse_files)        # once the window is in front
+            QTimer.singleShot(0, page.browse_files)  # once the window is in front
 
-    def receive_paths(self, paths: list[str], show: bool = True, preset: str = "", convert: str = "",
-                      open_target: str = "") -> None:
+    def receive_paths(
+        self, paths: list[str], show: bool = True, preset: str = "", convert: str = "", open_target: str = ""
+    ) -> None:
         if open_target:
             self.open_target(open_target)
         if show:
@@ -1169,7 +1248,7 @@ class MainWindow(QMainWindow):
         if open_target == "apps":
             self._queue_app_folders(paths)
             return
-        if convert:                 # Explorer's "Convert with Wick"
+        if convert:  # Explorer's "Convert with Wick"
             self.go_to(self.converter)
             self.converter.quick_convert(paths, convert)
             return
@@ -1219,12 +1298,12 @@ class MainWindow(QMainWindow):
         super().showEvent(e)
         from .. import power
 
-        power.set_efficiency_mode(False)          # on screen: full speed
+        power.set_efficiency_mode(False)  # on screen: full speed
         if getattr(self, "_welcome_pending", False):
             self._welcome_pending = False
-            QTimer.singleShot(300, self._welcome)       # once the window is on screen
+            QTimer.singleShot(300, self._welcome)  # once the window is on screen
         elif not getattr(self, "_tradeoff_checked", False) and self.qsettings.value("welcome_done", False, bool):
-            self._tradeoff_checked = True                # (people who used Wick before the question existed)
+            self._tradeoff_checked = True  # (people who used Wick before the question existed)
             QTimer.singleShot(1500, self.ask_tradeoff)
 
     def _welcome(self) -> None:
@@ -1239,8 +1318,9 @@ class MainWindow(QMainWindow):
                 self.go_to(self.home)
                 self.home.analyze()
             QTimer.singleShot(400, self.ask_tradeoff)
+
         dlg.finished.connect(closed)
-        dlg.open()                    # (window-modal, doesn't block the event loop)
+        dlg.open()  # (window-modal, doesn't block the event loop)
 
     TRADEOFF_ASKED = "tradeoff/asked"
 
@@ -1249,7 +1329,6 @@ class MainWindow(QMainWindow):
         (both still in the compression options)."""
         if self.qsettings.value(self.TRADEOFF_ASKED, False, bool):
             return
-        from .. import tradeoff
         from .tradeoff_dialog import TradeoffDialog
 
         dlg = TradeoffDialog(self)
@@ -1260,6 +1339,7 @@ class MainWindow(QMainWindow):
             s = tradeoff.apply(dlg.choice(), self.compress.panel.settings())
             self.compress.panel.load(s)
             self.save_settings()
+
         dlg.finished.connect(closed)
         dlg.open()
 
@@ -1279,7 +1359,7 @@ class MainWindow(QMainWindow):
         self.tray = QSystemTrayIcon(app_icon(), self)
         menu = QMenu()
         open_app = menu.addAction(f"Open {APP_NAME}", self.show_window)
-        menu.setDefaultAction(open_app)          # (bold: what clicking the icon does)
+        menu.setDefaultAction(open_app)  # (bold: what clicking the icon does)
         menu.addSeparator()
         # The same shortcuts as the taskbar's jump list (jumplist.TASKS).
         menu.addAction("Compress Files…", lambda: self.open_target("compress-files"))
@@ -1291,17 +1371,16 @@ class MainWindow(QMainWindow):
         self.tray_watch.setToolTip("Compress new files in your watched folders automatically")
         self.tray_watch.toggled.connect(lambda on: self.watch.switch.setChecked(on))
         menu.addAction(self.tray_watch)
-        menu.addAction("Check for Updates", lambda: (self.open_target("settings"),
-                                                     self.check_for_updates(manual=True)))
+        menu.addAction("Check for Updates", lambda: (self.open_target("settings"), self.check_for_updates(manual=True)))
         menu.addAction(f"About {APP_NAME}", lambda: (self.show_window(), self.show_about()))
         menu.addSeparator()
         menu.addAction("Quit", self.quit)
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(
-            lambda reason: self.show_window() if reason == QSystemTrayIcon.Trigger else None)
+            lambda reason: self.show_window() if reason == QSystemTrayIcon.ActivationReason.Trigger else None
+        )
         # A notification clicked: open where it happened (Compress for a finished job, and so on).
-        self.tray.messageClicked.connect(
-            lambda: self.open_target(getattr(self, "_last_launch", "") or "home"))
+        self.tray.messageClicked.connect(lambda: self.open_target(getattr(self, "_last_launch", "") or "home"))
         self._tray_menu = menu
 
     def _update_tray(self, watching: bool) -> None:
@@ -1340,28 +1419,41 @@ class MainWindow(QMainWindow):
         self.close()
 
     def closeEvent(self, event) -> None:
-        game_watch = (getattr(self, "_game_watcher", None) is not None and bool(self._game_watcher.folders)
-                      and self.qsettings.value("appcompress/recompress", True, bool)
-                      and self.qsettings.value("appcompress/tray", False, bool))
-        keep_running = (not self._quitting and self.tray is not None and
-                        ((self.watch.watching and self.qsettings.value("close_to_tray", True, bool)) or game_watch))
+        watcher = getattr(self, "_game_watcher", None)
+        game_watch = (
+            watcher is not None
+            and bool(watcher.folders)
+            and self.qsettings.value("appcompress/recompress", True, bool)
+            and self.qsettings.value("appcompress/tray", False, bool)
+        )
+        keep_running = (
+            not self._quitting
+            and self.tray is not None
+            and ((self.watch.watching and self.qsettings.value("close_to_tray", True, bool)) or game_watch)
+        )
         if keep_running:
             self.save_settings()
             self.qsettings.setValue("geometry", self.saveGeometry())
             event.ignore()
             self.hide()
-            self.tray.setVisible(True)
+            if self.tray is not None:
+                self.tray.setVisible(True)
             from .. import power
 
-            power.set_efficiency_mode(True)     # hidden, only watching: Windows' efficiency mode
+            power.set_efficiency_mode(True)  # hidden, only watching: Windows' efficiency mode
             if not self._tray_hint_shown:
                 self.tray_message("Still watching folders in the background. Quit from the tray icon.")
                 self._tray_hint_shown = True
             return
         lazy = [p for p in (self.built("cleanup"), self.built("converter"), self.built("metadata")) if p is not None]
         if self.compress.busy() or any(p.busy() for p in lazy):
-            if not ask(self, "Stop the running job and quit?", "The file being processed keeps its original.",
-                       "Quit", destructive=True):
+            if not ask(
+                self,
+                "Stop the running job and quit?",
+                "The file being processed keeps its original.",
+                "Quit",
+                destructive=True,
+            ):
                 event.ignore()
                 self._quitting = False
                 return
@@ -1371,13 +1463,14 @@ class MainWindow(QMainWindow):
             for page in [p for p in (self.built("converter"), self.built("metadata")) if p is not None]:
                 page.stop()
         self.watch.shutdown()
-        if getattr(self, "_game_watcher", None) is not None:
-            self._game_watcher.stop()
+        watcher = getattr(self, "_game_watcher", None)
+        if watcher is not None:
+            watcher.stop()
         self.home.stop()
         from . import resilience
 
-        self.setEnabled(False)                 # (nothing new starts while the rest stops)
-        resilience.stop_all(self)              # every task at once, one short deadline (never a frozen window)
+        self.setEnabled(False)  # (nothing new starts while the rest stops)
+        resilience.stop_all(self)  # every task at once, one short deadline (never a frozen window)
         self.save_settings()
         self.qsettings.setValue("geometry", self.saveGeometry())
         if self.tray is not None:
@@ -1391,4 +1484,3 @@ class MainWindow(QMainWindow):
 
 
 __all__ = ["MainWindow", "app_icon", "__version__"]
-

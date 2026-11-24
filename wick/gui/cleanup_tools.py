@@ -2,24 +2,44 @@
 
 from __future__ import annotations
 
-from typing import cast
-
+import json
 import os
 import sys
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox
 
 from ..cleanup import (
-    actions, appcompress, archives, backups, broken, caches, devclean, duplicates, empties, extensions, folders,
+    actions,
+    appcompress,
+    archives,
+    backups,
+    broken,
+    caches,
+    devclean,
+    duplicates,
+    empties,
+    extensions,
+    folders,
+    installers,
+    largefiles,
     macclean,
-    installers, largefiles, music, pairs, proxies, similar, takeout, videos, winclean,
+    music,
+    pairs,
+    proxies,
+    similar,
+    takeout,
+    videos,
+    winclean,
 )
+from ..cleanup import apps as apps_mod
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
-from ..cleanup import apps as apps_mod
-from .cleanup_section import Tool, ToolSection, _existing
-from .widgets import SizeInput, button, dialog_buttons, dialog_layout
+from .app_controls import FileTypePicker, algorithm_picker
+from .cleanup_section import Tool, ToolSection, existing_folders
+from .dialogs import inform
+from .widgets import SizeInput, button, dialog_buttons, dialog_layout, hbox
 
 # ---------------------------------------------------------------- tool definitions
 
@@ -46,7 +66,7 @@ def _keep_options(sec: ToolSection):
     return [("Keep", keep), ("Ignore files under", sec.extra_min)]
 
 
-def _size_setting(sec: "ToolSection", key: str, default: int,
+def _size_setting(sec: ToolSection, key: str, default: int,
                   old_unit: tuple[str, int] = ("min_kb", 1024)) -> SizeInput:
     """A size option, remembered in bytes (earlier versions kept a whole number of KB or MB)."""
     old = sec.qs.value(f"{key}/{old_unit[0]}", None)
@@ -63,7 +83,7 @@ def _scan_duplicates(sec: ToolSection, progress, cancel):
                                       progress=progress, cancel=cancel)
 
 
-def _similar_options(sec: "ToolSection"):
+def _similar_options(sec: ToolSection):
     how = QComboBox()
     for label, value in (("Nearly identical", "very"), ("Similar", "similar")):
         how.addItem(label, value)
@@ -76,7 +96,7 @@ def _similar_options(sec: "ToolSection"):
     return [("Match", how), ("Ignore photos under", sec.extra_min)]
 
 
-def _large_options(sec: "ToolSection"):
+def _large_options(sec: ToolSection):
     sec.extra_min = _size_setting(sec, "cleanup/large", 500 * 1024 ** 2, old_unit=("min_mb", 1024 ** 2))
     kind = QComboBox()
     for value, label in largefiles.KINDS.items():
@@ -88,17 +108,17 @@ def _large_options(sec: "ToolSection"):
     return [("Larger than", sec.extra_min), ("Type", kind)]
 
 
-def _scan_large(sec: "ToolSection", progress, cancel):
+def _scan_large(sec: ToolSection, progress, cancel):
     return largefiles.find_large_files(sec.folders, sec.extra_min.bytes() / 1024 ** 2, sec.extra_how.currentData(), progress,
                                        cancel)
 
 
-def _scan_similar(sec: "ToolSection", progress, cancel):
+def _scan_similar(sec: ToolSection, progress, cancel):
     return similar.find_similar(sec.folders, strictness=sec.extra_how.currentData(),
                                 min_size=sec.extra_min.bytes(), progress=progress, cancel=cancel)
 
 
-def _videos_options(sec: "ToolSection"):
+def _videos_options(sec: ToolSection):
     how = QComboBox()
     for label, value in (("Nearly identical", "very"), ("Similar", "similar")):
         how.addItem(label, value)
@@ -110,7 +130,7 @@ def _videos_options(sec: "ToolSection"):
     return [("Match", how)]
 
 
-def _music_options(sec: "ToolSection"):
+def _music_options(sec: ToolSection):
     how = QComboBox()
     for label, value in (("Same recording", "sound"), ("Same title and artist", "tags")):
         how.addItem(label, value)
@@ -122,13 +142,13 @@ def _music_options(sec: "ToolSection"):
     return [("Match", how)]
 
 
-def _scan_music(sec: "ToolSection", progress, cancel):
+def _scan_music(sec: ToolSection, progress, cancel):
     phone = cast(str, sec.qs.value("mirror/dest", "", str))      # (the phone copy is meant to repeat the library)
     return music.find_same_music(sec.folders, by=sec.extra_how.currentData(), exclude=[Path(phone)] if phone else [],
                                  progress=progress, cancel=cancel)
 
 
-def _broken_options(sec: "ToolSection"):
+def _broken_options(sec: ToolSection):
     from PySide6.QtWidgets import QCheckBox
 
     box = QCheckBox("Play videos and music all the way through")
@@ -140,7 +160,7 @@ def _broken_options(sec: "ToolSection"):
     return [("", box)]
 
 
-def _pairs_options(sec: "ToolSection"):
+def _pairs_options(sec: ToolSection):
     combo = QComboBox()
     combo.addItem("List the JPEGs (keep the RAW files)", "raw")
     combo.addItem("List the RAW files (keep the JPEGs)", "jpeg")
@@ -152,7 +172,8 @@ def _pairs_options(sec: "ToolSection"):
 
 
 def _similar_group_title(g: str, items: list[Candidate]) -> str:
-    return f"{len(items) + 1} similar photos: keeping {items[0].keeper.name}"
+    keeper = items[0].keeper
+    return f"{len(items) + 1} similar photos" + (f": keeping {keeper.name}" if keeper else "")
 
 
 def _days_option(key: str, default: int, label: str, tip: str):
@@ -169,12 +190,9 @@ def _days_option(key: str, default: int, label: str, tip: str):
 
 
 def _appcompress_options(sec: ToolSection):
-    from PySide6.QtWidgets import QCheckBox, QDialog, QWidget
-    from .dialogs import inform
-    from .widgets import hbox
-    import json
 
-    from .app_controls import FileTypePicker, algorithm_picker
+    from PySide6.QtWidgets import QCheckBox, QDialog, QWidget
+
 
     group, algorithm = algorithm_picker(sec.qs.value('appcompress/algorithm', appcompress.DEFAULT_ALGORITHM, str))
     algorithm.setAccessibleName('App and game compression algorithm')
@@ -269,7 +287,7 @@ def _appcompress_options(sec: ToolSection):
         layout.addWidget(own_group)
         layout.addWidget(fields)
         layout.addLayout(dialog_buttons(dialog, ('Save Settings', dialog.accept)))
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             stored = preferences()
             stored[os.path.normcase(os.path.abspath(candidate.path))] = {
                 'algorithm': combo.currentData(), 'skip_extensions': fields.values()}
@@ -282,10 +300,10 @@ def _appcompress_options(sec: ToolSection):
     def show_results():
         from .game_results import GameResultsDialog
 
-        if not hasattr(sec, '_game_results'):
-            sec._game_results = GameResultsDialog(sec)
-        sec._game_results.show()
-        sec._game_results.raise_()
+        if sec.game_results is None:
+            sec.game_results = GameResultsDialog(sec)
+        sec.game_results.show()
+        sec.game_results.raise_()
 
     community.clicked.connect(show_results)
     if sys.platform == "darwin":
@@ -385,9 +403,10 @@ def _kinds_button(sec: ToolSection):
         if names:
             menu.addSeparator()
             for name in names:
-                menu.addAction(f"Suggest {name} Folders Again",
-                               lambda n=name: _set_dev_off(sec, "names", [x for x in _dev_off(sec, "names")
-                                                                          if x != n]))
+                def suggest_again(n: str = name) -> None:
+                    _set_dev_off(sec, "names", [x for x in _dev_off(sec, "names") if x != n])
+
+                menu.addAction(f"Suggest {name} Folders Again", suggest_again)
         menu.addSeparator()
         a = menu.addAction("Changes apply to the next scan.")
         a.setEnabled(False)
@@ -417,8 +436,10 @@ def _dev_options(sec: ToolSection):
             a.setEnabled(False)
             return
         for pid in ids:
-            menu.addAction(f"Stop Protecting {_protected_name(pid)}",
-                           lambda p=pid: _set_protected(sec, [x for x in _protected(sec) if x != p]))
+            def unprotect(p: str = pid) -> None:
+                _set_protected(sec, [x for x in _protected(sec) if x != p])
+
+            menu.addAction(f"Stop Protecting {_protected_name(pid)}", unprotect)
 
     menu.aboutToShow.connect(fill)
     btn.setMenu(menu)
@@ -470,7 +491,8 @@ def _scan_dev(sec: ToolSection, progress, cancel):
 
 
 def _dup_group_title(g: str, items: list[Candidate]) -> str:
-    return f"{len(items) + 1} copies of {items[0].keeper.name}"
+    keeper = items[0].keeper
+    return f"{len(items) + 1} copies" + (f" of {keeper.name}" if keeper else "")
 
 
 def tools() -> list[Tool]:
@@ -479,7 +501,7 @@ def tools() -> list[Tool]:
              "Finds files with exactly the same contents, whatever their names. Keep one copy and move the others "
              f"to the {BIN_NAME}, or replace them with hard links so every copy keeps working but the space is only "
              "used once.",
-             lambda: _existing("Pictures", "Videos", "Documents", "Downloads", "Desktop", "Music"),
+             lambda: existing_folders("Pictures", "Videos", "Documents", "Downloads", "Desktop", "Music"),
              _scan_duplicates,
              [(actions.HARDLINK, "Replace with Hard Links", ""), (actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_keep_options, group_title=_dup_group_title),
@@ -487,14 +509,14 @@ def tools() -> list[Tool]:
              "Finds photos that look alike even when the files are different, like re-saved, resized or edited "
              "copies, and burst shots on Similar. The best photo in each group stays. Only obvious copies are "
              "selected for you, and you can hover a row to see the photo.",
-             lambda: _existing("Pictures", "Desktop", "Downloads"), _scan_similar,
+             lambda: existing_folders("Pictures", "Desktop", "Downloads"), _scan_similar,
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_similar_options, group_title=_similar_group_title),
         Tool("videos", "Similar Videos",
              "Finds the same video saved more than once, like a smaller copy, another format or a second download. "
              "The copy with the most pixels stays, and lower-resolution copies that look the same are selected for "
              "you.",
-             lambda: _existing("Videos", "Pictures", "Downloads", "Desktop"),
+             lambda: existing_folders("Videos", "Pictures", "Downloads", "Desktop"),
              lambda s, p, c: videos.find_similar_videos(s.folders, strictness=s.extra_how.currentData(),
                                                         progress=p, cancel=c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_videos_options,
@@ -503,7 +525,7 @@ def tools() -> list[Tool]:
              "Finds songs saved more than once, even as different files, like an MP3 and a FLAC of the same "
              "recording. The best-quality copy stays. Only copies in the same format as that one are selected for "
              "you.",
-             lambda: _existing("Music", "Downloads", "Desktop", "Documents"), _scan_music,
+             lambda: existing_folders("Music", "Downloads", "Desktop", "Documents"), _scan_music,
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_music_options,
              group_title=music.group_title),
         Tool("large", "Large Files",
@@ -525,32 +547,32 @@ def tools() -> list[Tool]:
              "Photos, videos, music, archives and PDFs that can't be opened, or were cut short by an interrupted "
              "download or copy. Files that won't open at all are selected for you. Damaged ones often still partly "
              "open, so those are up to you.",
-             lambda: _existing("Pictures", "Videos", "Music", "Documents", "Downloads", "Desktop"),
+             lambda: existing_folders("Pictures", "Videos", "Music", "Documents", "Downloads", "Desktop"),
              lambda s, p, c: broken.find_broken(s.folders, s.extra_thorough.isChecked(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_broken_options),
         Tool("archives", "Archives",
              "Finds .zip, .7z and .tar archives that have already been extracted next to themselves. An archive is "
              "only suggested when every file in it is present and identical in the extracted folder.",
-             lambda: _existing("Downloads", "Desktop", "Documents"), lambda s, p, c: archives.find_extracted_archives(
+             lambda: existing_folders("Downloads", "Desktop", "Documents"), lambda s, p, c: archives.find_extracted_archives(
                  s.folders, progress=p, cancel=c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("installers", "Installers",
              "Installers and disk images you downloaded a while ago. Installers for programs you seem to have "
              "installed are marked.",
-             lambda: _existing("Downloads"),
+             lambda: existing_folders("Downloads"),
              lambda s, p, c: installers.find_installers(s.folders, s.extra_days.value(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_days_option("installers", 30, "Older than", "Only list files older than this")),
         Tool("proxies", "Camera Proxies",
              "Low-resolution copies and thumbnails that GoPro, DJI and Insta360 cameras save next to every video "
              "for their phone apps. A file is only listed when its full video is right beside it.",
-             lambda: _existing("Videos", "Pictures", "Desktop", "Downloads"),
+             lambda: existing_folders("Videos", "Pictures", "Desktop", "Downloads"),
              lambda s, p, c: proxies.find_proxies(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("pairs", "RAW + JPEG",
              "Photos the camera saved twice, as RAW and as JPEG or HEIC. One of each pair is listed; which one is "
              "up to you, and nothing is selected for you.",
-             lambda: _existing("Pictures", "Desktop", "Downloads"),
+             lambda: existing_folders("Pictures", "Desktop", "Downloads"),
              lambda s, p, c: pairs.find_pairs(s.folders, s.extra_keep.currentData(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_pairs_options),
         Tool("backups", "Phone Backups",
@@ -558,7 +580,7 @@ def tools() -> list[Tool]:
              "first. Each can be tens of gigabytes; nothing is selected for you.",
              None, lambda s, p, c: backups.find_backups(p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
-             available=lambda: "" if os.name == "nt" or sys.platform == "darwin" else
+             available=lambda: "" if sys.platform == "win32" or sys.platform == "darwin" else
              "Available on Windows and macOS."),
         Tool("apps", "Apps",
              "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
@@ -576,7 +598,7 @@ def tools() -> list[Tool]:
              available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
         Tool("empty", "Empty Items",
              "Empty folders and empty files. Files that matter even when empty, like .gitkeep, are left alone.",
-             lambda: _existing("Documents", "Downloads", "Desktop", "Pictures"),
+             lambda: existing_folders("Documents", "Downloads", "Desktop", "Pictures"),
              lambda s, p, c: empties.find_empty(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("caches", "Caches",
@@ -614,8 +636,8 @@ def tools() -> list[Tool]:
              appcompress.default_sources,
              lambda s, p, c: appcompress.find_compressible(
                  appcompress.expand_sources(s.folders) + (appcompress.old_folders(
-                     _existing("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
-                 p, c, **s._app_scan_options),
+                     existing_folders("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
+                 p, c, **s.app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
              available=lambda: "" if appcompress.supported() else
@@ -624,7 +646,7 @@ def tools() -> list[Tool]:
              "Turns a Google Photos Takeout into one folder of photos and videos, each with the date it was taken. "
              "Google stores those dates in separate files, so without this every photo shows the export date. If "
              "it's stopped, running it again picks up where it left off.",
-             lambda: _existing("Downloads"), lambda s, p, c: takeout.find(s.folders, p, c),
+             lambda: existing_folders("Downloads"), lambda s, p, c: takeout.find(s.folders, p, c),
              [(actions.TAKEOUT, "Merge Into Folder…", "primary")], folder_label="Takeout files in",
              options=_takeout_options),
     ]

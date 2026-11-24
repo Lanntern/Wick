@@ -16,9 +16,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import index, tools
-from ..formats import VIDEO_EXTS
+from ..formats import VIDEO_EXTS, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
-from .similar import _Ticker
+from .similar import Ticker
 
 POINTS = tuple(i / 10 for i in range(1, 10))
 STRICTNESS = {"very": (5, 3.0), "similar": (10, 6.0)}   # (most bits a frame may differ, average)
@@ -122,7 +122,7 @@ def find_similar_videos(roots: list[Path], *, strictness: str = "very", min_size
                 prints[i] = cached["fp"]
         else:
             todo.append(i)
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
     done: list[int] = []
 
     def work(i: int) -> None:
@@ -181,7 +181,7 @@ def find_similar_videos(roots: list[Path], *, strictness: str = "very", min_size
                 extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
                        "keeper_label": kq}))
     if sets:
-        result.notes.append(f"{len(sets)} video{'s' if len(sets) != 1 else ''} saved more than once. The copy "
+        result.notes.append(f"{plural(len(sets), 'video')} saved more than once. The copy "
                             "with the most pixels stays; right-click to keep a different one.")
     elif not files:
         result.notes.append("No videos here.")

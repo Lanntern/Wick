@@ -3,44 +3,62 @@ run them in the background). The tools themselves are defined in cleanup_tools.p
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-import os
+import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QPushButton,
+    QSpinBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
 from .. import APP_NAME, cfa
 from ..cleanup import actions, appcompress, duplicates
 from ..cleanup.common import Candidate, ScanResult, known_folder
-from ..formats import count, classify, human
-from ..log import log
+from ..formats import classify, human, plural
+from ..log import log, log_file
 from .dialogs import ask, choose, inform
 from .filelist import (
+    ListPlaceholder,
+    SortItem,
+    add_header_checkbox,
     click_to_check,
-    ListPlaceholder, SortItem, add_header_checkbox, file_menu, filling, keyboard_list, make_sortable,
-    selected_or_clicked, set_sort_keys,
+    file_menu,
+    filling,
+    keyboard_list,
+    make_sortable,
+    selected_or_clicked,
+    set_sort_keys,
 )
 from .settings_panel import BIN_NAME
 from .style import Size, Space, Type, tokens, ui_font
 from .thumbs import HoverPreviewer
-from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, hbox, text
-
+from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, dialog_buttons, dialog_layout, hbox, text
 
 if TYPE_CHECKING:
+    from .app_controls import FileTypePicker
     from .cleanup_tab import CleanupTab
+    from .game_results import GameResultsDialog
+    from .widgets import SizeInput
 
 C_NAME, C_WHERE, C_SIZE, C_DETAIL = range(4)
 OPEN_ROWS = 30_000     # groups open by themselves up to this many rows (opening 1,000 groups takes ~0.3 s)
-ROLE_ITEM = Qt.UserRole + 20
+ROLE_ITEM = Qt.ItemDataRole.UserRole + 20
 
 
 @dataclass
@@ -49,24 +67,24 @@ class Tool:
     tab: str
     description: str
     default_folders: Callable[[], list[Path]] | None      # None: this tool doesn't take folders
-    scan: Callable[["ToolSection", Callable, threading.Event], ScanResult]
+    scan: Callable[[ToolSection, Callable, threading.Event], ScanResult]
     actions: list[tuple[str, str, str]]                    # (action id, button label, kind)
     folder_label: str = "Look in"
-    options: Callable[["ToolSection"], list[tuple[str, QWidget]]] = lambda s: []
+    options: Callable[[ToolSection], list[tuple[str, QWidget]]] = lambda s: []
     note: str = ""
     available: Callable[[], str] = lambda: ""              # returns a reason when unavailable
     group_title: Callable[[str, list[Candidate]], str] = lambda g, items: g
-    menu: Callable[["ToolSection", list[Candidate]], list] = lambda s, items: []   # extra right-click entries
+    menu: Callable[[ToolSection, list[Candidate]], list] = lambda s, items: []   # extra right-click entries
     extra: dict = field(default_factory=dict)
 
 
-def _existing(*names: str) -> list[Path]:
+def existing_folders(*names: str) -> list[Path]:
     return [p for p in (known_folder(n) for n in names) if p is not None]
 
 
 # ---------------------------------------------------------------- workers
 
-class _Scan(QThread):
+class ScanWorker(QThread):
     progress = Signal(str, int, int)
     partial = Signal(str, object)
     done = Signal(object)
@@ -82,7 +100,6 @@ class _Scan(QThread):
         self._lock = threading.RLock()
 
     def collect(self, key, items) -> None:
-        import time
 
         with self._lock:
             for item in items:
@@ -94,7 +111,6 @@ class _Scan(QThread):
                 self.flush()
 
     def flush(self) -> None:
-        import time
 
         with self._lock:
             for key, items in self._pending.items():
@@ -168,7 +184,26 @@ class _Purge(QThread):
 
 
 class ToolSection(QWidget):
-    def __init__(self, tool: Tool, page: "CleanupTab"):
+    # Each tool's own options, attached by the function that builds them (cleanup_tools.py); only the tool
+    # that built one reads it.
+    extra_keep: QComboBox
+    extra_min: SizeInput
+    extra_how: QComboBox
+    extra_thorough: QCheckBox
+    extra_days: QSpinBox
+    app_algorithm: QComboBox
+    app_skip: FileTypePicker
+    app_old: QCheckBox
+    app_options: Callable[[Path], dict]
+    app_snapshot: Callable[..., dict]
+    app_scan_options: dict
+    takeout_albums: QComboBox
+    takeout_edited: QComboBox
+    kinds_btn: QPushButton
+    protected_btn: QPushButton
+    game_results: GameResultsDialog | None = None
+
+    def __init__(self, tool: Tool, page: CleanupTab):
         super().__init__()
         self.tool, self.page = tool, page
         self.qs: QSettings = page.win.qsettings
@@ -191,14 +226,14 @@ class ToolSection(QWidget):
                 if legacy:
                     saved = [str(p) for p in appcompress.migrate_sources([Path(p) for p in legacy])]
             self.folders = [Path(p) for p in saved] if saved is not None else tool.default_folders()
-            self.folder_label = ElidedLabel("", Type.FOOTNOTE, secondary=True, mode=Qt.ElideRight)   # one line
+            self.folder_label = ElidedLabel("", Type.FOOTNOTE, secondary=True, mode=Qt.TextElideMode.ElideRight)   # one line
             add = button("Manage Folders…", "", "folder", "View, add or remove scan sources")
             add.clicked.connect(self._manage_folders)
             reset = button("Reset", "", None, "Go back to the suggested folders")
             reset.clicked.connect(self._reset_folders)
             drives = button("Add Drives…", "", None, "Choose multiple connected drives to scan")
             drives.clicked.connect(self._add_drives)
-            if os.name != "nt" or tool.key == "appcompress":
+            if sys.platform != "win32" or tool.key == "appcompress":
                 drives.hide()
             folder_row = hbox(text(tool.folder_label, Type.BODY, bold=True), self.folder_label, add, drives, reset,
                                      spacing=Space.M)
@@ -224,7 +259,7 @@ class ToolSection(QWidget):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addLayout(options, 1)
-        row.addWidget(self.scan_btn, 0, Qt.AlignBottom)
+        row.addWidget(self.scan_btn, 0, Qt.AlignmentFlag.AlignBottom)
         setup.lay.addLayout(row)
         if tool.note:
             setup.lay.addWidget(text(tool.note, Type.FOOTNOTE, secondary=True, wrap=True))
@@ -258,21 +293,21 @@ class ToolSection(QWidget):
         summary_row = QHBoxLayout()
         summary_row.setContentsMargins(0, 0, Space.L, 0)
         summary_row.addWidget(self.summary, 1)
-        summary_row.addWidget(self.hide_unsuggested, 0, Qt.AlignVCenter)
+        summary_row.addWidget(self.hide_unsuggested, 0, Qt.AlignmentFlag.AlignVCenter)
         results.lay.addLayout(summary_row)
         self.tree = QTreeWidget()
         self.tree.setAccessibleName(f"{tool.tab} results")
         self.tree.setHeaderLabels(["Name", "Location", "Current size", "Before compression", "Est. saving",
                                    "Estimate", "Algorithm", "Status", "Notes"] if tool.key == "appcompress" else
                                   ["Name", "Location", "Size", "Details"])
-        self.tree.setFrameShape(QFrame.NoFrame)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
-        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
         h = self.tree.header()
         h.setStretchLastSection(True)
-        h.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.tree.setColumnWidth(C_NAME, 280)
         self.tree.setColumnWidth(C_WHERE, 240)
         self.tree.setColumnWidth(C_SIZE, 120 if tool.key == "appcompress" else 96)
@@ -284,13 +319,13 @@ class ToolSection(QWidget):
         self.tree.itemDoubleClicked.connect(self._open_item)
         self.tree.itemExpanded.connect(self._expand)
         make_sortable(self.tree)
-        self.tree.sortByColumn(-1, Qt.AscendingOrder)
+        self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         self.tree.header().remember(f"cleanup-{tool.key}")
         add_header_checkbox(self.tree, C_NAME, self._update_summary)
         self.tree.header().set_expander(C_NAME, self._all_open, lambda: self.open_all(not self._all_open()))
         self.tree.itemExpanded.connect(lambda *_: self.tree.header().viewport().update())
         self.tree.itemCollapsed.connect(lambda *_: self.tree.header().viewport().update())
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         keyboard_list(self.tree, self._menu)
         click_to_check(self.tree, C_NAME)
@@ -311,7 +346,7 @@ class ToolSection(QWidget):
         bar.addWidget(self.select_all)
         bar.addWidget(self.select_none)
         bar.addStretch(1)
-        self.action_buttons: dict[str, object] = {}
+        self.action_buttons: dict[str, QPushButton] = {}
         self._actions = QWidget()          # beside the selection buttons, or on a line of their own
         al = QHBoxLayout(self._actions)
         al.setContentsMargins(0, 0, 0, 0)
@@ -382,23 +417,17 @@ class ToolSection(QWidget):
         self.qs.setValue(self.folder_key, [str(p) for p in self.folders])
 
     def _manage_folders(self) -> None:
-        from .folders import FolderManager
         from PySide6.QtWidgets import QDialog
+
+        from .folders import FolderManager
 
         is_apps = self.tool.key == "appcompress"
         dialog = FolderManager(self, self.folders, self.tool.default_folders, self.qs,
                                label=appcompress.source_label if is_apps else str,
                                note=("Steam, Epic and GOG library sources expand to individual games during a scan. "
                                      "Other selected folders are treated as individual apps/games." if is_apps else ""))
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self.folders = dialog.paths()
-            self.save_folders()
-            self._show_folders()
-
-    def _add_folder(self) -> None:
-        d = QFileDialog.getExistingDirectory(self, "Add a folder", str(self.folders[0] if self.folders else Path.home()))
-        if d and Path(d) not in self.folders:
-            self.folders.append(Path(os.path.normpath(d)))
             self.save_folders()
             self._show_folders()
 
@@ -410,10 +439,9 @@ class ToolSection(QWidget):
         self._show_folders()
 
     def _add_drives(self) -> None:
-        from ..cleanup.common import available_drives
         from PySide6.QtWidgets import QDialog
 
-        from .widgets import dialog_buttons, dialog_layout
+        from ..cleanup.common import available_drives
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Drives to Scan")
@@ -425,7 +453,7 @@ class ToolSection(QWidget):
             layout.addWidget(box)
             choices.append((drive, box))
         layout.addLayout(dialog_buttons(dialog, ("Add Drives", dialog.accept)))
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self.folders += [p for p, box in choices if box.isChecked() and p not in self.folders]
             self.save_folders()
             self._show_folders()
@@ -438,14 +466,14 @@ class ToolSection(QWidget):
         if self.busy():
             return
         if self.tool.key == "appcompress":
-            self._app_scan_options = self.app_snapshot()
+            self.app_scan_options = self.app_snapshot()
         if self.tool.default_folders is not None and not self.folders and self.tool.key != "caches":
             inform(self, "Add a folder to look in first.")
             return
         self.tree.clear()
         self.result = None
         self._scan_complete = False
-        self.worker = _Scan(lambda progress, cancel: self.tool.scan(self, progress, cancel), self)
+        self.worker = ScanWorker(lambda progress, cancel: self.tool.scan(self, progress, cancel), self)
         self.worker.progress.connect(self._progress)
         self.worker.partial.connect(self._partial)
         self.worker.done.connect(self._scanned)
@@ -486,7 +514,7 @@ class ToolSection(QWidget):
         with filling(self.tree):
             for candidate in items:
                 row = self._row(candidate)
-                row.setFlags(row.flags() & ~Qt.ItemIsUserCheckable)
+                row.setFlags(row.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
                 self.tree.addTopLevelItem(row)
             self._apply_hidden()
         self.placeholder.clear()
@@ -514,9 +542,9 @@ class ToolSection(QWidget):
                 any_warned |= warned
                 gone = hide and warned
                 it.setHidden(gone)
-                if gone and it.flags() & Qt.ItemIsUserCheckable:
-                    it.setCheckState(C_NAME, Qt.Unchecked)
-                shown += not gone and bool(it.flags() & Qt.ItemIsUserCheckable)
+                if gone and it.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    it.setCheckState(C_NAME, Qt.CheckState.Unchecked)
+                shown += not gone and bool(it.flags() & Qt.ItemFlag.ItemIsUserCheckable)
             if top.childCount():
                 top.setHidden(hide and shown == 0)
         self.tree.blockSignals(False)
@@ -540,7 +568,7 @@ class ToolSection(QWidget):
         groups: dict[str, list[Candidate]] = {}
         for c in result.items:
             groups.setdefault(c.group or "", []).append(c)
-        bold = ui_font(Type.BODY, QFont.DemiBold)
+        bold = ui_font(Type.BODY, QFont.Weight.DemiBold)
         parents: list[QTreeWidgetItem] = []
         for g, items in groups.items():
             parent = self.tree.invisibleRootItem()
@@ -561,8 +589,8 @@ class ToolSection(QWidget):
                 # The group's box ticks its removable rows (see _sync_groups). Duplicates: the copy that stays
                 # has no box and is never ticked along. (Qt's own tri-state shows no box at all when one row
                 # inside has none, so it's kept here.)
-                parent.setFlags((parent.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsAutoTristate)
-                parent.setCheckState(C_NAME, Qt.Unchecked)
+                parent.setFlags((parent.flags() | Qt.ItemFlag.ItemIsUserCheckable) & ~Qt.ItemFlag.ItemIsAutoTristate)
+                parent.setCheckState(C_NAME, Qt.CheckState.Unchecked)
                 if items[0].keeper is not None:   # duplicates: show the copy that stays
                     try:
                         keep_size = items[0].keeper.stat().st_size   # similar photos differ in size
@@ -570,7 +598,7 @@ class ToolSection(QWidget):
                         keep_size = items[0].size
                     keep = SortItem(parent, [f"Keep: {items[0].keeper.name}", self._where(items[0].keeper.parent),
                                              human(keep_size), "This copy stays"])
-                    keep.setFlags(Qt.ItemIsEnabled)
+                    keep.setFlags(Qt.ItemFlag.ItemIsEnabled)
                     keep.setToolTip(C_WHERE, str(items[0].keeper))
                     keep.setForeground(C_DETAIL, QColor(t.success))
                     keep.setData(C_NAME, ROLE_ITEM, Candidate(items[0].keeper, items[0].size, selected=False))
@@ -618,24 +646,24 @@ class ToolSection(QWidget):
             last = c.extra.get("last_algorithm", "")
             it.setToolTip(6, "Selected for the next compression" + (f"; last used: {last.upper()}" if last else ""))
             for column in (3, 4):
-                it.setTextAlignment(column, Qt.AlignRight | Qt.AlignVCenter)
+                it.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             detail_column = 8
         else:
             it = SortItem([c.title, where, human(c.size) if c.size else "–", detail])
             set_sort_keys(it, {C_SIZE: c.size})
         if c.extra.get("locked"):
-            it.setFlags(it.flags() & ~Qt.ItemIsUserCheckable)
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
         else:
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(C_NAME, Qt.Checked if c.extra.get("checked", c.selected) else Qt.Unchecked)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(C_NAME, Qt.CheckState.Checked if c.extra.get("checked", c.selected) else Qt.CheckState.Unchecked)
         it.setData(C_NAME, ROLE_ITEM, c)
         it.setToolTip(C_WHERE, str(c.path))
         it.setToolTip(detail_column, detail + (" Right-click to keep this copy instead." if c.keeper else ""))
-        it.setTextAlignment(C_SIZE, Qt.AlignRight | Qt.AlignVCenter)
+        it.setTextAlignment(C_SIZE, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if c.warning:
             it.setForeground(detail_column, QColor(tokens().warning))
         if c.extra.get("children"):
-            it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)    # (its rows are made when it opens)
+            it.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)    # (its rows are made when it opens)
         return it
 
     def _groups(self) -> list[QTreeWidgetItem]:
@@ -668,7 +696,7 @@ class ToolSection(QWidget):
             for k in c.extra["children"]():
                 it.addChild(self._row(k))
         if not it.childCount():
-            it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+            it.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
 
     def _menu(self, pos) -> None:
         clicked = selected_or_clicked(self.tree, pos)
@@ -676,12 +704,12 @@ class ToolSection(QWidget):
         for it in clicked:            # a group row stands for its removable rows
             kids = [it.child(i) for i in range(it.childCount())]
             rows = [it] if isinstance(it.data(C_NAME, ROLE_ITEM), Candidate) else \
-                [k for k in kids if k is not None and k.flags() & Qt.ItemIsUserCheckable]
+                [k for k in kids if k is not None and k.flags() & Qt.ItemFlag.ItemIsUserCheckable]
             items += [r for r in rows if r not in items and isinstance(r.data(C_NAME, ROLE_ITEM), Candidate)]
         if not items:
             return
         paths = [it.data(C_NAME, ROLE_ITEM).path for it in items if not it.data(C_NAME, ROLE_ITEM).extra.get("docker")]
-        checkable = [it for it in items if it.flags() & Qt.ItemIsUserCheckable]
+        checkable = [it for it in items if it.flags() & Qt.ItemFlag.ItemIsUserCheckable]
         extra: list = []
         if checkable and not self.busy():
             def check(state):
@@ -689,7 +717,7 @@ class ToolSection(QWidget):
                     it.setCheckState(C_NAME, state)
                 self._update_summary()
             n = "" if len(checkable) == 1 else f" {len(checkable)}"
-            extra = [(f"Select{n}", lambda: check(Qt.Checked)), (f"Deselect{n}", lambda: check(Qt.Unchecked))]  # noqa: E501
+            extra = [(f"Select{n}", lambda: check(Qt.CheckState.Checked)), (f"Deselect{n}", lambda: check(Qt.CheckState.Unchecked))]  # noqa: E501
         tool_entries = self.tool.menu(self, [it.data(C_NAME, ROLE_ITEM) for it in items]) if not self.busy() else []
         if tool_entries:
             extra += [None, *tool_entries]
@@ -744,8 +772,8 @@ class ToolSection(QWidget):
             if it is None:
                 continue
             c = it.data(C_NAME, ROLE_ITEM)
-            checked = bool(it.flags() & Qt.ItemIsUserCheckable) and it.checkState(C_NAME) == Qt.Checked
-            if isinstance(c, Candidate) and it.flags() & Qt.ItemIsUserCheckable and not it.isHidden():
+            checked = bool(it.flags() & Qt.ItemFlag.ItemIsUserCheckable) and it.checkState(C_NAME) == Qt.CheckState.Checked
+            if isinstance(c, Candidate) and it.flags() & Qt.ItemFlag.ItemIsUserCheckable and not it.isHidden():
                 if not only_checked or checked:
                     out.append((it, c))
             if checked and isinstance(c, Candidate) and c.is_dir:
@@ -757,19 +785,19 @@ class ToolSection(QWidget):
         self.tree.blockSignals(True)
         for it, c in self._items():
             on = c.selected if value is None else value
-            it.setCheckState(C_NAME, Qt.Checked if on else Qt.Unchecked)
+            it.setCheckState(C_NAME, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
         self.tree.blockSignals(False)
         self._update_summary()
 
     def _item_changed(self, it: QTreeWidgetItem | None = None, column: int = C_NAME):
-        if it is not None and column == C_NAME and it.childCount() and it.flags() & Qt.ItemIsUserCheckable \
+        if it is not None and column == C_NAME and it.childCount() and it.flags() & Qt.ItemFlag.ItemIsUserCheckable \
                 and not isinstance(it.data(C_NAME, ROLE_ITEM), Candidate):
             state = it.checkState(C_NAME)       # a group's box: its removable rows follow
-            if state != Qt.PartiallyChecked:
+            if state != Qt.CheckState.PartiallyChecked:
                 self.tree.blockSignals(True)
                 for i in range(it.childCount()):
                     child = it.child(i)
-                    if child.flags() & Qt.ItemIsUserCheckable and not child.isHidden():
+                    if child.flags() & Qt.ItemFlag.ItemIsUserCheckable and not child.isHidden():
                         child.setCheckState(C_NAME, state)
                 self.tree.blockSignals(False)
         self._update_summary()
@@ -780,12 +808,12 @@ class ToolSection(QWidget):
         for i in range(self.tree.topLevelItemCount()):
             g = self.tree.topLevelItem(i)
             if g is None or not g.childCount() or isinstance(g.data(C_NAME, ROLE_ITEM), Candidate) \
-                    or not g.flags() & Qt.ItemIsUserCheckable:
+                    or not g.flags() & Qt.ItemFlag.ItemIsUserCheckable:
                 continue
             states = [g.child(k).checkState(C_NAME) for k in range(g.childCount())
-                      if g.child(k).flags() & Qt.ItemIsUserCheckable and not g.child(k).isHidden()]
-            want = (Qt.Unchecked if not states or all(x == Qt.Unchecked for x in states) else
-                    Qt.Checked if all(x == Qt.Checked for x in states) else Qt.PartiallyChecked)
+                      if g.child(k).flags() & Qt.ItemFlag.ItemIsUserCheckable and not g.child(k).isHidden()]
+            want = (Qt.CheckState.Unchecked if not states or all(x == Qt.CheckState.Unchecked for x in states) else
+                    Qt.CheckState.Checked if all(x == Qt.CheckState.Checked for x in states) else Qt.CheckState.PartiallyChecked)
             if g.checkState(C_NAME) != want:
                 g.setCheckState(C_NAME, want)
         self.tree.blockSignals(False)
@@ -812,11 +840,11 @@ class ToolSection(QWidget):
             msg = "Nothing found. " + " ".join(self.result.notes)
         else:
             hidden = sum(1 for c in self.result.items if c.warning) if self.hide_unsuggested.isChecked() else 0
-            msg = (f"Found {len(all_items):,} item{'s' if len(all_items) != 1 else ''} ({human(total)}). "
+            msg = (f"Found {plural(len(all_items), 'item')} ({human(total)}). "
                    f"<b>{len(chosen):,} selected · {human(size)}</b>"
                    + (f" · {hidden:,} not suggested, hidden" if hidden else "")
                    + (f" · {' · '.join(self.result.notes)}" if self.result.notes else ""))
-        self.summary.setTextFormat(Qt.RichText)
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
         self.summary.setText(msg)
         self.summary.show()
         self._update_buttons()
@@ -886,23 +914,23 @@ class ToolSection(QWidget):
             self.worker.start()
             return
         if action_id == actions.RENAME:
-            q = (f"Rename {n} file{'s' if n != 1 else ''} to match what {'they are' if n != 1 else 'it is'}?",
+            q = (f"Rename {plural(n, 'file')} to match what {'they are' if n != 1 else 'it is'}?",
                  "Only the extension changes, for example from photo.jpg to photo.png. You can undo this later.", "Rename")
         elif action_id == actions.HARDLINK:
             other_drive = [c for c in items if not c.extra.get("same_volume", True)]
             if other_drive:
                 n_other = len(other_drive)
-                inform(self, f"{count(n_other, 'duplicate')} {'is' if n_other == 1 else 'are'} on a different drive "
+                inform(self, f"{plural(n_other, 'duplicate')} {'is' if n_other == 1 else 'are'} on a different drive "
                        "than the copy that stays",
                        "Hard links only work within one drive. Those will be skipped.")
-            q = (f"Replace {n} duplicate{'s' if n != 1 else ''} with hard links?",
+            q = (f"Replace {plural(n, 'duplicate')} with hard links?",
                  "Every file stays where it is, but identical contents are only stored once. Editing one linked "
                  "file changes all of them. You can undo this later.", "Replace")
         elif action_id == actions.COMPACT:
             for candidate in items:
                 candidate.extra.update(self.app_options(candidate.path))
             admin = any(c.extra.get("admin") for c in items)
-            q = (f"Compress {n} folder{'s' if n != 1 else ''}?",
+            q = (f"Compress {plural(n, 'folder')}?",
                  "Programs and games keep working; Windows decompresses files on the fly. This can take a while "
                  "for large games. " + ("Windows will ask for administrator permission. " if admin else "")
                  + "You can undo this later.", "Compress")
@@ -913,12 +941,12 @@ class ToolSection(QWidget):
                  f"is gone, the folders it left behind go to the {BIN_NAME}, so you can restore them. The app "
                  "itself can only be installed again from its download.", "Uninstall")
         elif action_id == actions.DECOMPACT:
-            q = (f"Decompress {n} folder{'s' if n != 1 else ''}?",
+            q = (f"Decompress {plural(n, 'folder')}?",
                  "Files keep the same contents but may take more disk space. Close running games first. "
                  "To compress again afterward, choose an algorithm in Compress Apps.", "Decompress")
         elif any(c.extra.get("vdisk") for c in items) and not any(c.extra.get("vdisk") in ("wsl", "docker")
                                                                    for c in items):
-            q = (f"Compact {n} virtual machine disk{'s' if n != 1 else ''}?",
+            q = (f"Compact {plural(n, 'virtual machine disk')}?",
                  "Shut the virtual machines down first: a disk in use can't be compacted. Nothing inside the disks "
                  "changes. VirtualBox and VMware only give back space the machine has zeroed. Hyper-V disks ask for "
                  "administrator permission once, and large disks can take a while.", "Compact")
@@ -946,24 +974,24 @@ class ToolSection(QWidget):
         elif any(c.extra.get("system") for c in items):
             sysi = [c for c in items if c.extra.get("system")]
             files = n - len(sysi)
-            q = (f"Clean up {n} item{'s' if n != 1 else ''}?",
+            q = (f"Clean up {plural(n, 'item')}?",
                  f"Windows removes {len(sysi)} of them with its own cleanup (Disk Cleanup, DISM). They don't go to "
                  f"the {BIN_NAME} and can't be put back. Windows asks for administrator permission once, and this "
                  "can take several minutes."
-                 + (f" {files} other item{'s' if files != 1 else ''} go{'es' if files == 1 else ''} to the "
+                 + (f" {plural(files, 'other item')} go{'es' if files == 1 else ''} to the "
                     f"{BIN_NAME}." if files else ""), "Clean Up")
         elif any(c.extra.get("docker") for c in items):
             dk = [c for c in items if c.extra.get("docker")]
             files = n - len(dk)
-            q = (f"Clean up {n} item{'s' if n != 1 else ''} ({human(size)})?",
-                 (f"{files} folder{'s' if files != 1 else ''} go{'es' if files == 1 else ''} to the {BIN_NAME} "
+            q = (f"Clean up {plural(n, 'item')} ({human(size)})?",
+                 (f"{plural(files, 'folder')} go{'es' if files == 1 else ''} to the {BIN_NAME} "
                   "and can be put back. " if files else "")
-                 + f"{len(dk)} Docker item{'s' if len(dk) != 1 else ''} "
+                 + f"{plural(len(dk), 'Docker item')} "
                  f"({human(sum(c.size for c in dk))}) {'is' if len(dk) == 1 else 'are'} removed by Docker and can't "
                  f"be put back: Docker pulls or builds {'it' if len(dk) == 1 else 'them'} again when a project needs "
                  f"{'it' if len(dk) == 1 else 'them'}.", "Clean Up", )
         else:
-            q = (f"Move {n} item{'s' if n != 1 else ''} ({human(size)}) to the {BIN_NAME}?",
+            q = (f"Move {plural(n, 'item')} ({human(size)}) to the {BIN_NAME}?",
                  f"Empty the {BIN_NAME} to delete them for good.",
                  "Move to " + BIN_NAME)
         if q is not None and not ask(self, *q):
@@ -986,7 +1014,7 @@ class ToolSection(QWidget):
     def _remember_checks(self) -> None:
         """Keep the user's ticks when the list is rebuilt (after an action, or a change of kept copy)."""
         for it, c in self._items():
-            c.extra["checked"] = it.checkState(C_NAME) == Qt.Checked
+            c.extra["checked"] = it.checkState(C_NAME) == Qt.CheckState.Checked
 
     def _applied(self, outcomes, run_id) -> None:
         ok = [o for o in outcomes if o.ok]
@@ -1035,11 +1063,11 @@ class ToolSection(QWidget):
         blocked = [o for o in failed if o.blocked]
         others = [o for o in failed if not o.blocked]
         if blocked:
-            n_b = f"{len(blocked)} item{'s' if len(blocked) != 1 else ''}"
+            n_b = f"{plural(len(blocked), 'item')}"
             info.append(f"{n_b} {'are' if len(blocked) != 1 else 'is'} in folders that Windows protects. "
                         + cfa.HOW)
         if others:
-            info.append(f"{count(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
+            info.append(f"{plural(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
                 f"• {o.item.title}: {o.message}" for o in others[:12]))
         if not ok:                           # nothing at all was done: say so, not "Freed 0 B from 0 items"
             title = (f"Nothing was changed: Windows' Controlled folder access blocked {APP_NAME}"
@@ -1053,17 +1081,17 @@ class ToolSection(QWidget):
         trashed = [o for o in ok if o.trashed_at]
         now = [o for o in ok if not o.trashed_at]
         if ok and not freed and not trashed:          # (renamed: nothing freed, nothing in the bin)
-            inform(self, f"Done: {len(ok)} file{'s' if len(ok) != 1 else ''} renamed.", "\n\n".join(info))
+            inform(self, f"Done: {plural(len(ok), 'file')} renamed.", "\n\n".join(info))
             return
         if not trashed:
-            n = f"{len(ok)} item{'s' if len(ok) != 1 else ''}"
+            n = f"{plural(len(ok), 'item')}"
             inform(self, f"Freed {human(freed)} from {n}.", "\n\n".join(info))
             return
         if now:
             info.insert(0, f"{human(sum(o.freed for o in now))} was freed right away "
-                           f"({len(now)} Docker item{'s' if len(now) != 1 else ''}).")
+                           f"({plural(len(now), 'Docker item')}).")
         freed = sum(o.freed for o in trashed)
-        n = f"{len(trashed)} item{'s' if len(trashed) != 1 else ''}"
+        n = f"{plural(len(trashed), 'item')}"
         # Moving to the bin frees nothing yet: say so, and offer to free exactly this space now.
         info.insert(0, f"The space comes back when they leave the {BIN_NAME}. Until then you can put them back "
                        "from the history. Freeing it now deletes only these items; everything else in the "
@@ -1096,7 +1124,7 @@ class ToolSection(QWidget):
 
     def _purge(self, outcomes) -> None:
         size = sum(o.freed for o in outcomes)
-        if not ask(self, f"Delete these {len(outcomes)} item{'s' if len(outcomes) != 1 else ''} permanently?",
+        if not ask(self, f"Delete these {plural(len(outcomes), 'item')} permanently?",
                    f"This frees {human(size)} now. They can't be put back afterwards; the rest of "
                    f"the {BIN_NAME} is left alone.", "Delete Permanently", destructive=True):
             return
@@ -1115,12 +1143,11 @@ class ToolSection(QWidget):
         inform(self, title, ("Not freed:\n" + "\n".join(f"• {p}" for p in problems[:12])) if problems else "")
 
     def stop(self) -> None:
-        if self.busy():
+        if self.worker is not None and self.busy():
             self.worker.cancel.set()
             self.status.setText("Stopping…")
 
     def _stopped(self, message: str) -> None:
-        from ..log import log_file
 
         inform(self, "The clean-up stopped", f"{message}\n\nDetails are in the log ({log_file()}).")
 

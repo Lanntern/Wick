@@ -1,14 +1,32 @@
 """Explicit scan scopes, edited as full paths before committing changes."""
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QListWidget, QListWidgetItem,
+    QAbstractItemView,
+    QDialog,
+    QFileDialog,
+    QListWidget,
+    QListWidgetItem,
 )
 
 from .style import Size
 from .widgets import button, dialog_buttons, dialog_layout, hbox
+
+
+def last_browse_dir(qs) -> str:
+    """Where Add Folder / Add Files last were, on any page (else the home folder)."""
+
+    last = str(qs.value("browse/last_dir", "", str)) if qs is not None else ""
+    return last if last and os.path.isdir(last) else str(Path.home())
+
+
+def remember_browse_dir(qs, picked: str) -> None:
+
+    if qs is not None:
+        qs.setValue("browse/last_dir", picked if os.path.isdir(picked) else os.path.dirname(picked))
 
 
 def summary(paths, label=str):
@@ -28,7 +46,7 @@ class FolderManager(QDialog):
                                                                 "effect when you save them.")
         self.list = QListWidget()
         self.list.setAccessibleName("Folders included in scans")
-        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.list)
         add = button("Add Folder…", "", "folder")
         add.clicked.connect(self.add)
@@ -44,13 +62,13 @@ class FolderManager(QDialog):
         self.fill(paths)
 
     def paths(self):
-        return [Path(self.list.item(i).data(Qt.UserRole)) for i in range(self.list.count())]
+        return [Path(self.list.item(i).data(Qt.ItemDataRole.UserRole)) for i in range(self.list.count())]
 
     def fill(self, paths):
         self.list.clear()
         for path in dict.fromkeys(paths):
             item = QListWidgetItem(self.label(path))
-            item.setData(Qt.UserRole, str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip(str(path))
             self.list.addItem(item)
 

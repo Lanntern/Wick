@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -281,7 +282,6 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
     """
     if info.fps < 29 or info.duration < 3 or info.vfr or info.interlaced or is_camera_original(info):
         return 0
-    import re
     import statistics
 
     start = max(0.0, info.duration * 0.4 - seconds / 2)
@@ -408,16 +408,3 @@ def probe_audio(path: Path, allow_video: bool = False) -> AudioInfo | None:
         pictures=pictures,
     )
 
-
-def image_dimensions(path: Path) -> tuple[int, int] | None:
-    """Width/height of an image ffmpeg can decode (PNG, JPEG, WebP)."""
-    try:
-        data = probe_raw(path)
-    except Exception:
-        from wick.log import ignored
-        ignored("probe.image_dimensions")
-        return None
-    for s in data.get("streams", []):
-        if s.get("codec_type") == "video":
-            return int(s.get("width") or 0), int(s.get("height") or 0)
-    return None

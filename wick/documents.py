@@ -14,12 +14,13 @@ Never changed: digitally signed documents (any change breaks the signature) and 
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import zipfile
 from pathlib import Path
 
-from .images import NotWorthIt, VerificationFailed
 from .fileops import remove_quietly, temp_name
+from .images import NotWorthIt, VerificationFailed
 
 OFFICE_EXTS = {".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
                ".odt", ".ods", ".odp", ".odg", ".epub", ".cbz"}
@@ -34,14 +35,13 @@ class Unsupported(NotWorthIt):
 
 
 def pdf_available() -> bool:
-    import importlib.util
 
     return importlib.util.find_spec("pikepdf") is not None
 
 
 # ---------------------------------------------------------------- pictures
 
-def _same_pixels(a: bytes, b: bytes) -> bool:
+def same_pixels(a: bytes, b: bytes) -> bool:
     from PIL import Image, ImageChops
 
     with Image.open(io.BytesIO(a)) as ia, Image.open(io.BytesIO(b)) as ib:
@@ -63,7 +63,7 @@ def shrink_jpeg(data: bytes) -> bytes:
         out = mlo.optimize(data)
     except Exception:  # noqa: BLE001 - odd JPEGs (CMYK, arithmetic...) stay as they are
         return data
-    return out if len(out) < len(data) and _same_pixels(data, out) else data
+    return out if len(out) < len(data) and same_pixels(data, out) else data
 
 
 def shrink_png(data: bytes) -> bytes:
@@ -73,7 +73,7 @@ def shrink_png(data: bytes) -> bytes:
         out = oxipng.optimize_from_memory(data, level=3)
     except Exception:  # noqa: BLE001
         return data
-    return out if len(out) < len(data) and _same_pixels(data, out) else data
+    return out if len(out) < len(data) and same_pixels(data, out) else data
 
 
 def reduce_picture(data: bytes, ext: str, long_edge: int) -> bytes:
@@ -87,7 +87,7 @@ def reduce_picture(data: bytes, ext: str, long_edge: int) -> bytes:
                 return data
             im.load()
             scale = long_edge / max(w, h)
-            small = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+            small = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
             buf = io.BytesIO()
             if ext in (".jpg", ".jpeg"):
                 if small.mode not in ("RGB", "L", "CMYK"):
@@ -301,7 +301,7 @@ def _verify_office(src: Path, out: Path, pkg, lossless: bool) -> None:
                     im.load()
             except Exception as e:  # noqa: BLE001
                 raise VerificationFailed(f"Picture {ia.filename} doesn't open") from e
-            if lossless and ib.filename not in pkg.cropped and not _same_pixels(old, new):
+            if lossless and ib.filename not in pkg.cropped and not same_pixels(old, new):
                 raise VerificationFailed(f"Picture {ia.filename} looks different")
 
 
@@ -382,8 +382,9 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
                 raise VerificationFailed("Pages went missing")
             if [tuple(float(x) for x in p.mediabox) for p in check.pages] != boxes:
                 raise VerificationFailed("Page sizes changed")
-            checker = getattr(check, "check_pdf_syntax", None) or check.check   # renamed in pikepdf 9
-            problems = [p for p in checker() if "error" in str(p).lower()]
+            # (renamed in pikepdf 9: older versions call it check)
+            checker = getattr(check, "check_pdf_syntax", None) or getattr(check, "check", None)
+            problems = [p for p in checker() if "error" in str(p).lower()] if checker is not None else []
             if problems:
                 raise VerificationFailed(f"The rebuilt PDF has problems: {problems[0]}")
         return _pdf_structure(out, pages, fonts)

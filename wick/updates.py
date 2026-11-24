@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import __version__
 
@@ -43,8 +45,6 @@ PACKAGE_MANAGERS: dict[str, tuple[str, str]] = {      # source -> (name, update 
 def install_source(exe: str | None = None) -> str:
     """"scoop", "winget", "homebrew" or "" (the installer, zip or disk image from the download page, or running from
     source)."""
-    import sys
-    from pathlib import Path
 
     if exe is None:
         if not getattr(sys, "frozen", False):
@@ -94,7 +94,7 @@ def newer(candidate: str, current: str = __version__) -> bool:
 
 
 def latest(timeout: float = 15) -> Release:
-    import urllib.error          # (here, not at the top: loading the network code slows start-up)
+    import urllib.error  # (here, not at the top: loading the network code slows start-up)
     import urllib.request
 
     req = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json",

@@ -11,9 +11,12 @@ Turning pages only changes each page's /Rotate entry: nothing on the page is red
 from __future__ import annotations
 
 import threading
+import warnings
 import zlib
 from collections.abc import Callable, Iterable
 from pathlib import Path
+
+from .formats import register_heif
 
 PAGE_SIZES = {"picture": None, "a4": (595.276, 841.89), "letter": (612.0, 792.0)}   # points
 PDF_EXT = ".pdf"
@@ -24,7 +27,6 @@ class WrongPassword(ValueError):
 
 
 def _open(path: Path, password: str = ""):
-    import warnings
 
     import pikepdf
 
@@ -46,7 +48,6 @@ def _image_xobject(pdf, path: Path):
     import pikepdf
     from PIL import Image, ImageOps
 
-    from .formats import register_heif
 
     register_heif()
     with Image.open(path) as im:
@@ -178,7 +179,7 @@ def render_pages(src: Path, folder: Path, fmt: str = "png", dpi: int = 150, pass
                 raise InterruptedError()
             pts = doc.pagePointSize(i)
             size = QSize(max(1, round(pts.width() * dpi / 72)), max(1, round(pts.height() * dpi / 72)))
-            img = doc.render(i, size).convertToFormat(QImage.Format_RGBA8888)
+            img = doc.render(i, size).convertToFormat(QImage.Format.Format_RGBA8888)
             pic = Image.frombuffer("RGBA", (img.width(), img.height()), bytes(img.constBits()), "raw", "RGBA",
                                    img.bytesPerLine(), 1)
             page = Image.new("RGB", pic.size, "white")

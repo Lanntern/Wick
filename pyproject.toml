@@ -59,23 +59,58 @@ extend-exclude = ["wick/_ssimulacra2.py"]   # vendored (BSD), kept as published
 
 [tool.ruff.lint]
 # Bugs first: pyflakes, pycodestyle errors, bugbear, pylint errors.
-select = ["E4", "E7", "E9", "E501", "F", "B", "PLE", "W6"]
+select = ["E4", "E7", "E9", "E501", "F", "B", "PLE", "W6", "C901", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["wick"]
+
+[tool.ruff.lint.mccabe]
+# No new function this branchy (most stay well under 10). The ones marked "noqa: C901 (to split up)" are older.
+max-complexity = 25
 
 [tool.ruff.lint.per-file-ignores]
 "wick/gui/style.py" = ["E501"]                # icon paths and stylesheet text
 "wick/gui/file_model.py" = ["B008"]           # Qt's own QModelIndex() default argument idiom
+
+[tool.vulture]
+# Unused code (CI's lint job). Qt and pytest call these names themselves; the allow-list holds the rest.
+paths = ["wick", "tests", ".github/vulture_allowlist.py"]
+exclude = ["wick/_ssimulacra2.py"]
+min_confidence = 60
+ignore_names = ["*Event", "paintSection", "filterAcceptsRow", "expandingDirections", "hasHeightForWidth",
+                "actualSize", "pytest_*", "pytestmark"]
+
+[tool.coverage.run]
+# (CI's Linux job; Windows- and Mac-only code shows as not run there)
+source = ["wick"]
+omit = ["wick/_ssimulacra2.py"]   # vendored
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 65    # (69 % when this was added: a drop below this fails CI)
 
 [tool.mypy]
 python_version = "3.12"     # (CI's Python; numpy's own type stubs need 3.12 syntax)
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_ignores = false
-check_untyped_defs = false
-# Not checked: attribute errors on Windows-only modules (winreg, ctypes.windll) when checked on Linux, Qt's
-# "lambda: (a(), b())" slot idiom, attributes that are None until a thread starts (guarded at run time), and
-# notes about unannotated functions.
-disable_error_code = ["attr-defined", "union-attr", "func-returns-value", "annotation-unchecked", "has-type",
-                      "var-annotated"]
+check_untyped_defs = true
+# Not checked: Qt's "lambda: (a(), b())" slot idiom, and notes about unannotated functions.
+disable_error_code = ["func-returns-value", "annotation-unchecked"]
+# CI checks the code once per system (see build.yml's lint job): --platform plus these constants, so each run
+# skips the other systems' branches (Windows' winreg and ctypes.windll, a Mac's st_flags, Linux's os.nice).
+#   mypy wick --platform linux  --always-false IS_WINDOWS --always-false IS_MAC
+#   mypy wick --platform win32  --always-true IS_WINDOWS --always-false IS_MAC
+#   mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
+
+[[tool.mypy.overrides]]
+# Not yet in the GUI: Qt calls that can return None (topLevelItem(), layout(), header()...) used without a
+# check, and attributes attached to Qt objects after they're made. About 200 places, to be typed one page at a
+# time; core code is checked in full.
+module = ["wick.gui.*"]
+disable_error_code = ["attr-defined", "union-attr"]
 
 [tool.setuptools.dynamic]
 version = { attr = "wick.__version__" }

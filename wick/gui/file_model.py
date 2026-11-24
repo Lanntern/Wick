@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
+
 from ..engine import CANCELLED, DONE, FAILED, SKIPPED, FileResult
-from ..mediainfo import cadence_note, describe
 from ..formats import KIND_LABEL, human
-from .filelist import format_date
+from ..mediainfo import cadence_note, describe
 from ..plan import Plan, plan_entry
 from ..scanner import FileEntry
 from ..settings import Settings
+from .filelist import format_date
 from .theme import muted_color
 from .widgets import PROGRESS_ROLE, STATUS_ROLE
 
-SORT_ROLE = Qt.UserRole + 1
+SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 COLUMNS = ("", "Name", "Folder", "Type", "Details", "Size", "After", "Created", "Modified", "Status")
 _TARGET_NAME = {".jxl": "JPEG XL", ".webp": "WebP", ".avif": "AVIF", ".heic": "HEIC", ".png": "PNG",
                 ".gif": "GIF", ".jpg": "JPEG", ".jpeg": "JPEG", ".tif": "TIFF", ".tiff": "TIFF",
@@ -138,18 +141,6 @@ class FileTableModel(QAbstractTableModel):
         self._index = {id(r.entry): i for i, r in enumerate(self.rows)}
         self.endResetModel()
 
-    def add_entries(self, entries: list[FileEntry], settings: Settings) -> None:
-        known = set(self._index)
-        new = [e for e in entries if id(e) not in known]
-        if not new:
-            return
-        self.beginInsertRows(QModelIndex(), len(self.rows), len(self.rows) + len(new) - 1)
-        for e in new:
-            p = plan_entry(e, settings)
-            self._index[id(e)] = len(self.rows)
-            self.rows.append(Row(e, p, p.convert))
-        self.endInsertRows()
-
     def replan(self, settings: Settings) -> None:
         for r in self.rows:
             if r.result is not None and r.result.status == DONE:
@@ -201,12 +192,13 @@ class FileTableModel(QAbstractTableModel):
         """Select-all state over the rows that can be selected."""
         rows = self._selectable_rows()
         n = sum(r.checked for r in rows)
-        return (Qt.Unchecked if not rows or n == 0 else Qt.Checked if n == len(rows) else Qt.PartiallyChecked)
+        if not rows or n == 0:
+            return Qt.CheckState.Unchecked
+        return Qt.CheckState.Checked if n == len(rows) else Qt.CheckState.PartiallyChecked
 
     def totals(self) -> tuple[int, int, int]:
         """(selected count, selected bytes, estimated bytes after)."""
-        sel = [r for r in self.rows if r.checked and r.plan.convert
-               and not (r.result and r.result.status == DONE)]
+        sel = [r for r in self.rows if r.checked and r.plan.convert and not (r.result and r.result.status == DONE)]
         return len(sel), sum(r.entry.size for r in sel), sum(r.plan.est_size for r in sel)
 
     # ---- job updates
@@ -248,39 +240,45 @@ class FileTableModel(QAbstractTableModel):
     def columnCount(self, parent=QModelIndex()):
         return len(COLUMNS)
 
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        if orientation != Qt.Horizontal:
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation != Qt.Orientation.Horizontal:
             return None
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             return COLUMNS[section]
-        if role == Qt.TextAlignmentRole:
+        if role == Qt.ItemDataRole.TextAlignmentRole:
             right = section in (C_SIZE, C_EST)
-            return int((Qt.AlignRight if right else Qt.AlignLeft) | Qt.AlignVCenter)
-        if role == Qt.AccessibleTextRole and section == C_CHECK:
+            return int(
+                (Qt.AlignmentFlag.AlignRight if right else Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignVCenter
+            )
+        if role == Qt.ItemDataRole.AccessibleTextRole and section == C_CHECK:
             return "Include"
         return None
 
     def flags(self, index):
-        f = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        f = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
         r = self.rows[index.row()]
-        if index.column() == C_CHECK and r.plan.convert and not self.locked \
-                and not (r.result and r.result.status == DONE):
-            f |= Qt.ItemIsUserCheckable
+        if (
+            index.column() == C_CHECK
+            and r.plan.convert
+            and not self.locked
+            and not (r.result and r.result.status == DONE)
+        ):
+            f |= Qt.ItemFlag.ItemIsUserCheckable
         return f
 
-    def data(self, index, role=Qt.DisplayRole):
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):  # noqa: C901 (to split up)
         if not index.isValid():
             return None
         r = self.rows[index.row()]
         c = index.column()
         e = r.entry
 
-        if role == Qt.CheckStateRole and c == C_CHECK:
+        if role == Qt.ItemDataRole.CheckStateRole and c == C_CHECK:
             if r.result and r.result.status == DONE:
-                return None             # done: nothing left to choose (its status says what happened)
-            return Qt.Checked if r.checked and r.plan.convert else Qt.Unchecked
+                return None  # done: nothing left to choose (its status says what happened)
+            return Qt.CheckState.Checked if r.checked and r.plan.convert else Qt.CheckState.Unchecked
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             if c == C_NAME:
                 return e.path.name
             if c == C_FOLDER:
@@ -316,7 +314,7 @@ class FileTableModel(QAbstractTableModel):
                 return r.result.new_size if r.result and r.result.status == DONE else r.plan.est_size
             if c == C_CHECK:
                 return int(r.checked)
-            return self.data(index, Qt.DisplayRole) or ""
+            return self.data(index, Qt.ItemDataRole.DisplayRole) or ""
 
         if role == STATUS_ROLE and c == C_STATUS:
             if r.running:
@@ -328,10 +326,10 @@ class FileTableModel(QAbstractTableModel):
             return "ready" if r.checked else "skipped"
         if role == PROGRESS_ROLE and c == C_STATUS:
             return r.progress if r.running else None
-        if role == Qt.AccessibleTextRole and c == C_CHECK:
+        if role == Qt.ItemDataRole.AccessibleTextRole and c == C_CHECK:
             return "Will be compressed" if r.checked and r.plan.convert else "Not selected"
 
-        if role == Qt.ToolTipRole:
+        if role == Qt.ItemDataRole.ToolTipRole:
             if c in (C_NAME, C_FOLDER):
                 return str(e.path)
             if c == C_STATUS:
@@ -340,20 +338,20 @@ class FileTableModel(QAbstractTableModel):
                 note = cadence_note(e.video) if e.video is not None else ""
                 return describe(e) + (f"\n{note}" if note else "")
 
-        if role == Qt.ForegroundRole and c != C_STATUS:
+        if role == Qt.ItemDataRole.ForegroundRole and c != C_STATUS:
             if not r.plan.convert and not r.result:
                 return muted_color()
 
-        if role == Qt.TextAlignmentRole and c in (C_SIZE, C_EST):
-            return int(Qt.AlignRight | Qt.AlignVCenter)
+        if role == Qt.ItemDataRole.TextAlignmentRole and c in (C_SIZE, C_EST):
+            return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return None
 
-    def setData(self, index, value, role=Qt.EditRole):
-        if role == Qt.CheckStateRole and index.column() == C_CHECK and not self.locked:
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if role == Qt.ItemDataRole.CheckStateRole and index.column() == C_CHECK and not self.locked:
             r = self.rows[index.row()]
             if not r.plan.convert:
                 return False
-            r.checked = Qt.CheckState(value) == Qt.Checked
+            r.checked = Qt.CheckState(value) == Qt.CheckState.Checked
             self._changed_row(index.row())
             return True
         return False
@@ -402,7 +400,7 @@ class FileFilterProxy(QSortFilterProxyModel):
     def set_show_skipped(self, show: bool) -> None:
         self._refilter(lambda: setattr(self, "show_skipped", show))
 
-    group = ""          # only this kind of file ("video", "image", "audio", "document"; see summary.group_of)
+    group = ""  # only this kind of file ("video", "image", "audio", "document"; see summary.group_of)
 
     def set_group(self, group: str) -> None:
         self._refilter(lambda: setattr(self, "group", group))
@@ -426,7 +424,7 @@ def open_in_file_manager_many(paths) -> None:
     paths = [os.path.normpath(str(p)) for p in paths]
     if not paths:
         return
-    if os.name != "nt" or len(paths) == 1:
+    if sys.platform != "win32" or len(paths) == 1:
         open_in_file_manager(paths[0])
     elif not _explorer_select(paths):
         _open_folder(os.path.dirname(paths[0]))
@@ -450,7 +448,7 @@ def _explorer_select(paths: list[str]) -> bool:
 
         def pidl(path: str) -> ctypes.c_void_p | None:
             found = parse(path)
-            if found is None and len(path) >= 248:     # past the shell's limit: its short (8.3) name may fit
+            if found is None and len(path) >= 248:  # past the shell's limit: its short (8.3) name may fit
                 buf = ctypes.create_unicode_buffer(1024)
                 n = ctypes.windll.kernel32.GetShortPathNameW("\\\\?\\" + path, buf, 1024)  # type: ignore[attr-defined]
                 if 0 < n < 1024:
@@ -470,7 +468,7 @@ def _explorer_select(paths: list[str]) -> bool:
                 if children:
                     arr = (ctypes.c_void_p * len(children))(*[shell32.ILFindLastID(c) for c in children])
                     opened |= shell32.SHOpenFolderAndSelectItems(fp, wintypes.UINT(len(children)), arr, 0) == 0
-                else:   # Windows can't name the file itself (a path past 260 characters): its folder at least
+                else:  # Windows can't name the file itself (a path past 260 characters): its folder at least
                     _open_folder(folder)
                     opened = True
             finally:
@@ -480,6 +478,7 @@ def _explorer_select(paths: list[str]) -> bool:
         return opened
     except Exception:  # noqa: BLE001
         from wick.log import ignored
+
         ignored("gui.file_model._explorer_select")
         return False
 
@@ -492,10 +491,8 @@ def _open_folder(folder: str) -> None:
 
 
 def open_in_file_manager(path: str) -> None:
-    import subprocess
-    import sys
 
-    if os.name == "nt":
+    if sys.platform == "win32":
         # Through the shell, not "explorer /select,PATH": Explorer splits its arguments at commas, even inside
         # quotes, so a name with commas in it opened some other folder.
         path = os.path.normpath(path)

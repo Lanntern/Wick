@@ -19,6 +19,7 @@ import functools
 import json
 import os
 import re
+import sys
 import tarfile
 import threading
 import zipfile
@@ -26,8 +27,10 @@ import zlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
-from ..formats import classify
+from ..fileops import set_windows_creation_time, temp_name
+from ..formats import classify, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
 ALBUMS = ("link", "copy", "skip")           # album copies: hard links | real copies | leave out
@@ -46,9 +49,13 @@ class Member:
     """One file inside a Takeout: where it is in "Google Photos/", and how to read it."""
     rel: str                       # "Photos from 2019/IMG_1.JPG" (relative to "Google Photos")
     size: int
-    open: Callable[[], object]     # -> binary file object
+    open: Callable[[], IO[bytes]]   # the file, opened for reading
     crc: int | None = None         # zip archives store it; saves reading the file to spot duplicates
     source: str = ""
+
+
+def _open_binary(path: str) -> IO[bytes]:
+    return open(path, "rb")
 
 
 _UNSAFE_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')     # not allowed in Windows names (":" also means a drive)
@@ -106,7 +113,7 @@ def _folder_members(path: Path) -> Iterator[Member]:
             full = os.path.join(dirpath, name)
             rel = _photos_rel(os.path.relpath(full, path.parent))
             if rel:
-                yield Member(rel, os.path.getsize(full), functools.partial(open, full, "rb"), None, full)
+                yield Member(rel, os.path.getsize(full), functools.partial(_open_binary, full), None, full)
 
 
 def find_sources(roots: list[Path]) -> list[Path]:
@@ -261,10 +268,10 @@ def find(roots: list[Path], progress: ProgressFn | None = None, cancel: threadin
             continue
         if not s.photos:
             continue
-        parts = [f"{s.photos:,} photo{'s' if s.photos != 1 else ''} or video{'s' if s.photos != 1 else ''}",
-                 f"{s.jsons:,} date file{'s' if s.jsons != 1 else ''}"]
+        parts = [f"{plural(s.photos, 'photo')} or video{'s' if s.photos != 1 else ''}",
+                 f"{plural(s.jsons, 'date file')}"]
         if s.albums:
-            parts.append(f"{len(s.albums)} album{'s' if len(s.albums) != 1 else ''}")
+            parts.append(f"{plural(len(s.albums), 'album')}")
         if s.edited:
             parts.append(f"{s.edited:,} edited versions")
         result.items.append(Candidate(src, s.size, title=src.name, detail=" · ".join(parts), is_dir=src.is_dir(),
@@ -289,7 +296,6 @@ class MergeResult:
 
 def _write(m: Member, dest: Path) -> int:
     """Copy one member to ``dest`` (through a temporary name) and return its CRC32."""
-    from ..fileops import temp_name
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = temp_name(dest.parent, dest.suffix, "-takeout")
@@ -321,14 +327,13 @@ def _file_crc(path: Path) -> int:
 
 
 def _set_times(path: Path, ts: float) -> None:
-    from ..fileops import _set_windows_creation_time
 
     os.utime(path, (ts, ts))
-    if os.name == "nt":
-        _set_windows_creation_time(path, int(ts * 1_000_000_000))
+    if sys.platform == "win32":
+        set_windows_creation_time(path, int(ts * 1_000_000_000))
 
 
-def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",
+def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",  # noqa: C901 (to split up)
           progress: Callable[[str, int, int], None] | None = None, cancel: threading.Event | None = None
           ) -> MergeResult:
     """Merge Takeout ``sources`` into ``output`` (see the module notes). Safe to run again: resumes."""
@@ -437,7 +442,6 @@ def _same_file(a: Path, b: Path) -> bool:
 
 def _relink(primary: Path, dest: Path) -> bool:
     """Replace ``dest`` (identical content) with a hard link to ``primary``."""
-    from ..fileops import temp_name
 
     tmp = temp_name(dest.parent, dest.suffix, "-link")
     try:

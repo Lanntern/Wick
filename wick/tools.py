@@ -16,10 +16,12 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
 from collections.abc import Callable, Iterator, Sequence
-from functools import lru_cache
+from contextlib import contextmanager
+from functools import cache, lru_cache
 from pathlib import Path
+
+from .log import log
 
 TOOL_NAMES = ("ffmpeg", "ffprobe", "cjxl", "djxl", "cjpegli", "gifsicle", "ssimulacra2", "butteraugli_main")
 # Optional: cjpegli (better lossy JPEG; else Pillow + mozjpeg), ssimulacra2 (Smart quality; else SSIM).
@@ -31,14 +33,14 @@ _BELOW_NORMAL = 0x00004000  # Windows BELOW_NORMAL_PRIORITY_CLASS
 
 # Hide the console window that would otherwise flash for every subprocess
 # when running as a GUI app on Windows.
-_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
 def _popen_kwargs() -> dict:
     flags = _CREATIONFLAGS
     kw: dict = {}
     if LOW_PRIORITY:
-        if os.name == "nt":
+        if sys.platform == "win32":
             flags |= _BELOW_NORMAL
         else:
             kw["preexec_fn"] = _nice
@@ -59,38 +61,15 @@ def _windows_job():
     global _job
     with _job_lock:
         if _job is None:
-            import ctypes
-            from ctypes import wintypes
+            from . import winapi
 
-            class Basic(ctypes.Structure):
-                _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
-                            ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-                            ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
-                            ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
-                            ("SchedulingClass", wintypes.DWORD)]
-
-            class Extended(ctypes.Structure):
-                _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
-                            ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                            ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-            k = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            k.CreateJobObjectW.restype = wintypes.HANDLE
-            job = k.CreateJobObjectW(None, None)
-            if not job:
-                _job = 0
-                return 0
-            info = Extended()
-            info.BasicLimitInformation.LimitFlags = 0x2000 | 0x800   # KILL_ON_JOB_CLOSE | BREAKAWAY_OK
             # Each encoder may use at most 3/4 of the computer's memory (at least 2 GB): far above any normal
             # encode, but a damaged or malicious file can't make one swallow it all and freeze the computer;
             # that file fails instead (its original kept).
-            limit = encoder_memory_limit()
-            if limit:
-                info.BasicLimitInformation.LimitFlags |= 0x100       # JOB_OBJECT_LIMIT_PROCESS_MEMORY
-                info.ProcessMemoryLimit = limit
-            ok = k.SetInformationJobObject(wintypes.HANDLE(job), 9, ctypes.byref(info), ctypes.sizeof(info))
-            _job = job if ok else 0
+            try:
+                _job = winapi.job_object(winapi.KILL_ON_JOB_CLOSE | winapi.BREAKAWAY_OK, encoder_memory_limit())
+            except OSError:
+                _job = 0
         return _job
 
 
@@ -104,7 +83,7 @@ def _considerate(proc: subprocess.Popen) -> None:
     """Windows: put a just-started encoder in the job object, and in low-priority mode also give it low disk
     and memory priority (so the computer stays responsive while it works), plus Windows' efficiency mode while
     Wick runs hidden in the tray (power.set_efficiency_mode). Best effort: never stops an encode."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return
     try:
         import ctypes
@@ -134,10 +113,11 @@ def _considerate(proc: subprocess.Popen) -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("tools._considerate")
-        pass
 
 
 def _nice() -> None:  # pragma: no cover - runs in the child
+    if sys.platform == "win32":
+        return
     try:
         os.nice(10)
     except OSError:
@@ -148,7 +128,7 @@ def _nice() -> None:  # pragma: no cover - runs in the child
 def total_memory_gb() -> float:
     """Installed memory in GB (0 if unknown)."""
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
 
             class MemoryStatus(ctypes.Structure):
@@ -170,7 +150,7 @@ def total_memory_gb() -> float:
 def lower_thread_priority() -> None:
     """Make the calling thread (in-process encoders) run at below-normal priority."""
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
 
             k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -182,7 +162,6 @@ def lower_thread_priority() -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("tools.lower_thread_priority")
-        pass
 
 
 class ToolMissing(RuntimeError):
@@ -222,7 +201,7 @@ def _candidate_dirs() -> Iterator[Path]:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         yield Path(meipass) / "tools"
-    if os.name == "nt":                    # tools downloaded when first needed (addons.py)
+    if sys.platform == "win32":                    # tools downloaded when first needed (addons.py)
         from .journal import data_dir
 
         yield data_dir() / "tools"
@@ -231,9 +210,9 @@ def _candidate_dirs() -> Iterator[Path]:
         yield from (Path("/opt/homebrew/bin"), Path("/usr/local/bin"), Path("/opt/local/bin"))
 
 
-@lru_cache(maxsize=None)
+@cache
 def find_tool(name: str) -> str | None:
-    exe = name + (".exe" if os.name == "nt" else "")
+    exe = name + (".exe" if sys.platform == "win32" else "")
     for d in _candidate_dirs():
         p = d / exe
         if p.is_file():
@@ -273,7 +252,6 @@ def _log_run(cmd: list[str], seconds: float, code: int | None, stderr: str | byt
     """One log line per tool run that's worth reading later: failed (with its arguments and the end of what it
     said) or slow. Quick successful runs (most of them, hundreds per scan) aren't logged: they used to fill the
     log and push out what came before a problem."""
-    from .log import log
 
     name = Path(cmd[0]).name
     if code not in (0, None):
@@ -293,7 +271,6 @@ def run(
     check: bool = True,
     text: bool = True,
 ) -> subprocess.CompletedProcess:
-    from .log import log
 
     cancel = getattr(_cancel_context, "event", None)
     if cancel is not None and cancel.is_set():

@@ -3,18 +3,19 @@
 import os
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtGui import QDesktopServices
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem
 
 from ..cleanup import game_results
+from ..formats import plural
 from .style import Size
 from .widgets import button, dialog_buttons, dialog_layout
 
 
 class _ResultItem(QTableWidgetItem):
     def __lt__(self, other):
-        return self.data(Qt.UserRole) < other.data(Qt.UserRole)
+        return self.data(Qt.ItemDataRole.UserRole) < other.data(Qt.ItemDataRole.UserRole)
 
 
 class GameResultsDialog(QDialog):
@@ -39,18 +40,18 @@ class GameResultsDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Game", "Steam ID", "XPRESS4K", "XPRESS8K", "XPRESS16K", "LZX"])
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for column in range(1, 6):
-            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         for column in range(2, 6):
             self.table.horizontalHeaderItem(column).setToolTip("Space saved. Hover over a result to see how many "
                                                                "people reported it.")
         self.table.verticalHeader().hide()
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.setSortingEnabled(True)
-        self.table.sortItems(0, Qt.AscendingOrder)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.sortItems(0, Qt.SortOrder.AscendingOrder)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.table)
         self.download_button = button("Download / Refresh Public Results")
         self.download_button.clicked.connect(self.fetch)
@@ -68,18 +69,18 @@ class GameResultsDialog(QDialog):
         for i, (key, game) in enumerate(rows):
             for column, (value, order) in enumerate(((game["name"], game["name"].casefold()), (str(key), int(key)))):
                 item = _ResultItem(value)
-                item.setData(Qt.UserRole, order)
+                item.setData(Qt.ItemDataRole.UserRole, order)
                 item.setToolTip(value)
                 self.table.setItem(i, column, item)
             for column, mode in enumerate(game_results.MODES, 2):
                 result = game["modes"].get(mode)
                 saving = 1 - result["ratio"] if result else -1.0
                 item = _ResultItem(f"{saving:.0%}" if result else "No data")
-                item.setData(Qt.UserRole, saving)
-                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                item.setData(Qt.ItemDataRole.UserRole, saving)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 if result:
                     count = result["samples"]
-                    item.setToolTip(f"{saving:.0%} saved ({count:,} sample{'s' if count != 1 else ''})")
+                    item.setToolTip(f"{saving:.0%} saved ({plural(count, 'sample')})")
                 else:
                     item.setToolTip("No community results for this algorithm")
                 self.table.setItem(i, column, item)
@@ -102,6 +103,8 @@ class GameResultsDialog(QDialog):
         self.reply.finished.connect(self.download_finished)
 
     def read(self):
+        if self.reply is None:
+            return
         self.content.extend(bytes(self.reply.readAll()))
         if len(self.content) > game_results.LIMIT:
             self.download_error = 'Download exceeded the size limit'
@@ -109,8 +112,10 @@ class GameResultsDialog(QDialog):
 
     def download_finished(self):
         reply = self.reply
+        if reply is None:
+            return
         try:
-            if self.download_error or reply.error() != QNetworkReply.NoError:
+            if self.download_error or reply.error() != QNetworkReply.NetworkError.NoError:
                 raise RuntimeError(self.download_error or reply.errorString())
             self.read()
             self.received(game_results.save(bytes(self.content)))

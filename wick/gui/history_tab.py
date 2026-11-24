@@ -2,21 +2,33 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QMenu, QTreeWidget
 
-from .. import journal
-from ..formats import human
-from .settings_panel import BIN_NAME
+from .. import journal, pending, report, trash_restore
+from .. import log as applog
+from ..engine import cannot_undo
+from ..formats import human, plural
+from .cleanup_tools import tools
 from .dialogs import ask, inform
-from .filelist import (ListPlaceholder, SortItem, file_menu, filling, keyboard_list, make_sortable, selected_or_clicked,
-                       set_sort_keys)
+from .filelist import (
+    ListPlaceholder,
+    SortItem,
+    file_menu,
+    filling,
+    keyboard_list,
+    make_sortable,
+    selected_or_clicked,
+    set_sort_keys,
+)
+from .jobstatus import save_report
+from .settings_panel import BIN_NAME, OUTPUT_CHOICES
 from .style import Size, Space, Type, tokens
 from .widgets import Card, Page, StatTile, button, hbox, set_compact, text
 from .workers import UndoThread
@@ -32,8 +44,6 @@ class _BinCheck(QThread):
         self.runs = runs
 
     def run(self) -> None:
-        from .. import trash_restore
-        from ..engine import cannot_undo
 
         records = [(run.run_id, rec) for run in self.runs for rec in run.files
                    if not rec.undone and rec.mode in ("replace", "removed", "deleted")]
@@ -51,8 +61,6 @@ class _BinCheck(QThread):
 
 def run_summary(run) -> str:
     """What a run was, in a few words: the page or tool, and where its results went."""
-    from .cleanup_tools import tools
-    from .settings_panel import OUTPUT_CHOICES
 
     s = run.settings or {}
     tool = s.get("tool") or "job"
@@ -67,6 +75,8 @@ def run_summary(run) -> str:
 
 
 class HistoryTab(Page):
+    tree: QTreeWidget
+
     def __init__(self, window):
         super().__init__("History")
         self.win = window
@@ -90,15 +100,16 @@ class HistoryTab(Page):
                                                         "files don't change.")
         menu = QMenu(self.delete_btn)
         self.delete_selected_action = menu.addAction("Delete Selected", self.delete_selected)
-        self.delete_selected_action.setShortcut(QKeySequence.Delete)   # (shown in the menu; the key works in the list)
-        self.delete_selected_action.setShortcutContext(Qt.WidgetShortcut)
+        self.delete_selected_action.setShortcut(QKeySequence.StandardKey.Delete)  # (shown in the menu; the key works in the list)
+        self.delete_selected_action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
         menu.addSeparator()
         menu.addAction("Delete All History and Logs…", self.delete_everything)
         menu.aboutToShow.connect(lambda: self.delete_selected_action.setEnabled(bool(self.tree.selectedItems())))
         self.delete_btn.setMenu(menu)
         self.action_bar.addWidget(self.delete_btn)
-        self.undo_btn = button("Undo Selected", "", "undo", "Restore the originals of the selected runs or files",
-                               "Ctrl+Z")
+        self.undo_btn = button(
+            "Undo Selected", "", "undo", "Restore the originals of the selected runs or files", "Ctrl+Z"
+        )
         self.undo_btn.clicked.connect(self.undo_selected)
         self.action_bar.addWidget(self.undo_btn)
 
@@ -111,36 +122,40 @@ class HistoryTab(Page):
         self.tree = QTreeWidget()
         self.tree.setAccessibleName("Past runs")
         self.tree.setHeaderLabels(["Run / file", "Folder", "Files", "Saved", "Details"])
-        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setFrameShape(QFrame.NoFrame)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setUniformRowHeights(True)
         self.tree.setIndentation(Space.L + Space.XS)
         h = self.tree.header()
         h.setStretchLastSection(True)
-        h.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.tree.setColumnWidth(0, 240)
         self.tree.setColumnWidth(1, 220)
         self.tree.setColumnWidth(2, 64)
         self.tree.setColumnWidth(3, 96)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
-        make_sortable(self.tree, 0, Qt.DescendingOrder)  # newest first
+        make_sortable(self.tree, 0, Qt.SortOrder.DescendingOrder)  # newest first
         self.tree.header().remember("history")
         self.placeholder = ListPlaceholder(self.tree)
         self.tree.itemExpanded.connect(self._expanded)
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         keyboard_list(self.tree, self._menu)
         from PySide6.QtGui import QShortcut
 
-        delete = QShortcut(QKeySequence.Delete, self.tree, self.delete_selected)
-        delete.setContext(Qt.WidgetShortcut)
+        delete = QShortcut(QKeySequence.StandardKey.Delete, self.tree, self.delete_selected)
+        delete.setContext(Qt.ShortcutContext.WidgetShortcut)
         card.lay.addWidget(self.tree, 1)
         self.body.addWidget(card, 1)
-        self.hint = text(f"Undo works while the originals are in the {BIN_NAME}. JPEGs converted losslessly to JPEG XL "
-                         "can always be turned back into the exact original.",
-                         Type.FOOTNOTE, secondary=True, wrap=True)
-        if os.name == "nt":       # beside the note about it, not among the page's actions
+        self.hint = text(
+            f"Undo works while the originals are in the {BIN_NAME}. JPEGs converted losslessly to JPEG XL "
+            "can always be turned back into the exact original.",
+            Type.FOOTNOTE,
+            secondary=True,
+            wrap=True,
+        )
+        if sys.platform == "win32":  # beside the note about it, not among the page's actions
             self.bin_btn = button("Open Recycle Bin", "link", None, "")
             self.bin_btn.clicked.connect(lambda: subprocess.Popen(["explorer", "shell:RecycleBinFolder"]))
             self.body.addLayout(hbox(self.hint, self.bin_btn, spacing=Space.L))
@@ -197,7 +212,7 @@ class HistoryTab(Page):
         muted = QColor(tokens().text3)
         for i in range(self.tree.topLevelItemCount()):
             top = self.tree.topLevelItem(i)
-            data = top.data(0, Qt.UserRole)
+            data = top.data(0, Qt.ItemDataRole.UserRole)
             if not data or data[0] != "run":
                 continue
             run = data[1]
@@ -207,11 +222,16 @@ class HistoryTab(Page):
             if n:
                 parts.append(f"{n} can't be undone any more")
             top.setText(4, " · ".join(parts))
-            top.setToolTip(4, f"{n} original{'s are' if n != 1 else ' is'} no longer in the {BIN_NAME} because it "
-                              "was emptied, so they can't be restored." if n else top.text(4))
+            top.setToolTip(
+                4,
+                f"{n} original{'s are' if n != 1 else ' is'} no longer in the {BIN_NAME} because it "
+                "was emptied, so they can't be restored."
+                if n
+                else top.text(4),
+            )
             for j in range(top.childCount()):
                 child = top.child(j)
-                cd = child.data(0, Qt.UserRole)
+                cd = child.data(0, Qt.ItemDataRole.UserRole)
                 reason = self.blocked.get((run.run_id, cd[2].original)) if cd else None
                 if reason:
                     child.setText(4, f"Can't be undone: {reason[0].lower() + reason[1:]}")
@@ -233,11 +253,10 @@ class HistoryTab(Page):
             runs = self.runs = journal.list_runs()
         for run in runs:
             when = time.strftime("%a %d %b %Y, %H:%M", time.localtime(run.started))
-            top = SortItem([when, Path(run.root).name or run.root, str(run.active_files),
-                            human(run.saved_bytes), ""])
+            top = SortItem([when, Path(run.root).name or run.root, str(run.active_files), human(run.saved_bytes), ""])
             set_sort_keys(top, {0: run.started, 2: run.active_files, 3: run.saved_bytes})
             top.setToolTip(1, run.root)
-            top.setData(0, Qt.UserRole, ("run", run))
+            top.setData(0, Qt.ItemDataRole.UserRole, ("run", run))
             undone = len(run.files) - run.active_files
             top.setText(4, run_summary(run) + (f" · {undone} undone" if undone else ""))
             top.setToolTip(4, top.text(4))
@@ -247,14 +266,18 @@ class HistoryTab(Page):
         if runs:
             self.placeholder.clear()
         elif not journal.ENABLED:
-            self.placeholder.show_message("History is off: Wick doesn't write down what it changes. Turn it "
-                                          "on in Settings › Data to be able to undo from here.")
+            self.placeholder.show_message(
+                "History is off: Wick doesn't write down what it changes. Turn it "
+                "on in Settings › Data to be able to undo from here."
+            )
         else:
-            self.placeholder.show_message("Nothing compressed yet. Runs from Compress, Convert, Metadata and "
-                                          "Watch Folders appear here, and can be undone.")
+            self.placeholder.show_message(
+                "Nothing compressed yet. Runs from Compress, Convert, Metadata and "
+                "Watch Folders appear here, and can be undone."
+            )
 
     def _expanded(self, top) -> None:
-        data = top.data(0, Qt.UserRole)
+        data = top.data(0, Qt.ItemDataRole.UserRole)
         if not data or data[0] != "run" or top.childCount():
             return
         run = data[1]
@@ -264,15 +287,19 @@ class HistoryTab(Page):
         children = []
         for rec in run.files:
             where = "" if rec.mode != "copy" else f" · copy in {Path(rec.output).parent.name}"
-            child = SortItem([
-                Path(rec.original).name, Path(rec.original).parent.name, "",
-                "" if rec.undone else human(rec.original_size - rec.output_size),
-                f"Undone: {rec.undo_note}" if rec.undone else f"{rec.method}{where}",
-            ])
+            child = SortItem(
+                [
+                    Path(rec.original).name,
+                    Path(rec.original).parent.name,
+                    "",
+                    "" if rec.undone else human(rec.original_size - rec.output_size),
+                    f"Undone: {rec.undo_note}" if rec.undone else f"{rec.method}{where}",
+                ]
+            )
             set_sort_keys(child, {3: 0 if rec.undone else rec.original_size - rec.output_size})
             child.setToolTip(0, rec.original)
             child.setToolTip(4, child.text(4))
-            child.setData(0, Qt.UserRole, ("file", run, rec))
+            child.setData(0, Qt.ItemDataRole.UserRole, ("file", run, rec))
             if rec.undone:
                 for c in range(5):
                     child.setForeground(c, QColor(muted))
@@ -285,21 +312,27 @@ class HistoryTab(Page):
             self._mark_blocked()
 
     def _menu(self, pos) -> None:
-        items = [it for it in selected_or_clicked(self.tree, pos) if it.data(0, Qt.UserRole)]
+        items = [it for it in selected_or_clicked(self.tree, pos) if it.data(0, Qt.ItemDataRole.UserRole)]
         if not items:
             return
         paths = []
         for it in items:
-            data = it.data(0, Qt.UserRole)
+            data = it.data(0, Qt.ItemDataRole.UserRole)
             if data[0] == "run":
                 paths.append(Path(data[1].root))
             else:
                 rec = data[2]
                 out = Path(rec.output)
                 paths.append(out if not rec.undone and out.exists() else Path(rec.original))
-        can_undo = any(not rec.undone for it in items
-                       for rec in (it.data(0, Qt.UserRole)[1].files if it.data(0, Qt.UserRole)[0] == "run"
-                                   else [it.data(0, Qt.UserRole)[2]]))
+        can_undo = any(
+            not rec.undone
+            for it in items
+            for rec in (
+                it.data(0, Qt.ItemDataRole.UserRole)[1].files
+                if it.data(0, Qt.ItemDataRole.UserRole)[0] == "run"
+                else [it.data(0, Qt.ItemDataRole.UserRole)[2]]
+            )
+        )
         extra = [("Undo…", self.undo_selected)] if can_undo else []
         extra.append(("Export Report…", self.export_report))
         extra.append(("Delete from History", self.delete_selected))
@@ -308,7 +341,7 @@ class HistoryTab(Page):
     def _selected_runs(self) -> list:
         runs, seen = [], set()
         for item in self.tree.selectedItems():
-            data = item.data(0, Qt.UserRole)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
             if data and data[1].run_id not in seen:
                 seen.add(data[1].run_id)
                 runs.append(data[1])
@@ -320,15 +353,18 @@ class HistoryTab(Page):
         self.check_bin(force=True)
 
     def delete_everything(self) -> None:
-        from .. import log as applog
-        from .. import pending
 
         if self.undo_thread is not None and self.undo_thread.isRunning():
             return
-        if not ask(self, "Delete all history and logs?",
-                   "Every record of what was changed and the troubleshooting log are removed from this computer. "
-                   f"Nothing can be undone from here afterwards. Your files don't change; originals stay in the "
-                   f"{BIN_NAME} until it's emptied.", "Delete All", destructive=True):
+        if not ask(
+            self,
+            "Delete all history and logs?",
+            "Every record of what was changed and the troubleshooting log are removed from this computer. "
+            f"Nothing can be undone from here afterwards. Your files don't change; originals stay in the "
+            f"{BIN_NAME} until it's emptied.",
+            "Delete All",
+            destructive=True,
+        ):
             return
         journal.clear()
         applog.delete_logs()
@@ -343,7 +379,7 @@ class HistoryTab(Page):
         runs: set[str] = set()
         files: dict[str, set[str]] = {}
         for item in self.tree.selectedItems():
-            data = item.data(0, Qt.UserRole)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
             if not data:
                 continue
             if data[0] == "run":
@@ -352,16 +388,29 @@ class HistoryTab(Page):
                 files.setdefault(data[1].run_id, set()).add(data[2].original)
         files = {r: f for r, f in files.items() if r not in runs}
         if not runs and not files:
-            return                      # (nothing selected: "Delete All History and Logs…" is the way to clear it)
+            return  # (nothing selected: "Delete All History and Logs…" is the way to clear it)
         everything = False
         n_files = sum(len(f) for f in files.values())
-        what = ("the whole history" if everything else
-                " and ".join(x for x in (f"{len(runs)} run{'s' if len(runs) != 1 else ''}" if runs else "",
-                                         f"{n_files} file{'s' if n_files != 1 else ''}" if n_files else "") if x))
-        if not ask(self, f"Delete {what}?",
-                   "Their names and details are removed from this computer, and they can no longer be undone from "
-                   f"here. Your files don't change, and originals stay in the {BIN_NAME} until it's emptied.",
-                   "Delete", destructive=True):
+        what = (
+            "the whole history"
+            if everything
+            else " and ".join(
+                x
+                for x in (
+                    f"{plural(len(runs), 'run')}" if runs else "",
+                    f"{plural(n_files, 'file')}" if n_files else "",
+                )
+                if x
+            )
+        )
+        if not ask(
+            self,
+            f"Delete {what}?",
+            "Their names and details are removed from this computer, and they can no longer be undone from "
+            f"here. Your files don't change, and originals stay in the {BIN_NAME} until it's emptied.",
+            "Delete",
+            destructive=True,
+        ):
             return
         if everything:
             journal.clear()
@@ -372,8 +421,6 @@ class HistoryTab(Page):
         self.refresh(force=True)
 
     def export_report(self) -> None:
-        from .. import report
-        from .jobstatus import save_report
 
         runs = self._selected_runs()
         if not runs:
@@ -386,7 +433,7 @@ class HistoryTab(Page):
             return
         by_run: dict[str, tuple[object, list]] = {}
         for item in self.tree.selectedItems():
-            data = item.data(0, Qt.UserRole)
+            data = item.data(0, Qt.ItemDataRole.UserRole)
             if not data:
                 continue
             run = data[1]
@@ -396,20 +443,30 @@ class HistoryTab(Page):
                 if not rec.undone and rec not in entry[1]:
                     entry[1].append(rec)
         blocked = sum(1 for rid, (_, recs) in by_run.items() for rec in recs if (rid, rec.original) in self.blocked)
-        jobs = [(rid, [rec for rec in recs if (rid, rec.original) not in self.blocked])
-                for rid, (_, recs) in by_run.items()]
+        jobs = [
+            (rid, [rec for rec in recs if (rid, rec.original) not in self.blocked]) for rid, (_, recs) in by_run.items()
+        ]
         jobs = [(rid, recs) for rid, recs in jobs if recs]
         if not jobs:
-            inform(self, "Nothing here can be undone." if blocked else
-                   "Select a run or files that haven't been undone.",
-                   f"The originals are gone because the {BIN_NAME} was emptied." if blocked else "")
+            inform(
+                self,
+                "Nothing here can be undone." if blocked else "Select a run or files that haven't been undone.",
+                f"The originals are gone because the {BIN_NAME} was emptied." if blocked else "",
+            )
             return
         count = sum(len(r) for _, r in jobs)
-        extra = (f"\n\n{blocked} other file{'s' if blocked != 1 else ''} can't be undone: "
-                 f"{'their originals are' if blocked != 1 else 'its original is'} no longer in the {BIN_NAME}."
-                 if blocked else "")
-        if not ask(self, f"Restore {count} original file{'s' if count != 1 else ''}?",
-                   "The compressed versions will be deleted." + extra, "Restore Originals"):
+        extra = (
+            f"\n\n{plural(blocked, 'other file')} can't be undone: "
+            f"{'their originals are' if blocked != 1 else 'its original is'} no longer in the {BIN_NAME}."
+            if blocked
+            else ""
+        )
+        if not ask(
+            self,
+            f"Restore {plural(count, 'original file')}?",
+            "The compressed versions will be deleted." + extra,
+            "Restore Originals",
+        ):
             return
         self._run_undo_jobs(jobs, [0, 0], [])
 
@@ -424,8 +481,12 @@ class HistoryTab(Page):
         if not recs:
             inform(self, "Nothing here can be undone.")
             return False
-        if not ask(self.window(), f"Restore {len(recs)} original file{'s' if len(recs) != 1 else ''}?",
-                   "The compressed versions will be deleted.", "Restore Originals"):
+        if not ask(
+            self.window(),
+            f"Restore {plural(len(recs), 'original file')}?",
+            "The compressed versions will be deleted.",
+            "Restore Originals",
+        ):
             return False
         self._run_undo_jobs([(run_id, recs)], [0, 0], [])
         return True
@@ -434,14 +495,18 @@ class HistoryTab(Page):
         if not jobs:
             self.refresh()
             self.undo_btn.setEnabled(True)
-            inform(self, f"Restored {totals[0]} file{'s' if totals[0] != 1 else ''}.",
-                   f"{totals[1]} could not be restored:\n\n" + "\n".join(failures[:15]) if totals[1] else "")
+            inform(
+                self,
+                f"Restored {plural(totals[0], 'file')}.",
+                f"{totals[1]} could not be restored:\n\n" + "\n".join(failures[:15]) if totals[1] else "",
+            )
             return
         run_id, recs = jobs[0]
         self.undo_btn.setEnabled(False)
         self.undo_thread = UndoThread(run_id, recs, self)
         self.undo_thread.item_done.connect(
-            lambda rec, ok, msg: None if ok else failures.append(f"{Path(rec.original).name}: {msg}"))
+            lambda rec, ok, msg: None if ok else failures.append(f"{Path(rec.original).name}: {msg}")
+        )
 
         def finished(ok, failed):
             totals[0] += ok

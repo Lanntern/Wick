@@ -5,24 +5,37 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import json
 import os
 import re
 import shutil
 import threading
 import time
+import time as _time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import journal, steps, tools, trash_restore
-from .log import log
-from .fileops import (BIN_NAME, copy_times, final_path, link_or_copy, move_to_trash, notify_shell, read_zone_mark,
-                      remove_quietly, temp_name, trash_available, write_zone_mark)
-from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human
+from . import APP_NAME, cfa, journal, steps, tools, trash_restore
+from .fileops import (
+    BIN_NAME,
+    copy_times,
+    final_path,
+    link_or_copy,
+    move_to_trash,
+    notify_shell,
+    read_zone_mark,
+    remove_quietly,
+    temp_name,
+    trash_available,
+    write_zone_mark,
+)
+from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human, plural
 from .images import NotWorthIt, VerificationFailed, convert_image
+from .log import log
 from .plan import Plan
-from .scanner import FileEntry
+from .scanner import FileEntry, preload_codecs
 from .settings import Settings
 from .video import convert_video
 
@@ -72,7 +85,7 @@ def _method(entry: FileEntry, plan: Plan, encoder: str = "") -> str:
     return f"{src} → {dst} ({plan.reason[0].lower() + plan.reason[1:]})"
 
 
-def _unique(path: Path) -> Path:
+def unique_path(path: Path) -> Path:
     candidate, n = path, 1
     while candidate.exists():
         candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
@@ -80,17 +93,10 @@ def _unique(path: Path) -> Path:
     return candidate
 
 
-NAME_FIELDS = {"%name%": "the original name", "%ext%": "its extension", "%date%": "today (2026-11-06)",
-               "%time%": "the time (14-05-09)", "%datetime%": "both", "%unix%": "seconds since 1970",
-               "%modified%": "the file's modified date"}
-
-
 def output_name(src: Path, template: str, now: float | None = None) -> str:
     """The new file's name (without extension). Plain text is a suffix ("_compressed" → photo_compressed);
     with placeholders it's a pattern ("%name% %date%" → photo 2026-11-06). Never contains characters a file
     name can't have."""
-    import re
-    import time as _time
 
     if "%" not in template:
         return src.stem + template
@@ -126,9 +132,9 @@ def output_path(entry: FileEntry, plan: Plan, s: Settings) -> Path:
         target = src.with_suffix(plan.target_ext)
         if str(target).lower() in (str(src).lower(), str(entry.path).lower()):
             target = src.with_name(f"{output_name(src, s.output_suffix)}{plan.target_ext}")
-        return _unique(target)
+        return unique_path(target)
     if s.output_mode == "suffix":
-        return _unique(src.with_name(f"{output_name(src, s.output_suffix)}{plan.target_ext}"))
+        return unique_path(src.with_name(f"{output_name(src, s.output_suffix)}{plan.target_ext}"))
     folder = Path(s.output_dir)
     rel = Path()
     if s.keep_structure and entry.root is not None:  # root is None for individually added files
@@ -137,7 +143,7 @@ def output_path(entry: FileEntry, plan: Plan, s: Settings) -> Path:
         except ValueError:
             rel = Path()
     target = folder / rel / (src.stem + plan.target_ext)
-    return _unique(target)
+    return unique_path(target)
 
 
 _PLACE_LOCK = threading.Lock()
@@ -206,7 +212,7 @@ def place_output(entry: FileEntry, st: os.stat_result, tmp: Path, dest: Path, s:
     moved_to = ""
     if s.originals_to and s.output_mode != "replace":
         steps.report("Moving the original")
-        target = _unique(Path(s.originals_to) / src.name)
+        target = unique_path(Path(s.originals_to) / src.name)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(target))
@@ -226,7 +232,6 @@ def _clean_svg(src: Path) -> Path:
     """An SVG without editor data, metadata, comments and excess digits (icons.optimize_svg), next to ``src``,
     checked in the decoder worker to draw the same."""
     from . import icons, sandbox
-    from .fileops import remove_quietly, temp_name
     from .images import NotWorthIt, VerificationFailed
 
     original = src.read_bytes()
@@ -350,7 +355,6 @@ def _guarded(entry: FileEntry, fn) -> FileResult:
 
 def _why(e: BaseException, path: Path) -> str:
     """An error as people should read it: Controlled folder access named, not "access denied"."""
-    from . import APP_NAME, cfa
 
     return f"{cfa.SHORT} (allow {APP_NAME} in Windows Security to change files here)" if cfa.blocked(e, path) \
         else str(e)
@@ -411,7 +415,7 @@ def process_convert(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=No
             change = f"{'+' if delta > 0 else '−'}{human(abs(delta))}"
             if dest.is_dir():
                 n = sum(1 for _ in dest.iterdir())
-                return FileResult(entry, DONE, f"Converted: {n} file{'s' if n != 1 else ''} in “{dest.name}”",
+                return FileResult(entry, DONE, f"Converted: {plural(n, 'file')} in “{dest.name}”",
                                   dest, new_size)
             return FileResult(entry, DONE, f"Converted ({change}{'; ' + note if note else ''})", dest, new_size)
         finally:
@@ -434,7 +438,7 @@ def folder_output_path(entry: FileEntry, s: Settings) -> Path:
     next to it or in the chosen output folder."""
     src = entry.path
     base = Path(s.output_dir) if s.output_mode == "folder" and s.output_dir else src.parent
-    return _unique(base / f"{src.stem} pages")
+    return unique_path(base / f"{src.stem} pages")
 
 
 def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=None, on_progress=None,
@@ -464,7 +468,6 @@ _NOT_OUTPUT = {"workers", "encoder_threads", "video_jobs", "low_priority", "outp
 
 def tried_key(s: Settings, plan: Plan) -> str:
     """Names the settings and conversion a file was tried with; any change to them means trying again."""
-    import json
 
     d = {k: v for k, v in s.to_dict().items() if k not in _NOT_OUTPUT}
     blob = json.dumps([d, plan.route, plan.target_ext, plan.resize], sort_keys=True, default=str)
@@ -590,7 +593,6 @@ def run_job(
     events = events or JobEvents()
     cancel = cancel or threading.Event()
     tools.LOW_PRIORITY = s.low_priority
-    from .scanner import preload_codecs
 
     preload_codecs(heif=any(e.kind == "heic" or p.route == "heic" or p.target_ext == ".heic" for e, p in items))
     writer = journal.RunWriter(root, {**s.to_dict(), "tool": tool} if tool else s.to_dict())
@@ -696,7 +698,7 @@ def preview_file(entry: FileEntry, plan: Plan, s: Settings) -> Path:
 
 # ------------------------------------------------------------------ undo
 
-def undo_record(run_id: str, rec: journal.FileRecord) -> tuple[bool, str]:
+def undo_record(run_id: str, rec: journal.FileRecord) -> tuple[bool, str]:  # noqa: C901 (to split up)
     if rec.undone:
         return True, "Already undone"
     if rec.mode == "decompact":
@@ -832,7 +834,7 @@ def _remove_made_folder(folder: Path) -> str:
         else:
             left += 1
     if left:
-        return f"Removed the pages; {left} other item{'s' if left != 1 else ''} in “{folder.name}” were kept"
+        return f"Removed the pages; {plural(left, 'other item')} in “{folder.name}” were kept"
     try:
         folder.rmdir()
     except OSError:

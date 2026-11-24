@@ -9,10 +9,10 @@ Plain ctypes COM; returns None off Windows or whenever Windows can't help.
 from __future__ import annotations
 
 import ctypes
-import os
+import sys
 from pathlib import Path
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IID_IShellItemImageFactory = "bcc18b79-ba16-442f-80c4-8a59c30c463b"
 SIIGBF_BIGGERSIZEOK, SIIGBF_THUMBNAILONLY, SIIGBF_INCACHEONLY = 0x01, 0x08, 0x10
 
@@ -28,7 +28,7 @@ def thumbnail(path: Path, max_px: int, cache_only: bool = True):
         return None
     from ctypes import wintypes
 
-    from .jumplist import _GUID, _Com
+    from .jumplist import GUID, Com
 
     ole32, shell32, gdi32 = ctypes.windll.ole32, ctypes.windll.shell32, ctypes.windll.gdi32  # type: ignore[attr-defined]
     hr_init = ole32.CoInitializeEx(None, 2)          # (a worker thread: its own apartment)
@@ -37,11 +37,11 @@ def thumbnail(path: Path, max_px: int, cache_only: bool = True):
     try:
         out = ctypes.c_void_p()
         hr = shell32.SHCreateItemFromParsingName(ctypes.c_wchar_p(str(path)), None,
-                                                 ctypes.byref(_GUID.of(IID_IShellItemImageFactory)),
+                                                 ctypes.byref(GUID.of(IID_IShellItemImageFactory)),
                                                  ctypes.byref(out))
         if hr < 0 or not out.value:
             return None
-        factory = _Com(out)
+        factory = Com(out)
         flags = SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK | (SIIGBF_INCACHEONLY if cache_only else 0)
         try:
             factory.call(3, (_Size, ctypes.c_int, ctypes.POINTER(wintypes.HBITMAP)),
@@ -99,10 +99,10 @@ def _to_qimage(hbitmap, max_px: int, gdi32):
     data = buf.raw
     # Thumbnails with transparency carry premultiplied alpha; plain ones have 0 in every alpha byte.
     has_alpha = any(data[3::4])
-    fmt = QImage.Format_ARGB32_Premultiplied if has_alpha else QImage.Format_RGB32
+    fmt = QImage.Format.Format_ARGB32_Premultiplied if has_alpha else QImage.Format.Format_RGB32
     img = QImage(data, w, h, w * 4, fmt).copy()       # (copy: own the pixels before the buffer goes)
     if max(w, h) > max_px:
-        img = img.scaled(max_px, max_px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        img = img.scaled(max_px, max_px, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     return img
 
 

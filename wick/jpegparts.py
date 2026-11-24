@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import io
 import struct
 
 SOI, EOI, SOS = 0xD8, 0xD9, 0xDA
@@ -235,7 +236,6 @@ def compact_icc(icc: bytes | None) -> bytes | None:
     test colours within one step) and the compact one is at least 1 KB smaller; else None (keep ``icc``)."""
     if not icc or len(icc) < len(_compact_srgb()) + 1024:
         return None
-    import io
 
     import numpy as np
     from PIL import Image, ImageCms

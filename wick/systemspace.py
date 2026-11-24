@@ -11,12 +11,14 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import winapi
 from .cleanup.common import folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 MIN_SIZE = 200 * 1024 ** 2          # smaller items aren't worth explaining
 _NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -181,33 +183,11 @@ def measure(drive: Path) -> list[Hidden]:
 
 def run_elevated(program: str, args: str) -> bool:
     """Run a Windows command as administrator (Windows asks first) and wait. True if it ran and succeeded."""
-    import ctypes
-    from ctypes import wintypes
 
-    class Info(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
-                    ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
-                    ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
-                    ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
-                    ("dwHotKey", wintypes.DWORD), ("hIcon", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
-
-    shell = ctypes.WinDLL("shell32", use_last_error=True)
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    shell.ShellExecuteExW.argtypes = [ctypes.POINTER(Info)]
-    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    info = Info(cbSize=ctypes.sizeof(Info), fMask=0x40, lpVerb="runas", lpFile=program, lpParameters=args,
-                nShow=0)
-    if not shell.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
-        return False
     try:
-        k32.WaitForSingleObject(info.hProcess, 120_000)
-        code = wintypes.DWORD()
-        k32.GetExitCodeProcess(info.hProcess, ctypes.byref(code))
-        return code.value == 0
-    finally:
-        k32.CloseHandle(info.hProcess)
+        return winapi.run_and_wait(program, args, admin=True, hidden=True, timeout=120) == 0
+    except OSError:
+        return False
 
 
 def turn_off_hibernation() -> bool:

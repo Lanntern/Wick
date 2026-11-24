@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout
 
@@ -55,8 +55,8 @@ class SupportDialog(QDialog):
         """``asked``: opened by the one-time prompt (not from the sidebar)."""
         super().__init__(parent)
         self.setWindowTitle(f"Support {APP_NAME}")
-        self.setWindowModality(Qt.NonModal)
-        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(Space.XL, Space.XL, Space.XL, Space.XL)
         lay.setSpacing(Space.M)

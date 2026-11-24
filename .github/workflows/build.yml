@@ -80,7 +80,10 @@ jobs:
       - name: Lint and type check (settings in pyproject.toml)
         run: |
           ruff check .
-          mypy wick
+          python -m mypy wick --platform linux  --always-false IS_WINDOWS --always-false IS_MAC
+          python -m mypy wick --platform win32  --always-true IS_WINDOWS --always-false IS_MAC
+          python -m mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
+          vulture
 
   linux:
     runs-on: ubuntu-24.04
@@ -160,8 +163,8 @@ jobs:
         run: >-
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
-          --junitxml=test-results/core.xml -n auto --dist loadgroup
-          --ignore=tests/test_gui.py --ignore=tests/test_layout.py --ignore=tests/test_style.py
+          --junitxml=test-results/core.xml -n auto --dist loadgroup --cov --cov-report= --cov-fail-under=0
+          --ignore=tests/gui --ignore=tests/test_layout.py --ignore=tests/test_style.py
       - name: Test GUI and layouts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         timeout-minutes: 10
@@ -170,8 +173,22 @@ jobs:
         run: >-
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
-          --junitxml=test-results/gui.xml
-          tests/test_gui.py tests/test_layout.py tests/test_style.py
+          --junitxml=test-results/gui.xml --cov --cov-append --cov-report= --cov-fail-under=0
+          tests/gui tests/test_layout.py tests/test_style.py
+      # Both runs measured together (settings in pyproject.toml): the total in the job summary, the full report
+      # as an artifact, and a failure if it drops below the floor.
+      - name: Test coverage
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          python -m coverage html -q -d coverage-html --fail-under=0
+          { echo "### Test coverage (Linux)"; echo; python -m coverage report --format=markdown --skip-covered --fail-under=0; } >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --format=total
+      - name: Keep the coverage report
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-linux
+          path: coverage-html
       - name: Keep test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -248,7 +265,7 @@ jobs:
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
           --junitxml=test-results/gui.xml
-          tests/test_gui.py tests/test_layout.py tests/test_style.py
+          tests/gui tests/test_layout.py tests/test_style.py
       - name: Wait for Everything's index
         id: everything
         if: ${{ !cancelled() && steps.everything_setup.outcome == 'success' }}
@@ -268,7 +285,7 @@ jobs:
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
           --junitxml=test-results/core.xml -n auto --dist loadgroup
-          --ignore=tests/test_gui.py --ignore=tests/test_layout.py --ignore=tests/test_style.py
+          --ignore=tests/gui --ignore=tests/test_layout.py --ignore=tests/test_style.py
       - name: Keep test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -328,7 +345,7 @@ jobs:
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
           --junitxml=test-results/core.xml -n auto --dist loadgroup
-          --ignore=tests/test_gui.py --ignore=tests/test_layout.py --ignore=tests/test_style.py
+          --ignore=tests/gui --ignore=tests/test_layout.py --ignore=tests/test_style.py
       - name: Test GUI and layouts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         timeout-minutes: 12
@@ -338,7 +355,7 @@ jobs:
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
           --junitxml=test-results/gui.xml
-          tests/test_gui.py tests/test_layout.py tests/test_style.py
+          tests/gui tests/test_layout.py tests/test_style.py
       - name: Keep test reports
         if: always()
         uses: actions/upload-artifact@v7

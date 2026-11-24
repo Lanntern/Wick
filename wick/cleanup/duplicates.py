@@ -9,10 +9,11 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
+from .similar import format_pair, live_companion
 
 PARTIAL = 64 * 1024
-KEEP_RULES = ("oldest", "newest", "shortest_path", "folder")
 HASH_READERS = 4               # files read and hashed at once on SSDs (one on hard drives: see drives.readers)
 
 
@@ -151,7 +152,7 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
     if cancelled(cancel):
         result.cancelled = True
         return result
-    groups = []
+    groups: list[list] = []
     for g in stage2:
         by_hash: dict[bytes, list] = defaultdict(list)
         for p, st in g:
@@ -173,7 +174,7 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
                 extra={"same_volume": st.st_dev == g[k][1].st_dev, "mtime_ns": st.st_mtime_ns},
             ))
     if groups:
-        result.notes.append(f"{len(groups)} set{'s' if len(groups) != 1 else ''} of identical files")
+        result.notes.append(f"{plural(len(groups), 'set')} of identical files")
     return result
 
 
@@ -186,7 +187,6 @@ def switch_keeper(items: list[Candidate], new_keeper: Path) -> list[Candidate]:
         kst = os.stat(new_keeper)
     except OSError:
         return items
-    from .similar import format_pair, live_companion
 
     similar = str(items[0].group).startswith("sim")
     # Copies that differ (another encoding of the same song or video) carry a description of each copy.

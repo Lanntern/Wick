@@ -23,15 +23,16 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-
-
 from .. import index, tools
-from ..formats import AUDIO_EXTS
+from ..formats import AUDIO_EXTS, plural
+from ..probe import probe_audio
+from .extensions import TYPE_NAMES
+
 if TYPE_CHECKING:
     import numpy as np
 
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
-from .similar import _Ticker
+from .similar import Ticker
 
 RATE = 5512
 SECONDS = 120
@@ -154,7 +155,6 @@ def _norm(s: str) -> str:
 
 
 def describe(path: Path) -> dict | None:
-    from ..probe import probe_audio
 
     info = probe_audio(path)
     if info is None or info.duration <= 0:
@@ -167,10 +167,9 @@ def describe(path: Path) -> dict | None:
 
 
 def quality_label(d: dict, path: Path) -> str:
-    from .extensions import _NAMES
 
     ext = path.suffix.lower()
-    fmt = _NAMES.get(ext, ext.lstrip(".").upper())
+    fmt = TYPE_NAMES.get(ext, ext.lstrip(".").upper())
     if d["codec"] in LOSSLESS or d["codec"].startswith("pcm_"):
         depth = f"{d['bits']}-bit " if d.get("bits") else ""
         rate = f"{d['rate'] / 1000:g} kHz" if d.get("rate") else ""
@@ -187,7 +186,7 @@ def _rank(d: dict, size: int) -> tuple:
 
 # ---------------------------------------------------------------- the scan
 
-def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500 * 1024,
+def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500 * 1024,  # noqa: C901 (to split up)
                     exclude: list[Path] | None = None, progress: ProgressFn | None = None,
                     cancel: threading.Event | None = None) -> ScanResult:
     import numpy as np
@@ -222,7 +221,7 @@ def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500
             continue                                   # (unreadable last time, unchanged since)
         todo.append(i)
 
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
     done: list[int] = []
 
     def work(i: int) -> None:
@@ -313,7 +312,7 @@ def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500
                 extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
                        "keeper_label": kq}))
     if sets:
-        result.notes.append(f"{len(sets)} song{'s' if len(sets) != 1 else ''} saved more than once. The best "
+        result.notes.append(f"{plural(len(sets), 'song')} saved more than once. The best "
                             "copy of each stays; right-click to keep a different one.")
     elif not files:
         result.notes.append("No music here.")

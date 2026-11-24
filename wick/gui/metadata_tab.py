@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import queue
+import time
 from pathlib import Path
 from typing import cast
 
@@ -11,6 +13,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox
 
 from .. import metaclean
 from ..engine import process_metadata
+from ..formats import AUDIO, DOCUMENT, plural
 from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
@@ -121,9 +124,6 @@ class MetadataTab(FileJobPage):
                         output_suffix="_clean", preserve_dates=self.dates.isChecked(), metadata="keep")
 
     def accepts(self, path: Path) -> bool:
-        from ..formats import AUDIO
-
-        from ..formats import DOCUMENT
 
         kind = metaclean.kind_of(path)   # about photos and videos; music tags aren't private data
         return kind not in (AUDIO, DOCUMENT)
@@ -157,14 +157,16 @@ class MetadataTab(FileJobPage):
     def selection_count(self) -> int:
         if self._count_dirty:
             self._count = len(self.selected())
-            self._eligible = sum(bool(row.flags() & Qt.ItemIsUserCheckable) and not row.isHidden()
+            self._eligible = sum(bool(row.flags() & Qt.ItemFlag.ItemIsUserCheckable) and not row.isHidden()
                                  for row in self.rows.values())
             self._count_dirty = False
         return self._count
 
     def _header_state(self):
         count = self.selection_count()
-        return Qt.Unchecked if not count else Qt.Checked if count == self._eligible else Qt.PartiallyChecked
+        if not count:
+            return Qt.CheckState.Unchecked
+        return Qt.CheckState.Checked if count == self._eligible else Qt.CheckState.PartiallyChecked
 
     def _item_changed(self, *_):
         self._count_dirty = True
@@ -217,8 +219,6 @@ class MetadataTab(FileJobPage):
                 row.setToolTip(self.STATUS_COL, summary.error)
 
     def _drain(self) -> None:
-        import queue
-        import time
 
         worker = cast(MetadataScan, self.scan_thread)
         self.selection_count()  # incorporate any user checkbox changes before appending
@@ -294,7 +294,7 @@ class MetadataTab(FileJobPage):
         located = self._located
         cams = self._cameras
         n = self.selection_count()
-        parts = [f"{len(self.entries)} file{'s' if len(self.entries) != 1 else ''}"]
+        parts = [f"{plural(len(self.entries), 'file')}"]
         if self.summaries:
             parts.append(f"{located} with location" if located else "none with location")
             parts.append(f"{cams} with camera details")

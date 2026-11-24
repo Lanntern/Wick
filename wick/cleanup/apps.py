@@ -17,14 +17,18 @@ import os
 import re
 import shlex
 import struct
+import subprocess
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import walk, winapi
+from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 UNUSED_DAYS = 180                 # "not opened in months"
 LEFTOVER_QUIET_DAYS = 90          # a leftover folder hasn't changed for this long
 _UNINSTALL_KEYS = (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -186,7 +190,7 @@ def _ago(when: float | None, now: float) -> str:
     if days < 1:
         return "Opened today"
     if days < 60:
-        return f"Last opened {days} day{'s' if days != 1 else ''} ago"
+        return f"Last opened {plural(days, 'day')} ago"
     months = days // 30
     if months < 24:
         return f"Last opened {months} months ago"
@@ -268,34 +272,12 @@ def still_installed(app: App) -> bool:
 def _run_and_wait(program: str, args: str, cancel: threading.Event | None) -> None:
     """Start the uninstaller the way Explorer would (Windows asks for permission when it needs it) and wait for
     it to finish."""
-    import ctypes
-    from ctypes import wintypes
 
-    class Info(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
-                    ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
-                    ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
-                    ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
-                    ("dwHotKey", wintypes.DWORD), ("hIcon", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
-
-    shell = ctypes.WinDLL("shell32", use_last_error=True)
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    shell.ShellExecuteExW.argtypes = [ctypes.POINTER(Info)]
-    shell.ShellExecuteExW.restype = wintypes.BOOL
-    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    info = Info(cbSize=ctypes.sizeof(Info), fMask=0x40, lpVerb="open", lpFile=program,   # SEE_MASK_NOCLOSEPROCESS
-                lpParameters=args or None, nShow=1)
-    if not shell.ShellExecuteExW(ctypes.byref(info)):
-        err = ctypes.get_last_error()
-        raise OSError(err, "The uninstaller didn't start" + (" (permission was refused)" if err == 1223 else ""))
-    if info.hProcess:
-        try:
-            while k32.WaitForSingleObject(info.hProcess, 500) == 0x102:      # WAIT_TIMEOUT
-                if cancelled(cancel):
-                    return
-        finally:
-            k32.CloseHandle(info.hProcess)
+    try:
+        winapi.run_and_wait(program, args, cancel=cancel)
+    except OSError as e:
+        raise OSError(e.errno, "The uninstaller didn't start"
+                      + (" (permission was refused)" if e.errno == winapi.ERROR_CANCELLED else "")) from e
 
 
 def uninstall(app: App, cancel: threading.Event | None = None, wait: float = 600.0) -> tuple[bool, str]:
@@ -363,22 +345,18 @@ def leftovers_of(app: App, others: list[App]) -> list[Path]:
 
 def _newest_change(path: Path, limit: int = 2000) -> float:
     """The latest modified time in a folder (looking at up to ``limit`` entries: enough to tell a used folder)."""
+
     newest = path.stat().st_mtime
-    stack, seen = [path], 0
-    while stack and seen < limit:
-        try:
-            entries = list(os.scandir(stack.pop()))
-        except OSError:
-            continue
-        for e in entries:
+    seen = 0
+    for folder in walk.folders([path]):
+        for e in folder.entries:
             seen += 1
             try:
-                st = e.stat(follow_symlinks=False)
+                newest = max(newest, e.stat(follow_symlinks=False).st_mtime)
             except OSError:
                 continue
-            newest = max(newest, st.st_mtime)
-            if e.is_dir(follow_symlinks=False):
-                stack.append(Path(e.path))
+        if seen >= limit:
+            break
     return newest
 
 
@@ -386,7 +364,6 @@ def _running_folders() -> set[str]:
     """Folders of programs running now (lower case), from Windows' process list."""
     if not IS_WINDOWS:
         return set()
-    import subprocess
 
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",

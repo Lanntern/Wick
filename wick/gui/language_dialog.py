@@ -33,9 +33,9 @@ class LanguageDialog(QDialog):
         rest = sorted((k for k in languages.LANGUAGES if k not in first), key=languages.name)
         for key in first + rest:
             it = QListWidgetItem(languages.name(key))
-            it.setData(Qt.UserRole, key)
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(Qt.Checked if key in chosen else Qt.Unchecked)
+            it.setData(Qt.ItemDataRole.UserRole, key)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(Qt.CheckState.Checked if key in chosen else Qt.CheckState.Unchecked)
             self.list.addItem(it)
         reset = button("Use This PC's Languages", "", None, "Choose the languages found on this computer")
         reset.clicked.connect(lambda: self._set(detected))
@@ -45,7 +45,7 @@ class LanguageDialog(QDialog):
     def _set(self, keys: list[str]) -> None:
         for i in range(self.list.count()):
             it = self.list.item(i)
-            it.setCheckState(Qt.Checked if it.data(Qt.UserRole) in keys else Qt.Unchecked)
+            it.setCheckState(Qt.CheckState.Checked if it.data(Qt.ItemDataRole.UserRole) in keys else Qt.CheckState.Unchecked)
 
     def _filter(self, query: str) -> None:
         q = query.strip().lower()
@@ -54,8 +54,8 @@ class LanguageDialog(QDialog):
             it.setHidden(bool(q) and q not in it.text().lower())
 
     def chosen(self) -> list[str]:
-        return [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count())
-                if self.list.item(i).checkState() == Qt.Checked]
+        return [self.list.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.list.count())
+                if self.list.item(i).checkState() == Qt.CheckState.Checked]
 
     def _accept(self) -> None:
         if not self.chosen():

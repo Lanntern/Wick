@@ -4,7 +4,15 @@ import re
 
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget, QWidgetAction,
+    QComboBox,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QWidgetAction,
 )
 
 from ..cleanup import appcompress
@@ -17,21 +25,21 @@ def algorithm_picker(current):
     layout = QVBoxLayout(group)
     layout.setContentsMargins(0, 0, 0, 0)
     combo = QComboBox()
-    combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-    for key, (name, reason, _ratio) in appcompress.ALGORITHMS.items():
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+    for key, (name, tip, _ratio) in appcompress.ALGORITHMS.items():
         combo.addItem(name, key)
-        combo.setItemData(combo.count() - 1, reason, Qt.ToolTipRole)
+        combo.setItemData(combo.count() - 1, tip, Qt.ItemDataRole.ToolTipRole)
     combo.setCurrentIndex(max(0, combo.findData(current)))
     reason = text("", Type.FOOTNOTE, secondary=True)
     reason.setWordWrap(True)
-    reason.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+    reason.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
     # FlowLayout uses size hints: reserve the widest/tallest explanation up front
     # so changing the algorithm never moves the other controls or the results.
     width = max(combo.sizeHint().width(), round(280 * text_scale()))
     group.setFixedWidth(width)
     reason.setFixedWidth(width)
     metrics = reason.fontMetrics()
-    height = max(metrics.boundingRect(QRect(0, 0, width, 10000), Qt.TextWordWrap, explanation).height()
+    height = max(metrics.boundingRect(QRect(0, 0, width, 10000), Qt.TextFlag.TextWordWrap, explanation).height()
                  for _name, explanation, _ratio in appcompress.ALGORITHMS.values())
     reason.setFixedHeight(height + metrics.leading() + 2)
 
@@ -81,21 +89,21 @@ class FileTypePicker(QPushButton):
         self.types.itemChanged.connect(self._changed)
 
     def values(self):
-        return sorted(self.types.item(i).data(Qt.UserRole) for i in range(self.types.count())
-                      if self.types.item(i).checkState() == Qt.Checked)
+        return sorted(self.types.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.types.count())
+                      if self.types.item(i).checkState() == Qt.CheckState.Checked)
 
     def set_values(self, values, notify=True):
         selected = appcompress.exclusions(values)
         choices = selected | appcompress.exclusions(appcompress.DEFAULT_SKIP) | {
             ".exe", ".dll", ".pak", ".dat", ".ucas", ".utoc", ".wav", ".webp", ".pdf", ".zst"}
-        choices.update(self.types.item(i).data(Qt.UserRole) for i in range(self.types.count()))
+        choices.update(self.types.item(i).data(Qt.ItemDataRole.UserRole) for i in range(self.types.count()))
         self.types.blockSignals(True)
         self.types.clear()
         for extension in sorted(choices):
             item = QListWidgetItem(extension)
-            item.setData(Qt.UserRole, extension)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if extension in selected else Qt.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, extension)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if extension in selected else Qt.CheckState.Unchecked)
             self.types.addItem(item)
         self.types.blockSignals(False)
         self._changed(notify)

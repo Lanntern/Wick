@@ -22,7 +22,7 @@ def data_dir() -> Path:
     if env:
         d = Path(env)
     else:
-        if os.name == "nt":
+        if sys.platform == "win32":
             base, names = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"), [APP_NAME, *FORMER_NAMES]
         elif sys.platform == "darwin":
             base, names = Path.home() / "Library" / "Application Support", [APP_NAME, *FORMER_NAMES]

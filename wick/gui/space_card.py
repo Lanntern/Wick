@@ -38,7 +38,7 @@ class StackedBar(QWidget):
         self.parts: list[tuple[str, str, int]] = []      # (key, label, bytes)
         self.total = 0
         self.setMinimumHeight(self.HEIGHT)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setMouseTracking(True)
         self.setAccessibleName("Space on the drive")
 
@@ -63,7 +63,7 @@ class StackedBar(QWidget):
     def paintEvent(self, _e) -> None:
         tk = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = self.height() / 2
         track = QPainterPath()
         track.addRoundedRect(QRectF(self.rect()), r, r)
@@ -86,9 +86,9 @@ class StackedBar(QWidget):
 def _swatch(color: QColor) -> QLabel:
     size = Space.M
     pm = QPixmap(size, size)
-    pm.fill(Qt.transparent)
+    pm.fill(Qt.GlobalColor.transparent)
     p = QPainter(pm)
-    p.setRenderHint(QPainter.Antialiasing)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
     path = QPainterPath()
     path.addRoundedRect(QRectF(0, 0, size, size), 3, 3)
     p.fillPath(path, color)
@@ -126,7 +126,7 @@ class SpaceCard(Card):
         from PySide6.QtCore import QEvent
 
         super().changeEvent(e)
-        if e.type() in (QEvent.StyleChange, QEvent.PaletteChange) and not getattr(self, "_restyling", False):
+        if e.type() in (QEvent.Type.StyleChange, QEvent.Type.PaletteChange) and not getattr(self, "_restyling", False):
             self._restyling = True          # the theme changed: colors of the swatches too
             try:
                 if self.breakdown is not None:

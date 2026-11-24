@@ -2,23 +2,43 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
+import json as _json
 import re
+import re as _re
+import shutil
+import tempfile
 import threading
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import audio, icons, steps, tools
 from . import metadata as md
-from . import steps, tools
 from .fileops import link_or_copy, remove_quietly, temp_name
 from .formats import (
-    ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, HEIC, JXL, PANDOC_INPUTS, PDF, RAW, SVG, VIDEO, human, read_jxl_info,
+    ARCHIVE,
+    AUDIO,
+    COMIC,
+    DOC,
+    DOCUMENT,
+    FONT,
+    HEIC,
+    JXL,
+    PANDOC_INPUTS,
+    PDF,
+    RAW,
+    SVG,
+    VIDEO,
+    human,
+    read_jxl_info,
     register_heif,
 )
-from .images import Ctx, VerificationFailed, _decoded_path, _filtered_meta, _load_frames, _load_static, _open
+from .images import Ctx, VerificationFailed, decoded_path, filtered_meta, load_frames, load_static, open_image
 from .plan import Plan
-from .probe import VideoInfo, probe_video
+from .probe import VideoInfo, probe_audio, probe_video
 from .settings import Settings
 
 # id: (label, extension, supports animation, supports lossless, lossy quality applies)
@@ -339,17 +359,17 @@ def convert_image(src: Path, kind: str, info, target: str, opts: ConvertOptions,
         steps.report(f"Encoding {label}")
         animated = bool(info is not None and getattr(info, "frames", 1) > 1 and anim_ok)
         if animated:
-            frames, durations, loop = _load_frames(ctx.staged)
+            frames, durations, loop = load_frames(ctx.staged)
             if plan.resize:
                 from PIL import Image
 
-                frames = [f.resize(plan.resize, Image.LANCZOS) for f in frames]
+                frames = [f.resize(plan.resize, Image.Resampling.LANCZOS) for f in frames]
             frames = [_turn_picture(f, opts) for f in frames]
-            with _open(ctx.staged) as im:
-                meta = _filtered_meta(ctx, im)
+            with open_image(ctx.staged) as im:
+                meta = filtered_meta(ctx, im)
             _save_animated(frames, durations, loop, target, ctx, opts, meta)
         else:
-            img, meta = _load_static(ctx)
+            img, meta = load_static(ctx)
             img = _turn_picture(img, opts)
             if img.mode in ("I;16", "I", "F") and target not in ("png", "tiff", "jxl"):
                 img = img.convert("RGB")
@@ -500,22 +520,8 @@ def _turn_jpeg(src: Path, opts: ConvertOptions) -> Path:
         raise
 
 
-def _orientation_of(exif: bytes) -> int:
-    from PIL import Image
-
-    ex = Image.Exif()
-    try:
-        ex.load(md.EXIF_HEADER + exif)
-    except Exception:  # noqa: BLE001
-        from wick.log import ignored
-        ignored("convert._orientation_of")
-        return 1
-    return int(ex.get(md.ORIENTATION, 1) or 1)
-
-
 def video_rotation(path: Path) -> int:
     """The video's display rotation in degrees counter-clockwise (what ffmpeg's -display_rotation takes)."""
-    import json as _json
 
     ffprobe = tools.require("ffprobe")
     p = tools.run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream_side_data=rotation",
@@ -568,7 +574,6 @@ def _make_icon_or_svg(ctx: Ctx, target: str, opts: ConvertOptions) -> None:
     """An .ico with the chosen sizes (an SVG drawn at each size), or an optimized copy of an SVG; both checked."""
     from PIL import Image
 
-    from . import icons
 
     if target == "svg":
         if ctx.kind != SVG:
@@ -612,7 +617,6 @@ def _make_icon_or_svg(ctx: Ctx, target: str, opts: ConvertOptions) -> None:
 def _decode_raw(ctx: Ctx) -> None:
     """A camera RAW photo developed by LibRaw with the camera's white balance (as the camera's own JPEG would
     be), turned upright, to an 8-bit PNG. Its EXIF comes along when the RAW keeps it TIFF-style (most do)."""
-    import dataclasses
 
     import rawpy
     from PIL import Image
@@ -630,7 +634,6 @@ def _decode_raw(ctx: Ctx) -> None:
     except Exception:  # noqa: BLE001 - CR3, RAF and others: no EXIF that Pillow reads
         from wick.log import ignored
         ignored("convert._decode_raw")
-        pass
     dec = ctx.tmp(".png", "-raw")
     img.save(dec, "PNG", compress_level=1)
     if exif:
@@ -642,7 +645,6 @@ def _decode_raw(ctx: Ctx) -> None:
 def _draw_svg(ctx: Ctx, size: int) -> None:
     """Draw an SVG to a PNG: at its own size, or with its longest side ``size`` pixels (a drawing scales up
     as sharply as it scales down)."""
-    import dataclasses
 
     from PySide6.QtCore import QRectF, Qt
     from PySide6.QtGui import QImage, QPainter
@@ -652,15 +654,16 @@ def _draw_svg(ctx: Ctx, size: int) -> None:
     r = QSvgRenderer(str(ctx.staged))
     if not r.isValid():
         raise RuntimeError("The SVG can't be read")
+    assert ctx.info is not None, "read before converting"
     w, h = ctx.info.width, ctx.info.height
     if size:
         scale = size / max(w, h)
         w, h = max(1, round(w * scale)), max(1, round(h * scale))
         ctx.plan.resize = None                       # (drawn at that size already)
-    image = QImage(w, h, QImage.Format_ARGB32)
-    image.fill(Qt.transparent)
+    image = QImage(w, h, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
-    painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+    painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
     r.render(painter, QRectF(0, 0, w, h))
     painter.end()
     dec = ctx.tmp(".png", "-svg")
@@ -751,10 +754,11 @@ def _save_animated(frames, durations, loop, target: str, ctx: Ctx, opts: Convert
 
 
 def _verify(ctx: Ctx, frames: int) -> None:
-    path = _decoded_path(ctx, ctx.out)
+    assert ctx.info is not None, "read before converting"
+    path = decoded_path(ctx, ctx.out)
     w, h = ctx.plan.resize or (ctx.info.width, ctx.info.height)
     try:
-        with _open(path) as im:
+        with open_image(path) as im:
             size = im.size
             n = getattr(im, "n_frames", 1)
             im.seek(n - 1)
@@ -814,8 +818,16 @@ def video_args(src: Path, dst: Path, info: VideoInfo, target: str, s: Settings) 
 def convert_video(src: Path, info: VideoInfo, target: str, s: Settings,
                   on_progress: Callable[[float], None] | None = None,
                   cancel: threading.Event | None = None) -> Path:
-    from .video import (build_args, check_quality_budget, choose_encoder, measure, measures_quality,
-                        smart_quality, source_rate_limit, verify_video)
+    from .video import (
+        build_args,
+        check_quality_budget,
+        choose_encoder,
+        measure,
+        measures_quality,
+        smart_quality,
+        source_rate_limit,
+        verify_video,
+    )
 
     out = temp_name(src.parent, VIDEO_TARGETS[target][1])
     try:
@@ -833,8 +845,7 @@ def convert_video(src: Path, info: VideoInfo, target: str, s: Settings,
         steps.report("Encoding " + re.sub(r",[^)]*\)", ")", VIDEO_TARGETS[target][0]))     # "MP4 (H.264)"
         tools.run_ffmpeg_progress(args, info.duration, on_progress, cancel)
         steps.report("Checking the result")
-        verify_video(info, out, VIDEO_TARGETS[target][2], dst_is_mp4=out.suffix == ".mp4",
-                     expected_size=s.video_target_size(info.width, info.height)
+        verify_video(info, out, VIDEO_TARGETS[target][2], expected_size=s.video_target_size(info.width, info.height)
                      if VIDEO_TARGETS[target][2] in ("av1", "hevc") or s.video_max_height else None, src_path=src)
         if codec in ("av1", "hevc") and measures_quality(vs) and source_rate_limit(info, vs, encoder):
             steps.report("Measuring how close it looks to the original")
@@ -883,7 +894,6 @@ def video_to_animation(src: Path, info: VideoInfo, target: str, opts: ConvertOpt
                        cancel: threading.Event | None = None) -> Path:
     """A video as a GIF (its own 256-color palette, made for this video) or an animated WebP. Unless chosen
     otherwise: at most 480 pixels on the short side and 15 (GIF) or 24 (WebP) frames a second."""
-    import dataclasses
 
     from PIL import Image
 
@@ -938,7 +948,7 @@ def animation_to_video(src: Path, info, opts: ConvertOptions, s: Settings,
     animation. See-through parts become white (MP4 has no transparency)."""
     from PIL import Image
 
-    frames, durations, _loop = _load_frames(src)
+    frames, durations, _loop = load_frames(src)
     if len(frames) < 2:
         raise RuntimeError("Only animations can become a video")
     w, h = frames[0].size
@@ -951,7 +961,7 @@ def animation_to_video(src: Path, info, opts: ConvertOptions, s: Settings,
         bg = Image.new("RGBA", f.size, (255, 255, 255, 255))
         bg.alpha_composite(f)
         img = bg.convert("RGB")
-        flat.append(img.resize((w, h), Image.LANCZOS) if img.size != (w, h) else img)
+        flat.append(img.resize((w, h), Image.Resampling.LANCZOS) if img.size != (w, h) else img)
     apng = temp_name(src.parent, ".png", "-anim")
     out = temp_name(src.parent, ".mp4")
     try:
@@ -985,7 +995,6 @@ def extract_audio(src: Path, target: str, opts: ConvertOptions, s: Settings,
                   cancel: threading.Event | None = None) -> tuple[Path, str]:
     """A video's sound as an audio file: (temp file, what was done). Copied untouched when it's already in
     the chosen format and nothing about it is to change; otherwise encoded like Convert's audio."""
-    from .probe import probe_audio
 
     info = probe_audio(src, allow_video=True)
     if info is None:
@@ -1020,7 +1029,6 @@ def convert_pdf(src: Path, target: str, opts: ConvertOptions,
                 cancel: threading.Event | None = None) -> Path:
     """A PDF's pages as images or single-page PDFs (a temp folder), or a copy with its pages turned or its
     password added or removed (a temp file). Every result is checked."""
-    import shutil
 
     from . import pdftools
 
@@ -1085,9 +1093,7 @@ def convert_font(src: Path, target: str, opts: ConvertOptions) -> Path:
 def comic_pages(src: Path, folder: Path) -> list[Path]:
     """A comic book's pictures, in reading order (natural: 2 before 10), written to ``folder`` under plain
     names (the archive's own names are never used as paths)."""
-    import re as _re
     import tarfile
-    import zipfile
 
     from PIL import Image
 
@@ -1146,8 +1152,6 @@ def comic_pages(src: Path, folder: Path) -> list[Path]:
 def convert_comic(src: Path, opts: ConvertOptions, on_progress: Callable[[float], None] | None = None,
                   cancel: threading.Event | None = None) -> Path:
     """A comic book as one PDF, a page per picture (JPEGs as they are)."""
-    import shutil
-    import tempfile
 
     from . import pdftools
 
@@ -1243,9 +1247,7 @@ def convert_audio(src: Path, info, target: str, s: Settings,
                   on_progress: Callable[[float], None] | None = None,
                   cancel: threading.Event | None = None, opts: ConvertOptions | None = None) -> Path:
     """Audio to MP3/AAC/Opus/FLAC (high quality, channels unchanged unless ``opts`` say otherwise) or WAV."""
-    import dataclasses
 
-    from . import audio
 
     o = opts or ConvertOptions()
     channels = o.channels if o.channels and o.channels != info.channels else 0

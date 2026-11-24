@@ -6,8 +6,9 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QSizePolicy, QStackedWidget, QTabBar, QWidget
 
-from .cleanup_section import ToolSection, _Scan
+from .cleanup_section import ScanWorker, ToolSection
 from .cleanup_tools import tools
+from .dialogs import inform
 from .style import Space
 from .widgets import Page, button, dialog_buttons, dialog_layout
 
@@ -22,7 +23,7 @@ class CleanupTab(Page):
         self.tabs.setExpanding(False)
         self.tabs.setDrawBase(False)
         self.tabs.setAccessibleName("Clean-up tools")
-        self.tabs.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)   # its tabs' full height, never squeezed
+        self.tabs.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)   # its tabs' full height, never squeezed
         self.stack = QStackedWidget()
         # Each tool is built the first time it's shown (building all ten up front made opening the page hitch).
         self._tools = tools()
@@ -56,7 +57,7 @@ class CleanupTab(Page):
         self.tabs.currentChanged.connect(self.picker.setCurrentIndex)
         self.picker.hide()
         self.body.addWidget(self.tabs)
-        self.body.addWidget(self.picker, 0, Qt.AlignLeft)
+        self.body.addWidget(self.picker, 0, Qt.AlignmentFlag.AlignLeft)
         common = button("Scan Several Tools…", "", "broom",
                         "Run several tools on the same folders in one pass, then review the results in each tool")
         common.clicked.connect(self.scan_common)
@@ -67,7 +68,7 @@ class CleanupTab(Page):
         """Tool ``index``'s section, built now if it hasn't been yet."""
         sec = self._built.get(index)
         if sec is None:
-            from .widgets import _BodyScroll
+            from .widgets import BodyScroll
 
             sec = ToolSection(self._tools[index], self)
             if self._hover is not None:
@@ -75,10 +76,11 @@ class CleanupTab(Page):
             current = self.stack.currentIndex()
             holder = self.stack.widget(index)
             self.stack.insertWidget(index, sec)
-            self.stack.removeWidget(holder)
-            holder.deleteLater()
+            if holder is not None:
+                self.stack.removeWidget(holder)
+                holder.deleteLater()
             self.stack.setCurrentIndex(current)
-            for scroll in sec.findChildren(_BodyScroll):
+            for scroll in sec.findChildren(BodyScroll):
                 scroll.verticalScrollBar().rangeChanged.connect(lambda *_: self._refit_soon())
             self._built[index] = sec
         return sec
@@ -105,7 +107,7 @@ class CleanupTab(Page):
         self.stack.setCurrentIndex(index)
         for i in range(self.stack.count()):
             w = self.stack.widget(i)
-            policy = QSizePolicy.Preferred if i == index else QSizePolicy.Ignored
+            policy = QSizePolicy.Policy.Preferred if i == index else QSizePolicy.Policy.Ignored
             w.setSizePolicy(policy, policy)
         self.stack.updateGeometry()
         self._refit_soon()
@@ -122,7 +124,7 @@ class CleanupTab(Page):
     def event(self, e) -> bool:
         from PySide6.QtCore import QEvent
 
-        if e.type() in (QEvent.Show, QEvent.StyleChange, QEvent.FontChange, QEvent.PolishRequest):
+        if e.type() in (QEvent.Type.Show, QEvent.Type.StyleChange, QEvent.Type.FontChange, QEvent.Type.PolishRequest):
             # The tab bar learns its tabs' styled height only once polished, and doesn't tell the layout:
             # without this it keeps the height it had before (and its tabs are cut off at the bottom).
             self.tabs.updateGeometry()
@@ -150,7 +152,6 @@ class CleanupTab(Page):
 
     def scan_common(self) -> None:
         from ..cleanup.common import ScanResult, shared_inventory
-        from .dialogs import inform
 
         if self.busy():
             inform(self, "Wait for the current cleanup operation to finish, or stop it first.")
@@ -173,7 +174,7 @@ class CleanupTab(Page):
                 layout.addWidget(box)
                 choices.append((i, box))
         layout.addLayout(dialog_buttons(dialog, ("Scan", dialog.accept)))
-        if dialog.exec() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         sections = [self.section(i) for i, box in choices if box.isChecked()]
         if not sections:
@@ -192,7 +193,7 @@ class CleanupTab(Page):
                         sec, lambda msg, done, total, sec=sec: progress(f"{sec.tool.tab}: {msg}", done, total), cancel)
             return results
 
-        worker = _Scan(scan, self)
+        worker = ScanWorker(scan, self)
         worker.active_key = ""
         worker.combined = True
         self._batch_worker = worker

@@ -18,10 +18,18 @@ back data, which sandbox.py checks before using.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
+import time
 from collections.abc import Callable
+from pathlib import Path
+
+from . import tools, winapi
+from .cleanup.similar import fingerprint, inspect
+from .formats import AUDIO, HEIC, VIDEO, register_heif
+from .icons import looks_same
 
 LOW_INTEGRITY_RID = 0x1000        # SECURITY_MANDATORY_LOW_RID
 
@@ -40,7 +48,7 @@ def enter_sandbox(tmp_dir: str, memory_limit: int) -> dict:
 
         tempfile.tempdir = tmp_dir
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             applied["job"] = _windows_job(memory_limit)
             applied["integrity"] = _windows_low_integrity()
         else:
@@ -51,44 +59,17 @@ def enter_sandbox(tmp_dir: str, memory_limit: int) -> dict:
 
 
 def _windows_job(memory_limit: int) -> bool:
+    if sys.platform != "win32":
+        return False
     import ctypes
     from ctypes import wintypes
 
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
-    class Basic(ctypes.Structure):
-        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
-                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
-                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
-                    ("SchedulingClass", wintypes.DWORD)]
-
-    class Extended(ctypes.Structure):
-        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
-                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-    # (Every argument type declared: a handle passed as a plain int overflows ctypes' default C int.)
-    k32.CreateJobObjectW.restype = wintypes.HANDLE
-    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-    k32.GetCurrentProcess.restype = wintypes.HANDLE
-    k32.GetCurrentProcess.argtypes = []
-    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-    k32.SetInformationJobObject.restype = wintypes.BOOL
-    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-    k32.AssignProcessToJobObject.restype = wintypes.BOOL
-    job = k32.CreateJobObjectW(None, None)
-    if not job:
-        raise OSError(ctypes.get_last_error(), "CreateJobObject failed")
-    info = Extended()
-    # KILL_ON_JOB_CLOSE | ACTIVE_PROCESS | DIE_ON_UNHANDLED_EXCEPTION (no breakaway: its programs stay in it)
-    info.BasicLimitInformation.LimitFlags = 0x2000 | 0x8 | 0x400
-    info.BasicLimitInformation.ActiveProcessLimit = 8     # itself and the decoders it runs, never a process tree
-    if memory_limit:
-        info.BasicLimitInformation.LimitFlags |= 0x100       # PROCESS_MEMORY
-        info.ProcessMemoryLimit = memory_limit
-    if not k32.SetInformationJobObject(wintypes.HANDLE(job), 9, ctypes.byref(info), ctypes.sizeof(info)):
-        raise OSError(ctypes.get_last_error(), "SetInformationJobObject (limits) failed")
+    k32 = winapi.job_kernel32()
+    # Its own process and the decoders it runs, never a process tree; ended with the app, and on a crash (no
+    # breakaway: its programs stay in it).
+    job = winapi.job_object(winapi.KILL_ON_JOB_CLOSE | winapi.DIE_ON_UNHANDLED_EXCEPTION, memory_limit,
+                            active_processes=8)
     # Basic UI restrictions, all of them: desktop, display settings, log off, global atoms, other processes'
     # windows (handles), clipboard (read and write), system parameters.
     ui = wintypes.DWORD(0xFF)
@@ -102,6 +83,8 @@ def _windows_job(memory_limit: int) -> bool:
 
 def _windows_low_integrity() -> str:
     """Lower this process's own integrity level to low (allowed: a process may lower, never raise, its own)."""
+    if sys.platform != "win32":
+        return ""
     import ctypes
     from ctypes import wintypes
 
@@ -152,9 +135,11 @@ def _windows_low_integrity() -> str:
 
 
 def _posix_limits(memory_limit: int) -> dict:
+    if sys.platform == "win32":
+        return {}
     import resource
 
-    applied = {}
+    applied: dict[str, int] = {}
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     if memory_limit and sys.platform != "darwin":
         # (macOS doesn't enforce an address-space limit, and its system libraries reserve far more address space
@@ -180,12 +165,11 @@ def _rgba(img, max_pixels: int):
     img = img.convert("RGBA")
     if img.width * img.height > max_pixels:
         scale = (max_pixels / (img.width * img.height)) ** 0.5
-        img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))), Image.LANCZOS)
+        img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))), Image.Resampling.LANCZOS)
     return {"w": img.width, "h": img.height}, img.tobytes()
 
 
 def broken_check(path: str, size: int, thorough: bool):
-    from pathlib import Path
 
     from .cleanup.broken import check_file
 
@@ -194,18 +178,14 @@ def broken_check(path: str, size: int, thorough: bool):
 
 
 def similar_fingerprint(path: str):
-    from pathlib import Path
 
-    from .cleanup.similar import fingerprint
 
     found = fingerprint(Path(path))
     return {"result": list(found) if found else None}, None
 
 
 def similar_inspect(path: str, px: int):
-    from pathlib import Path
 
-    from .cleanup.similar import inspect
 
     sharp, gray = inspect(Path(path), int(px))
     if gray is None:
@@ -215,13 +195,9 @@ def similar_inspect(path: str, px: int):
 
 def thumbnail(path: str, kind: str, max_px: int):
     """A picture's or video's preview, at most max_px on its longer side (album art for music)."""
-    import io
-    from pathlib import Path
 
     from PIL import Image, ImageOps
 
-    from . import tools
-    from .formats import AUDIO, HEIC, VIDEO, register_heif
 
     p, max_px = Path(path), int(max_px)
     scale = f"scale={max_px}:{max_px}:force_original_aspect_ratio=decrease"
@@ -246,7 +222,7 @@ def thumbnail(path: str, kind: str, max_px: int):
         from .images import open_for_display
 
         pic = open_for_display(p)
-        pic.thumbnail((max_px, max_px), Image.LANCZOS)
+        pic.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
         return _rgba(pic, max_px * max_px)
     if kind == HEIC:
         register_heif()
@@ -255,13 +231,12 @@ def thumbnail(path: str, kind: str, max_px: int):
             im.draft("RGB", (max_px * 2, max_px * 2))          # fast DCT-domain downscale
         im.seek(0)
         pic = (ImageOps.exif_transpose(im) or im).convert("RGBA")
-        pic.thumbnail((max_px, max_px), Image.LANCZOS)
+        pic.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
         return _rgba(pic, max_px * max_px)
 
 
 def display_image(path: str, max_pixels: int):
     """The first frame of a picture as it's shown (orientation applied), for the preview window."""
-    from pathlib import Path
 
     from .images import open_for_display
 
@@ -274,14 +249,12 @@ _GUI: list = []
 def svg_same(a: str, b: str):
     """Do two SVG drawings look the same (drawn at 256 and 1024 pixels)? Qt draws them here, in an off-screen
     application of the worker's own, so a hostile drawing can't harm the app (and no window is needed)."""
-    from pathlib import Path
 
     if not _GUI:
         from PySide6.QtGui import QGuiApplication
 
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         _GUI.append(QGuiApplication.instance() or QGuiApplication(["wick-decoder"]))
-    from .icons import looks_same
 
     x, y = Path(a).read_bytes(), Path(b).read_bytes()
     return {"result": bool(looks_same(x, y, 256) and looks_same(x, y, 1024))}, None
@@ -292,7 +265,6 @@ FUNCTIONS: dict[str, Callable] = {f.__name__: f for f in (broken_check, similar_
 
 
 def _test_sleep(seconds: float):
-    import time
 
     time.sleep(float(seconds))
     return {}, None

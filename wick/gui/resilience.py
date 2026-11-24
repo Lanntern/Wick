@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import faulthandler
+import logging
 import os
 import sys
 import threading
@@ -19,6 +20,9 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Signal
+
+from .. import procpool
+from ..log import log, log_file
 
 STALL_SECONDS = 8.0         # the window not responding this long: record where every thread is
 QUIT_DEADLINE = 8.0         # quitting: how long background work gets to stop, all together
@@ -99,11 +103,9 @@ QT_REPEATS_LOGGED = 3       # the same Qt message (some come on every resize): l
 def _log_qt_messages() -> None:
     """Qt's own warnings and errors (a plugin that didn't load, a thread destroyed while running…) go to the
     console, which the installed app doesn't have: send them to the log."""
-    import logging
 
     from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
-    from ..log import log
 
     levels = {QtMsgType.QtWarningMsg: logging.WARNING, QtMsgType.QtCriticalMsg: logging.ERROR,
               QtMsgType.QtFatalMsg: logging.CRITICAL, QtMsgType.QtInfoMsg: logging.INFO}
@@ -125,7 +127,6 @@ def _log_qt_messages() -> None:
 
 
 def _show_background_error(kind: str, message: str) -> None:
-    from ..log import log_file
     from .dialogs import warn
 
     if getattr(_show_background_error, "showing", False):
@@ -155,7 +156,6 @@ def _start_stall_watch() -> None:
     _heartbeat = time.monotonic()
 
     def watch():
-        from ..log import log, log_file
 
         reported = False
         while True:
@@ -193,7 +193,6 @@ def ask_to_stop(thread: QThread) -> None:
         except Exception:  # noqa: BLE001 - stopping must never fail the quit
             from wick.log import ignored
             ignored("gui.resilience.ask_to_stop")
-            pass
     thread.requestInterruption()
 
 
@@ -249,11 +248,9 @@ def exit_now_if_stuck(code: int) -> None:
     _stuck.extend(t for t in _outliving if t.isRunning() and t not in _stuck)
     if not _stuck:
         return
-    import logging
 
     logging.shutdown()
     end_cleanly()                         # (a deliberate exit, not a crash)
-    from .. import procpool
 
     procpool.shutdown()                   # (os._exit below skips atexit, which would stop the helper processes)
     sys.stdout.flush()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .formats import AUDIO, VIDEO
+from .plan import fps_label
 
 _VIDEO_CODECS = {"h264": "H.264", "hevc": "HEVC", "av1": "AV1", "vp9": "VP9", "vp8": "VP8", "mpeg4": "MPEG-4",
                  "mpeg2video": "MPEG-2", "mpeg1video": "MPEG-1", "prores": "ProRes", "mjpeg": "MJPEG",
@@ -24,14 +25,12 @@ def cadence_note(v) -> str:
     """Explains repeated frames, or "" if there are none."""
     if getattr(v, "cadence", 0) <= 0:
         return ""
-    from .plan import fps_label
 
     return f"{fps_label(v.content_fps)} fps footage padded to {fps_label(v.fps)} fps (repeated frames)"
 
 
 def describe(entry) -> str:
     """e.g. "1920×1080 · 29.97 fps · H.264 · 8.2 Mb/s · 3:21"."""
-    from .plan import fps_label
 
     if entry.kind == VIDEO and entry.video is not None:
         v = entry.video

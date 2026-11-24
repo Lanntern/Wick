@@ -17,13 +17,14 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from ..formats import AUDIO, AUDIO_EXTS, AVIF, DOCUMENT, HEIC, IMAGE_KINDS, VIDEO, VIDEO_EXTS, _EXT_KIND, sniff
+from .. import tools
+from ..formats import AUDIO, AUDIO_EXTS, AVIF, DOCUMENT, EXT_KIND, HEIC, IMAGE_KINDS, VIDEO, VIDEO_EXTS, sniff
 from .common import Candidate, ScanResult, cancelled, walk_files
 
 ZIP_EXTS = {".zip", ".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
             ".odt", ".ods", ".odp", ".odg", ".epub"}
 TAR_EXTS = {".tar", ".tgz", ".gz"}
-CHECKED = {*_EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, *ZIP_EXTS, *TAR_EXTS, ".7z", ".pdf"}
+CHECKED = {*EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, *ZIP_EXTS, *TAR_EXTS, ".7z", ".pdf"}
 FULL_CHECK_LIMIT = 512 * 1024 * 1024    # archives up to this size have every file's checksum verified
 
 UNREADABLE = "unreadable"               # can't be opened at all: pre-selected
@@ -162,7 +163,6 @@ def _check_pdf(path: Path, size: int) -> tuple[str, str] | None:
 
 
 def _check_media(path: Path, thorough: bool) -> tuple[str, str] | None:
-    from .. import tools
 
     ffprobe, ffmpeg = tools.find_tool("ffprobe"), tools.find_tool("ffmpeg")
     if not ffprobe or not ffmpeg:
@@ -213,14 +213,14 @@ def check_file(path: Path, size: int, thorough: bool = False) -> tuple[str, str]
         return UNREADABLE, "Contains nothing but zeros: the copy or download never finished"
     ext = path.suffix.lower()
     found = sniff(path)
-    expected = _EXT_KIND.get(ext) or (VIDEO if ext in VIDEO_EXTS else AUDIO if ext in AUDIO_EXTS else
+    expected = EXT_KIND.get(ext) or (VIDEO if ext in VIDEO_EXTS else AUDIO if ext in AUDIO_EXTS else
                                       DOCUMENT if ext == ".pdf" else None)
     if found is not None and expected is not None and found[0] != expected \
             and not (found[0] in (VIDEO, AUDIO) and expected in (VIDEO, AUDIO)) \
             and not (found[0] in IMAGE_KINDS and expected in IMAGE_KINDS):
         return None                                  # (another type of file: the Wrong Extensions tab)
-    if ext in _EXT_KIND:
-        return _check_image(path, found[0] if found else _EXT_KIND[ext])
+    if ext in EXT_KIND:
+        return _check_image(path, found[0] if found else EXT_KIND[ext])
     if ext in VIDEO_EXTS or ext in AUDIO_EXTS:
         return _check_media(path, thorough)
     if ext == ".pdf":

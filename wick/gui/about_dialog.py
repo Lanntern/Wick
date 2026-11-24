@@ -11,9 +11,13 @@ from PySide6.QtWidgets import QAbstractItemView, QDialog, QFrame, QHBoxLayout, Q
 
 from .. import APP_NAME, __version__
 from ..about import CREDITS, LICENSE_NOTE, PRIVACY, PRIVACY_URL
+from ..components import report, versions
+from ..tools import app_dir
+from . import devmode
 from .devmode import CLICKS
 from .filelist import SortItem, make_sortable
-from .style import Size, Space, Type
+from .main_window import app_icon, open_qsettings
+from .style import Size, Space, Type, show_tip
 from .widgets import button, text
 
 KIND = {"library": "Built in", "tool": "Separate tool", "code": "Adapted code", "download": "Downloaded when needed"}
@@ -44,10 +48,12 @@ def version_for(name: str, v: dict[str, str]) -> tuple[str, str]:
 
 
 class AboutDialog(QDialog):
+    _clicks: int = 0
+
     def eventFilter(self, obj, e) -> bool:
         from PySide6.QtCore import QEvent
 
-        if obj is getattr(self, "_version", None) and e.type() == QEvent.MouseButtonRelease:
+        if obj is getattr(self, "_version", None) and e.type() == QEvent.Type.MouseButtonRelease:
             self._clicks += 1
             if self._clicks == CLICKS:
                 self._clicks = 0
@@ -55,9 +61,6 @@ class AboutDialog(QDialog):
         return super().eventFilter(obj, e)
 
     def _toggle_dev(self) -> None:
-        from . import devmode
-        from .style import show_tip
-        from .main_window import open_qsettings
 
         qs = open_qsettings()
         on = devmode.toggle(qs)
@@ -83,11 +86,10 @@ class AboutDialog(QDialog):
         head = QHBoxLayout()
         head.setSpacing(Space.L)
         logo = QLabel()
-        from .main_window import app_icon
 
         logo.setPixmap(app_icon().pixmap(Size.ICON_L, Size.ICON_L))
         logo.setAccessibleName(f"{APP_NAME} icon")
-        head.addWidget(logo, 0, Qt.AlignTop)
+        head.addWidget(logo, 0, Qt.AlignmentFlag.AlignTop)
         titles = QVBoxLayout()
         titles.setSpacing(Space.XXS)
         titles.addWidget(text(APP_NAME, Type.TITLE2, bold=True))
@@ -101,7 +103,7 @@ class AboutDialog(QDialog):
         titles.addWidget(text(PRIVACY, Type.BODY, wrap=True))
         policy = QLabel(f'<a href="{PRIVACY_URL}">Read the full privacy policy</a>')
         policy.setOpenExternalLinks(True)
-        policy.setTextInteractionFlags(Qt.TextBrowserInteraction)        # (Tab reaches it; Enter opens it)
+        policy.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)        # (Tab reaches it; Enter opens it)
         policy.setToolTip("What Wick stores and when it goes online. Opens GitHub.")
         titles.addWidget(policy)
         head.addLayout(titles, 1)
@@ -112,25 +114,26 @@ class AboutDialog(QDialog):
         self.tree.setAccessibleName("Components and their licenses. Enter opens the project's website.")
         self.tree.setHeaderLabels(["Component", "Version", "Used for", "License", "Included as"])
         self.tree.setRootIsDecorated(False)
-        self.tree.setFrameShape(QFrame.NoFrame)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setAlternatingRowColors(True)
-        self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
-        from ..components import versions
 
         found = versions()
         for c in CREDITS:
-            version, detail = version_for(c.name, found)
-            it = SortItem([c.name, version, c.purpose, c.license, KIND.get(c.bundled, c.bundled)])
-            it.setData(0, Qt.UserRole, c.url)
+            ver, detail = version_for(c.name, found)
+            it = SortItem([c.name, ver, c.purpose, c.license, KIND.get(c.bundled, c.bundled)])
+            it.setData(0, Qt.ItemDataRole.UserRole, c.url)
             it.setToolTip(0, c.url)
             if detail:
                 it.setToolTip(1, detail)
             self.tree.addTopLevelItem(it)
         make_sortable(self.tree)
-        self.tree.sortByColumn(-1, Qt.AscendingOrder)
+        self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         self.tree.itemActivated.connect(lambda it, _c: self._open(it))   # double-click or Enter
-        self.tree.setCurrentItem(self.tree.topLevelItem(0))
+        first = self.tree.topLevelItem(0)
+        if first is not None:
+            self.tree.setCurrentItem(first)
         lay.addWidget(self.tree, 1)
         lay.addWidget(text(LICENSE_NOTE, Type.FOOTNOTE, secondary=True, wrap=True))
 
@@ -160,21 +163,19 @@ class AboutDialog(QDialog):
     def _copy_versions() -> None:
         from PySide6.QtGui import QGuiApplication
 
-        from ..components import report
 
         QGuiApplication.clipboard().setText(f"{report()}\nPython {platform.python_version()} · {platform.platform()}")
 
     @staticmethod
     def _license_folder() -> Path | None:
-        from ..tools import app_dir
 
         folder = app_dir() / "tools"
         return folder if folder.is_dir() and any(folder.glob("LICENSE*")) else None
 
     @staticmethod
     def _open(it) -> None:
-        if it is not None and it.data(0, Qt.UserRole):
-            QDesktopServices.openUrl(QUrl(it.data(0, Qt.UserRole)))
+        if it is not None and it.data(0, Qt.ItemDataRole.UserRole):
+            QDesktopServices.openUrl(QUrl(it.data(0, Qt.ItemDataRole.UserRole)))
 
 
 __all__ = ["AboutDialog"]

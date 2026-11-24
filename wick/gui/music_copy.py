@@ -94,7 +94,7 @@ class MusicCopyCard(Card):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addLayout(options, 1)
-        row.addWidget(self.sync_btn, 0, Qt.AlignBottom)
+        row.addWidget(self.sync_btn, 0, Qt.AlignmentFlag.AlignBottom)
         self.lay.addLayout(row)
         self.status = text("", Type.FOOTNOTE, secondary=True, wrap=True)
         self.lay.addWidget(self.status)
@@ -132,12 +132,13 @@ class MusicCopyCard(Card):
         return self.worker is not None and self.worker.isRunning()
 
     def _auto(self) -> None:
-        if self.auto.isChecked() and not self.busy() and self._folder("library") and self._folder("dest"):
-            if self._folder("library").is_dir() and self._folder("dest").is_dir():   # the phone may be unplugged
+        library, dest = self._folder("library"), self._folder("dest")
+        if self.auto.isChecked() and not self.busy() and library and dest:
+            if library.is_dir() and dest.is_dir():   # the phone may be unplugged
                 self.start()
 
     def toggle(self) -> None:
-        if self.busy():
+        if self.worker is not None and self.busy():
             self.worker.cancel.set()
             self._say("Stopping…")
         else:
@@ -176,7 +177,7 @@ class MusicCopyCard(Card):
             self.synced.emit("Music copy: " + ", ".join(changes))
 
     def shutdown(self) -> None:
-        if self.busy():
+        if self.worker is not None and self.busy():
             self.worker.cancel.set()           # (quitting waits for every task together: resilience.stop_all)
 
 

@@ -20,17 +20,20 @@ import math
 import os
 import re
 import shutil
+import sys
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Callable
 
 from . import steps, tools
 from .fileops import remove_quietly
+from .formats import plural
 from .probe import VideoInfo, probe_video
 from .scanner import PARTS_PREFIX
 from .settings import Settings
+from .video import drops_repeats, has_filter, is_gpu
 
 PARTS_VERSION = 2
 PARTS_KEEP_DAYS = 14
@@ -42,7 +45,6 @@ SCENE_THRESHOLD = 12          # ffmpeg scdet: how different two frames must be t
 
 
 def applies(info: VideoInfo, s: Settings, encoder: str) -> bool:
-    from .video import drops_repeats, is_gpu
 
     return (s.video_chunked and not is_gpu(encoder) and info.duration >= MIN_VIDEO_SECONDS
             and info.fps > 0 and not drops_repeats(info, s))
@@ -51,9 +53,8 @@ def applies(info: VideoInfo, s: Settings, encoder: str) -> bool:
 # ---------------------------------------------------------------- where the cuts go
 def scene_cuts(src: Path, info: VideoInfo, cancel: threading.Event | None = None) -> list[float]:
     """Times (seconds) of the first frame of each new scene, found on a small copy of the picture."""
-    from .video import _has_filter
 
-    if not _has_filter("scdet"):
+    if not has_filter("scdet"):
         return []
     ffmpeg = tools.require("ffmpeg")
     args = [ffmpeg, "-hide_banner", "-nostdin", "-v", "info", "-i", str(src), "-map", f"0:{info.main_video_index}",
@@ -180,14 +181,14 @@ def parts_folder(src: Path, s: Settings, encoder: str, grain: int) -> Path:
 
 
 def _hide(folder: Path) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         ctypes.windll.kernel32.SetFileAttributesW(str(folder), 0x2)  # type: ignore[attr-defined]  # HIDDEN
 
 
 # ---------------------------------------------------------------- encoding
-def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,
+def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,  # noqa: C901 (to split up)
            on_progress: Callable[[float], None] | None = None,
            cancel: threading.Event | None = None, fonts=None) -> tuple[Path, list[str]]:
     """Encode ``src`` scene by scene into ``out`` (with all the other tracks; ``fonts``: a subfonts.FontPlan).
@@ -354,7 +355,7 @@ def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, gra
     notes = [f"encoded scene by scene in {len(parts)} parts" + (f", {resumed} carried over" if resumed else "")]
     kept = sum(1 for v in state.get("grain", {}).values() if grain and not int(v))
     if kept:
-        notes.append(f"grain kept in {kept} part{'s' if kept != 1 else ''} (needed for the quality target)")
+        notes.append(f"grain kept in {plural(kept, 'part')} (needed for the quality target)")
     if smart and state["q"]:
         qs = [int(v) for v in state["q"].values()]
         from .video import quality_label

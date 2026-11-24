@@ -9,11 +9,13 @@ checked. Nothing is decided by guessing: when a subtitle track can't be read, ev
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import tools
+from .formats import plural
 from .probe import StreamInfo, VideoInfo
 
 FONT_TYPES = {"application/x-truetype-font", "application/x-font-ttf", "application/x-font-otf",
@@ -112,9 +114,8 @@ def _may_subset(font) -> bool:
     return not fs_type & 0x0302          # (restricted licence, no subsetting, bitmap embedding only)
 
 
-def _quiet_fonttools() -> None:
+def quiet_fonttools() -> None:
     """fontTools reports each table it can't cut ("FFTM NOT subset"): routine, not for the user's console."""
-    import logging
 
     for name in ("fontTools.subset", "fontTools.ttLib", "fontTools"):
         logging.getLogger(name).setLevel(logging.ERROR)
@@ -126,7 +127,7 @@ def subset(src: Path, dst: Path, chars: set[int]) -> bool:
     from fontTools import subset as ft_subset
     from fontTools.ttLib import TTFont
 
-    _quiet_fonttools()
+    quiet_fonttools()
     with TTFont(src, lazy=False) as font:
         if not _may_subset(font):
             return False
@@ -167,9 +168,9 @@ class FontPlan:
     def note(self) -> str:
         parts = []
         if self.cut:
-            parts.append(f"{self.cut} subtitle font{'s' if self.cut != 1 else ''} cut to the characters used")
+            parts.append(f"{plural(self.cut, 'subtitle font')} cut to the characters used")
         if self.dropped:
-            parts.append(f"{self.dropped} unused font{'s' if self.dropped != 1 else ''} left out")
+            parts.append(f"{plural(self.dropped, 'unused font')} left out")
         if self.pictures:
             parts.append(f"{'cover picture' if self.pictures == 1 else f'{self.pictures} cover pictures'} stored "
                          "smaller (same pixels)")

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
-import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from .. import walk
 from ..formats import TEMP_PREFIX, classify
 
 POLL_SECONDS = 3.0
@@ -67,26 +68,19 @@ class FolderWatcher(QObject):
 
     # ---- internals
     def _iter_files(self):
+
+        def visible(e: os.DirEntry) -> bool:
+            return not (e.name.startswith(".") or e.name.startswith(TEMP_PREFIX))
+
         for root in self.folders:
-            stack = [root]
-            while stack:
-                d = stack.pop()
-                try:
-                    with os.scandir(d) as it:
-                        for e in it:
-                            if e.name.startswith(".") or e.name.startswith(TEMP_PREFIX):
-                                continue
-                            try:
-                                if e.is_dir(follow_symlinks=False):
-                                    if self.recursive:
-                                        stack.append(Path(e.path))
-                                elif e.is_file(follow_symlinks=False) and classify(Path(e.name)):
-                                    st = e.stat(follow_symlinks=False)
-                                    yield os.path.normcase(e.path), e.path, (st.st_size, st.st_mtime_ns)
-                            except OSError:
-                                continue
-                except OSError:
-                    continue
+            for folder in walk.folders([root], enter=lambda e: self.recursive and visible(e)):
+                for e in folder.files():
+                    try:
+                        if visible(e) and classify(Path(e.name)):
+                            st = e.stat(follow_symlinks=False)
+                            yield os.path.normcase(e.path), e.path, (st.st_size, st.st_mtime_ns)
+                    except OSError:
+                        continue
 
     def _snapshot(self) -> dict[str, tuple[int, int]]:
         return {key: sig for key, _, sig in self._iter_files()}
@@ -135,7 +129,7 @@ class FolderWatcher(QObject):
 def _readable(path: str) -> bool:
     """False while another program still has the file open for writing (Windows)."""
     try:
-        if os.name == "nt" and os.access(path, os.W_OK):
+        if sys.platform == "win32" and os.access(path, os.W_OK):
             # Opening for append fails with a sharing violation while the writer holds it.
             with open(path, "ab"):
                 pass
@@ -145,12 +139,3 @@ def _readable(path: str) -> bool:
         return True
     except OSError:
         return False
-
-
-def wait_until(predicate, timeout: float) -> bool:  # small helper for tests
-    end = time.time() + timeout
-    while time.time() < end:
-        if predicate():
-            return True
-        time.sleep(0.05)
-    return False

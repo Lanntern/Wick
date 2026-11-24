@@ -17,6 +17,7 @@ import threading
 import time
 from pathlib import Path
 
+from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
 INSTALLER_EXTS = {".dmg", ".pkg", ".mpkg"}
@@ -150,7 +151,7 @@ def snapshots_note() -> str:
     count = sum(1 for line in out.splitlines() if "com.apple.TimeMachine" in line)
     if not count:
         return ""
-    return (f"Time Machine keeps {count} local snapshot{'s' if count != 1 else ''} on this Mac. macOS deletes them by "
+    return (f"Time Machine keeps {plural(count, 'local snapshot')} on this Mac. macOS deletes them by "
             "itself when space is needed, so the free space shown can be lower than what's really available. To "
             "remove them now: tmutil deletelocalsnapshots / in Terminal.")
 

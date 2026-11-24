@@ -1,7 +1,7 @@
 """Format conversion, metadata cleanup and the Home overview."""
 
-import os
 import dataclasses
+import os
 from pathlib import Path
 
 import pytest

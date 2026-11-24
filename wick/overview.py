@@ -5,11 +5,15 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .formats import AUDIO, AVIF, BMP, DOCUMENT, GIF, HEIC, JPEG, PNG, TIFF, VIDEO, WEBP
 from .plan import EFFICIENT_VIDEO_CODECS, Plan, plan_entry
 from .scanner import FileEntry, ProgressFn, scan
 from .settings import Settings
+
+if TYPE_CHECKING:
+    from .space import Breakdown
 
 HIGH, MEDIUM, LOW = "High", "Medium", "Low"
 _WEIGHT = {HIGH: 0.95, MEDIUM: 0.6, LOW: 0.3}
@@ -47,7 +51,7 @@ class Overview:
     skipped_dirs: int = 0
     cancelled: bool = False
     by_kind: dict = field(default_factory=dict)        # space.PHOTOS... -> (files, bytes), for "where space goes"
-    space: object = None                               # space.Breakdown, filled in by Home
+    space: Breakdown | None = None                     # filled in by Home
 
     @property
     def potential(self) -> int:

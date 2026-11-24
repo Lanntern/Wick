@@ -11,12 +11,18 @@ differences are not visible in normal viewing.
 
 from __future__ import annotations
 
+import importlib.util
 import re
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
+from typing import TypeVar
 
 from . import tools
+from .fileops import remove_quietly, temp_name
+from .video import BANDING_GRAIN
 
 # metric -> target -> minimum score
 THRESHOLDS = {
@@ -76,6 +82,9 @@ class Score:
         return f"{name} {self.value:.1f}{' dB' if name == 'XPSNR' else ''}"
 
 
+T = TypeVar("T")
+
+
 def worst(scores: list[Score]) -> Score:
     """The score that looks furthest from the original."""
     pick = max if scores[0].metric in LOWER_IS_BETTER else min
@@ -86,7 +95,7 @@ def mean(scores: list[Score]) -> Score:
     return Score(scores[0].metric, sum(x.value for x in scores) / len(scores))
 
 
-@lru_cache(maxsize=None)
+@cache
 def has_vmaf() -> bool:
     ffmpeg = tools.find_tool("ffmpeg")
     if not ffmpeg:
@@ -101,7 +110,6 @@ def has_vmaf() -> bool:
 
 
 def _python_ssimulacra2_available() -> bool:
-    import importlib.util
 
     return importlib.util.find_spec("numpy") is not None
 
@@ -114,7 +122,7 @@ def _default_video_metric() -> str:
     return "VMAF" if has_vmaf() else "SSIM-video"
 
 
-@lru_cache(maxsize=None)
+@cache
 def _metric_works(metric: str) -> bool:
     """Whether a chosen measure can run here: its tool or filter exists and a tiny comparison succeeds."""
     try:
@@ -178,7 +186,6 @@ def _python_score(reference: Path, candidate: Path) -> Score:
     from PIL import Image
 
     from . import _ssimulacra2
-    from .fileops import remove_quietly, temp_name
 
     with Image.open(reference) as a, Image.open(candidate) as b:
         ra, rb = a.convert("RGB"), b.convert("RGB")
@@ -260,7 +267,6 @@ def _denoise_filter(grain: int) -> str:
     """A denoise roughly matching what the encoder removes before it re-creates grain (0: none): non-local
     means at about the measured noise level (grain level 6 ≈ noise 2, 18 ≈ 6). Weaker denoisers leave enough
     noise behind that every encode would look "different"."""
-    from .video import BANDING_GRAIN
 
     if not grain or grain == BANDING_GRAIN:       # (nothing was removed before that grain was added)
         return ""
@@ -270,7 +276,6 @@ def _denoise_filter(grain: int) -> str:
 def _compare_frames(ffmpeg: str, dist: list[str], ref: list[str], length: float, ref_chain: str,
                     metric: str) -> Score:
     """SSIMULACRA2 / Butteraugli: frames at the same moments of both, scored as pictures and averaged."""
-    import tempfile
 
     def seek_args(inputs: list[str], at: float) -> list[str]:
         # The stretch's own -ss (if any) moves on by ``at``, counted from where the file's picture starts (a
@@ -351,7 +356,7 @@ def score_video_output(source: Path, output: Path, start: float, length: float, 
                     metric or _default_video_metric(), grain)
 
 
-def search(values: list[int], try_value) -> tuple[int, object] | None:
+def search(values: list[int], try_value: Callable[[int], tuple[bool, T]]) -> tuple[int, T] | None:
     """Binary search for the most compressed setting that still meets the target.
 
     ``values`` are ordered from best quality to most compression. ``try_value(v)`` returns
@@ -359,7 +364,7 @@ def search(values: list[int], try_value) -> tuple[int, object] | None:
     if even the best quality misses the target.
     """
     lo, hi = 0, len(values) - 1
-    best = None
+    best: tuple[int, T] | None = None
     while lo <= hi:
         mid = (lo + hi) // 2
         ok, payload = try_value(values[mid])

@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
-    QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QSpinBox,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from ..settings import Settings
+from .. import presets
+from ..compat import jxl_note
 from ..fileops import BIN_NAME  # noqa: F401  (others import it from here too)
+from ..settings import Settings
+from ..video import GPU_ENCODERS
+from .dialogs import ask, inform
+from .language_dialog import LanguageDialog
 from .style import Size, Space, Type, text_scale
 from .widgets import Section, SizeInput, button, text
 
@@ -25,10 +42,10 @@ NAME_TIP = ("Text is added to the end of the name, like _compressed. You can als
             "modified date.")
 
 
-def _combo(items: list[tuple[str, str]], tip: str = "") -> QComboBox:
+def _combo(items: Sequence[tuple[str, object]], tip: str = "") -> QComboBox:
     c = QComboBox()
     # Don't let long option texts widen the panel; the popup still shows them in full.
-    c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    c.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
     c.setMinimumContentsLength(8)
     for label, value in items:
         c.addItem(label, value)
@@ -43,7 +60,7 @@ def _described(combo: QComboBox, help_by_value: dict[str, str]) -> QLabel:
     for i in range(combo.count()):
         tip = help_by_value.get(combo.itemData(i), "")
         if tip:
-            combo.setItemData(i, tip, Qt.ToolTipRole)
+            combo.setItemData(i, tip, Qt.ItemDataRole.ToolTipRole)
     label = text("", Type.FOOTNOTE, secondary=True, wrap=True)
 
     def show(_i: int = 0) -> None:
@@ -100,9 +117,9 @@ def _form(parent: QWidget) -> QFormLayout:
     f.setContentsMargins(Space.XS, 0, 0, Space.S)
     f.setHorizontalSpacing(Space.M)
     f.setVerticalSpacing(Space.S)
-    f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-    f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-    f.setRowWrapPolicy(QFormLayout.DontWrapRows)
+    f.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    f.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
     return f
 
 
@@ -127,7 +144,7 @@ class SettingsPanel(QWidget):
         self.preset = QComboBox()
         self.preset.setAccessibleName("Preset")
         self.preset.setMinimumContentsLength(8)
-        self.preset.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.preset.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.preset_more = button("", "", "ellipsis", "Save or delete presets")
         self.preset_more.setAccessibleName("Preset actions")
         self.preset_more.setFixedWidth(Size.CONTROL)
@@ -168,7 +185,6 @@ class SettingsPanel(QWidget):
         self.quality = _spin(1, 100, tip="Quality for lossy images. 85-90 is visually near-identical for photos.")
         self.effort = _spin(1, 9, tip="Higher JPEG XL effort makes smaller files more slowly. 7 is a good balance.")
         f.addRow("Convert to", self.image_format)
-        from ..compat import jxl_note
 
         self.jxl_note = _muted(jxl_note())
         f.addRow(self.jxl_note)
@@ -585,7 +601,6 @@ class SettingsPanel(QWidget):
 
     def _choose_languages(self) -> None:
         from .. import languages
-        from .language_dialog import LanguageDialog
 
         dlg = LanguageDialog(languages.parse(self._languages) or languages.detect(), self)
         if dlg.exec():
@@ -658,9 +673,10 @@ class SettingsPanel(QWidget):
 
         videos = self.video_codec.currentData() != "none"
         show(self.video_effort, videos and self.video_encoder.currentData() != "gpu")
-        for w in (self.video_encoder, self.video_quality, self.video_height, self.video_fps, self.audio,
-                  self.video_cadence, self.gpu_label, self.video_tracks):
-            show(w, videos)
+        video_rows: tuple[QWidget, ...] = (self.video_encoder, self.video_quality, self.video_height, self.video_fps,
+                                           self.audio, self.video_cadence, self.gpu_label, self.video_tracks)
+        for row in video_rows:
+            show(row, videos)
         show(self.languages_btn, videos and self.video_tracks.currentData() == "mine")
         show(self.video_crf, videos and self.video_quality.currentData() == "custom")
         sec["Videos"].setVisible(has("video"))
@@ -813,7 +829,6 @@ class SettingsPanel(QWidget):
 
     # ---- presets
     def refresh_presets(self) -> None:
-        from .. import presets
 
         current = presets.matching(self.settings()) if hasattr(self, "audio") else None
         self.preset.blockSignals(True)
@@ -821,7 +836,7 @@ class SettingsPanel(QWidget):
         self.preset.addItem("Custom", "")
         for name in presets.names():
             self.preset.addItem(name, name)
-            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ToolTipRole)
+            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ItemDataRole.ToolTipRole)
         self.preset.setCurrentIndex(max(0, self.preset.findData(current or "")))
         self.preset.blockSignals(False)
         deletable = bool(current) and not presets.is_builtin(current or "")
@@ -837,7 +852,6 @@ class SettingsPanel(QWidget):
 
     def apply_preset(self, name: str) -> bool:
         """Load a preset's options into the panel. False if there is no such preset."""
-        from .. import presets
 
         if presets.get(name) is None:
             return False
@@ -852,8 +866,6 @@ class SettingsPanel(QWidget):
     def _preset_save(self) -> None:
         from PySide6.QtWidgets import QInputDialog
 
-        from .. import presets
-        from .dialogs import inform
 
         name, ok = QInputDialog.getText(self, "Save preset", "Name for these options:")
         if not ok or not name.strip():
@@ -867,8 +879,6 @@ class SettingsPanel(QWidget):
         self.presets_changed.emit()
 
     def _preset_delete(self) -> None:
-        from .. import presets
-        from .dialogs import ask
 
         name = self.preset.currentData()
         if name and not presets.is_builtin(name) and ask(self, f"Delete the preset “{name}”?", "", "Delete Preset",
@@ -878,7 +888,6 @@ class SettingsPanel(QWidget):
             self.presets_changed.emit()
 
     def show_encoders(self, enc: dict) -> None:
-        from ..video import GPU_ENCODERS
 
         def maker(encoder: str) -> str:
             return {"nvenc": "NVIDIA", "qsv": "Intel", "amf": "AMD", "videotoolbox": "Apple"}[encoder.rsplit("_", 1)[1]]

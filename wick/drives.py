@@ -8,17 +8,21 @@ device's ``queue/rotational``. Unknown counts as not spinning.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
 
 
 def _anchor(path: Path) -> str:
-    return os.path.splitdrive(os.path.abspath(path))[0].upper() if os.name == "nt" else str(path)
+    return os.path.splitdrive(os.path.abspath(path))[0].upper() if sys.platform == "win32" else str(path)
 
 
 @lru_cache(maxsize=64)
 def _windows_spinning(drive: str) -> bool:
+    if sys.platform != "win32":
+        return False
     import ctypes
     from ctypes import wintypes
 
@@ -52,6 +56,8 @@ def _windows_spinning(drive: str) -> bool:
 
 @lru_cache(maxsize=64)
 def _linux_spinning(dev: int) -> bool:
+    if sys.platform == "win32":
+        return False
     block = Path(f"/sys/dev/block/{os.major(dev)}:{os.minor(dev)}")
     try:
         node = block.resolve()
@@ -69,7 +75,7 @@ def _linux_spinning(dev: int) -> bool:
 def spinning(path: Path) -> bool:
     """True when ``path`` is on a drive with moving parts (a hard drive), as far as the system says."""
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             drive = _anchor(path)
             return bool(drive) and _windows_spinning(drive)
         return _linux_spinning(os.stat(path).st_dev)
@@ -87,7 +93,7 @@ def readers(paths: list[Path], parallel: int) -> int:
             dev = os.stat(p).st_dev                 # (a file that's gone says nothing about its drive)
         except OSError:
             continue
-        key = _anchor(p) if os.name == "nt" else str(dev)
+        key = _anchor(p) if sys.platform == "win32" else str(dev)
         if key in seen:
             continue
         seen.add(key)
@@ -103,8 +109,6 @@ NETWORK_FS = {"nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "sshfs", "9p
 @lru_cache(maxsize=1)
 def _mac_mounts() -> tuple[tuple[str, str], ...]:
     """(mount point, file system type) from macOS's ``mount``, longest mount point first."""
-    import re
-    import subprocess
 
     try:
         out = subprocess.run(["/sbin/mount"], capture_output=True, text=True, timeout=5).stdout
@@ -118,7 +122,7 @@ def _mac_mounts() -> tuple[tuple[str, str], ...]:
     return tuple(sorted(found, key=lambda f: -len(f[0])))
 
 
-def _mac_mount_fs(path: Path) -> str:
+def mac_mount_fs(path: Path) -> str:
     text = os.path.realpath(path)
     for point, fs in _mac_mounts():
         if text == point or text.startswith(point.rstrip("/") + "/"):
@@ -128,6 +132,8 @@ def _mac_mount_fs(path: Path) -> str:
 
 @lru_cache(maxsize=64)
 def _linux_mount_fs(dev: int) -> str:
+    if sys.platform == "win32":
+        return ""
     """The file system type of the mount that device ``dev`` belongs to ("" if unknown)."""
     try:
         with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as f:
@@ -147,7 +153,7 @@ def network(path: Path) -> bool:
     """True when ``path`` is on a network share (a mapped drive, a UNC path, NFS/SMB/SSHFS mounts)."""
     try:
         text = os.path.abspath(path)
-        if os.name == "nt":
+        if sys.platform == "win32":
             if text.startswith(("\\\\", "//")) and not text.startswith("\\\\?\\"):
                 return True
             import ctypes
@@ -155,7 +161,7 @@ def network(path: Path) -> bool:
             drive = _anchor(path)
             return bool(drive) and ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4     # DRIVE_REMOTE
         if sys.platform == "darwin":
-            return _mac_mount_fs(path) in NETWORK_FS
+            return mac_mount_fs(path) in NETWORK_FS
         return _linux_mount_fs(os.stat(path).st_dev) in NETWORK_FS
     except Exception:  # noqa: BLE001 - unknown: treat it as local
         from .log import ignored
@@ -175,7 +181,7 @@ def slow(paths: list[Path], limit: int = 200) -> str:
             dev = os.stat(p).st_dev
         except OSError:
             continue
-        key = _anchor(p) if os.name == "nt" else str(dev)
+        key = _anchor(p) if sys.platform == "win32" else str(dev)
         if key in seen:
             continue
         seen.add(key)

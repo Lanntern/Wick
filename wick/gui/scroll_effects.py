@@ -11,9 +11,9 @@ from .style import Space
 class _TopTransition(QWidget):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.levels = []
         self.dpr = 1.0
         self.strength = 1.0
@@ -57,7 +57,7 @@ class EdgeScrollArea(QScrollArea):
         self.setObjectName("inspectorScroll")
         self.setWidget(content)
         self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.verticalScrollBar().setObjectName("edgeScrollBar")
         self.transition = _TopTransition(self.viewport())
         self._refresh_timer = QTimer(self, singleShot=True, interval=16)
@@ -104,8 +104,12 @@ class EdgeScrollArea(QScrollArea):
         for radius in (2, 4, 8):
             factor = max(1, round(radius * edge.dpr))
             small = image.scaled(max(1, image.width() // factor), max(1, image.height() // factor),
-                                 Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
-            edge.levels.append(small.scaled(image.size(), Qt.IgnoreAspectRatio, Qt.SmoothTransformation))
+                                 Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            edge.levels.append(
+                small.scaled(
+                    image.size(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation
+                )
+            )
         edge.strength = min(1.0, self.verticalScrollBar().value() / max(1, edge.height()))
         edge.show()
         edge.raise_()
@@ -113,8 +117,15 @@ class EdgeScrollArea(QScrollArea):
 
     def eventFilter(self, obj, event):  # noqa: N802
         if hasattr(self, "_refresh_timer") and event.type() in (
-                QEvent.Resize, QEvent.LayoutRequest, QEvent.StyleChange, QEvent.PaletteChange,
-                QEvent.MouseButtonRelease, QEvent.KeyRelease, QEvent.FocusIn, QEvent.FocusOut):
+            QEvent.Type.Resize,
+            QEvent.Type.LayoutRequest,
+            QEvent.Type.StyleChange,
+            QEvent.Type.PaletteChange,
+            QEvent.Type.MouseButtonRelease,
+            QEvent.Type.KeyRelease,
+            QEvent.Type.FocusIn,
+            QEvent.Type.FocusOut,
+        ):
             self.schedule_transition()
         return super().eventFilter(obj, event)
 

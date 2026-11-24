@@ -13,18 +13,6 @@ def apply_theme(mode: str) -> None:
     style.apply_style(mode)
 
 
-def is_dark() -> bool:
-    return style.tokens().dark
-
-
-def success_color() -> QColor:
-    return QColor(style.tokens().success)
-
-
-def error_color() -> QColor:
-    return QColor(style.tokens().danger)
-
-
 def muted_color() -> QColor:
     return QColor(style.tokens().text2)
 

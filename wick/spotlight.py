@@ -16,6 +16,8 @@ import sys
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from .protected import dataless
+
 UF_HIDDEN = 0x8000                 # stat st_flags: hidden in Finder (~/Library is)
 ENABLED = True
 
@@ -50,7 +52,6 @@ def items_for(root: Path, found: list[str]) -> list[tuple[str, bool, int, float,
     """(name, is folder, size, modified, attributes) for the files and every folder between them and ``root``,
     with the attributes the scanner reads (hidden; iCloud-only), as Everything gives them on Windows."""
     from .ntfs import CLOUD_ONLY, HIDDEN
-    from .protected import dataless
 
     base = os.path.abspath(root)
     out: list[tuple[str, bool, int, float, int]] = []

@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import index
-from ..formats import IMAGE_KINDS, classify
+from ..formats import HEIC, IMAGE_KINDS, classify, plural, register_heif
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 STRICTNESS = {"very": 3, "similar": 6}   # max differing bits of 64
@@ -25,7 +25,7 @@ _BANDS = 4
 _MAX_BUCKET = 5000                        # more photos sharing one band than this is noise (flat images)
 
 
-class _Ticker:
+class Ticker:
     """Thread-safe progress, at most ten updates a second and always the last one."""
 
     def __init__(self, progress: ProgressFn | None):
@@ -45,7 +45,6 @@ def fingerprint(path: Path) -> tuple[int, int, int] | None:
     """(dHash, width, height), or None for unreadable or nearly uniform images (blank, all black...)."""
     from PIL import Image, ImageOps, ImageStat
 
-    from ..formats import HEIC, register_heif
 
     if classify(path) == HEIC:
         register_heif()
@@ -58,7 +57,7 @@ def fingerprint(path: Path) -> tuple[int, int, int] | None:
                 w, h = min(w, h), max(w, h)
             else:
                 w, h = max(w, h), min(w, h)
-            small = pic.convert("L").resize((9, 8), Image.LANCZOS)
+            small = pic.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
         from wick.log import ignored
         ignored("cleanup.similar.fingerprint")
@@ -86,7 +85,7 @@ def inspect(path: Path, px: int = 256):
             gray = (ImageOps.exif_transpose(im) or im).convert("L")
             gray.thumbnail((512, 512))
             sharp = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0]
-            return sharp, gray.resize((px, px), Image.LANCZOS)
+            return sharp, gray.resize((px, px), Image.Resampling.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
         return 0.0, None
 
@@ -203,7 +202,7 @@ def _star_groups(members: list[int], prints, sharp: dict[int, float], files, lim
     return out
 
 
-def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,
+def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,  # noqa: C901 (to split up)
                  progress: ProgressFn | None = None, cancel: threading.Event | None = None) -> ScanResult:
     from ..sandbox import similar_fingerprint, similar_inspect
 
@@ -228,14 +227,13 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
                 prints[i] = tuple(cached)
         else:
             todo.append(i)
-    from ..formats import HEIC
 
     if any(classify(files[i][0]) == HEIC for i in todo):
         from ..scanner import preload_codecs
 
         preload_codecs(heif=True)   # import on this thread before the workers use it
     workers = min(8, os.cpu_count() or 2)
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
 
     finished: list[int] = []
 
@@ -284,7 +282,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
     # tells a re-save from a different shot. Sets are done in batches so thumbnails don't pile up.
     components.sort(key=len)
     total = sum(len(g) for g in components)
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
     sets: list[tuple[int, list[int]]] = []   # (keeper, others)
     looks: dict[int, bool] = {}
     sharp: dict[int, float] = {}
@@ -352,7 +350,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
                 extra=extra,
             ))
     if sets:
-        result.notes.append(f"{len(sets)} group{'s' if len(sets) != 1 else ''} of similar photos. Hover a "
+        result.notes.append(f"{plural(len(sets), 'group')} of similar photos. Hover a "
                             "row to see it; right-click to keep a different one.")
     return result
 

@@ -82,12 +82,12 @@ class ActivityMonitor:
             self.table.verticalHeader().hide()
             self.table.setAlternatingRowColors(True)
             self.table.setShowGrid(False)
-            self.table.setFrameShape(QFrame.NoFrame)
+            self.table.setFrameShape(QFrame.Shape.NoFrame)
             self.table.setAccessibleName("Running tasks")
             self.table.setHorizontalHeaderLabels(["Task", "Stage", "Progress", "Elapsed", "State"])
-            self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-            self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-            self.table.setSelectionBehavior(QTableWidget.SelectRows)
+            self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             self.table.cellDoubleClicked.connect(self.go)
             layout.addWidget(self.table)
             go = button("Go to Task", "", None, "")
@@ -161,4 +161,5 @@ class ActivityMonitor:
             self.window.go_to(page)
             if task.page == "cleanup" and task.section is not None:
                 page.tabs.setCurrentIndex(task.section)
-            self.dialog.hide()
+            if self.dialog is not None:
+                self.dialog.hide()

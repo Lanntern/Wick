@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -21,12 +22,28 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import walk
+from ..formats import human, plural
+from ..walk import is_link
 from .caches import IS_WINDOWS
-from ..formats import human
 from .common import Candidate, ProgressFn, ScanResult, cancelled, newest_mtime
 from .devrules import (  # noqa: F401 - the tables, used here and by the page
-    AMBIGUOUS, CACHEDIR_SIGNATURE, KINDS, MIN_SIZE, RULES, SHARED, Rule, _BUILD_MARKERS, _GRADLE,
-    _BY_NAME, _NEVER_ENTER, _NODE_LOCKS, _PM_COMMANDS, _PY_PROJECT, _WARN_RULES, shared_specs,
+    AMBIGUOUS,
+    BUILD_MARKERS,
+    BY_NAME,
+    CACHEDIR_SIGNATURE,
+    GRADLE,
+    KINDS,
+    MIN_SIZE,
+    NEVER_ENTER,
+    NODE_LOCKS,
+    PM_COMMANDS,
+    PY_PROJECT,
+    RULES,
+    SHARED,
+    WARN_RULES,
+    Rule,
+    shared_specs,
 )
 
 
@@ -49,13 +66,9 @@ def _listing(d: Path) -> list[os.DirEntry] | None:
 
 
 def _is_link(e: os.DirEntry) -> bool:
-    """Symlinks and Windows junctions/mount points: never followed, never removed through."""
-    try:
-        if e.is_symlink() or (hasattr(e, "is_junction") and e.is_junction()):
-            return True
-        return bool(getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400)   # REPARSE_POINT
-    except OSError:
-        return True
+    """Symlinks and Windows junctions/mount points: never followed, never removed through (see walk.is_link)."""
+
+    return is_link(e)
 
 
 @dataclass
@@ -105,7 +118,7 @@ def _within(p: Path, folder: Path) -> bool:
 
 def _restore_for(rule: Rule, beside_names: set[str]) -> str:
     if rule.names == ("node_modules",):
-        for lock, cmd in _PM_COMMANDS:
+        for lock, cmd in PM_COMMANDS:
             if lock in beside_names:
                 return f"{cmd} puts them back"
     return rule.restore
@@ -148,7 +161,7 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
             except OSError:
                 continue
             p = Path(e.path)
-            rule = next((r for r in _BY_NAME.get(e.name, ()) if not r.next_to or _matches(names, r.next_to)), None)
+            rule = next((r for r in BY_NAME.get(e.name, ()) if not r.next_to or _matches(names, r.next_to)), None)
             if rule is not None:
                 inner = None
                 if rule.inside:
@@ -156,13 +169,13 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
                     if inner is None or not _matches({x.name for x in inner}, rule.inside):
                         rule = None
                 if rule is not None:
-                    warning = _WARN_RULES.get(e.name, "")
+                    warning = WARN_RULES.get(e.name, "")
                     if rule.lock and not _matches(names, rule.lock):
                         warning = "No lock file next to it, so a reinstall may get newer versions"
                     found.append(_Found(p, d, rule.what, _restore_for(rule, names), warning, rule.kind))
                     continue
             low = e.name.lower()
-            if low in _NEVER_ENTER or e.name.startswith(".") or p == home_library:
+            if low in NEVER_ENTER or e.name.startswith(".") or p == home_library:
                 continue
             if IS_WINDOWS:
                 try:
@@ -175,7 +188,7 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
     for f in found:
         if f.what == "Python virtual environment":
             beside = {e.name for e in (_listing(f.beside) or [])}
-            if not _matches(beside, _PY_PROJECT):
+            if not _matches(beside, PY_PROJECT):
                 f.warning = "No requirements file next to it: note which packages it has first"
     return found
 
@@ -211,7 +224,7 @@ def _ambiguous_found(repos: list[Path], already: list[_Found]) -> list[_Found]:
             if any(_within(p, t) for t in taken) or not p.is_dir() or p.is_symlink():
                 continue
             beside = {e.name for e in (_listing(p.parent) or [])}
-            if not _matches(beside, _BUILD_MARKERS):
+            if not _matches(beside, BUILD_MARKERS):
                 continue
             kind = ("coverage" if "coverage" in AMBIGUOUS[p.name].lower() else
                     "cache" if p.name.startswith(".") else "build")
@@ -252,23 +265,15 @@ class Measure:
 
 
 def measure(path: Path, cancel: threading.Event | None = None) -> Measure:
+
     m = Measure()
     # Windows only reports link counts through a full stat (a directory listing says 0). Do that for every file
     # where links are expected (pnpm), and elsewhere for files big enough to matter (most of the bytes).
     full_stat = IS_WINDOWS and ((path / ".pnpm").is_dir() or (path.parent / "pnpm-lock.yaml").exists()
                                 or "pnpm" in str(path).lower())
-    stack = [path]
-    while stack:
-        if cancelled(cancel):
-            break
-        for e in _listing(stack.pop()) or []:
+    for folder in walk.folders([path], cancel=cancel):
+        for e in folder.files():
             try:
-                if e.is_symlink():
-                    continue
-                if e.is_dir(follow_symlinks=False):
-                    if not _is_link(e):
-                        stack.append(Path(e.path))
-                    continue
                 st = e.stat(follow_symlinks=False)
             except OSError:
                 continue
@@ -438,10 +443,6 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     there is one). ``protected``: ``project_id`` values and ``path:`` entries that are never listed.
     ``kinds_off``: KINDS not to list; ``names_off``: folder names not to list (``node_modules``...). Projects
     with something running in them (a terminal, a dev server, a Docker container) count as in use."""
-    from . import docker as docker_mod
-    from .inuse import busy_projects
-    from .caches import find_caches
-
     result = ScanResult("devclean")
     repos: list[Path] = []
     found = _scan_projects(roots, progress, cancel, repos)
@@ -451,9 +452,27 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     if progress:
         progress("Checking what your .gitignore files mark as build output…", 0, 0)
     found += _ambiguous_found(repos, found)
+    found, project_of, left_out = _leave_out(found, roots, kinds_off, names_off, protected, progress, cancel)
+    busy = _busy(project_of, docker and "docker" not in kinds_off, progress)
+    sizes = _measure_all(found, progress, cancel)
+    if cancelled(cancel):
+        result.cancelled = True
+        return result
+    last_work = _project_items(result, found, sizes, project_of, busy, idle_days)
+    _other_sources(result, shared, docker, kinds_off, protected, busy, last_work, idle_days, progress, cancel)
+    if any(f.path in sizes and sizes[f.path] is None for f in found):
+        result.notes.append("Folders with a git repository inside were left out.")
+    for why, items in left_out.items():
+        if items:
+            result.notes.append(f"{plural(len(items), 'folder')} {why}.")
+    return result
+
+
+def _leave_out(found: list[_Found], roots: list[Path], kinds_off, names_off, protected, progress, cancel):
+    """(what's left to list, each one's project, what was left out and why). Left out: kinds and names switched
+    off, folders inside installed apps, folders with files committed to git, protected projects."""
     switched_off = [f for f in found if f.kind in kinds_off or f.path.name in names_off]
     found = [f for f in found if f not in switched_off]
-
     stop = {os.path.normcase(str(Path(os.path.abspath(r)).parent)) for r in roots}
     in_apps = [f for f in found if _inside_installed_app(f.path)]
     found = [f for f in found if f not in in_apps]
@@ -474,17 +493,31 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     project_of = {f.path: _repo_of(f.path, stop) or f.beside for f in found}
     hidden = [f for f in found if _protected(f.path, project_of[f.path], set(protected))]
     found = [f for f in found if f not in hidden]
+    return found, project_of, {"with files committed to git were left out": skipped,
+                               "inside installed apps were left out": in_apps,
+                               "of kinds you switched off not shown": switched_off,
+                               "in protected projects not shown": hidden}
+
+
+def _busy(project_of: dict[Path, Path], docker: bool, progress) -> dict[Path, str]:
+    """Projects with something running in them (a terminal, a dev server, a Docker container): why."""
+    from . import docker as docker_mod
+    from .inuse import busy_projects
 
     if progress:
         progress("Checking which projects have something running…", 0, 0)
     busy = busy_projects(sorted(set(project_of.values())))
-    if docker and "docker" not in kinds_off:
+    if docker:
         for wd, name in docker_mod.running_projects().items():
             for proj in set(project_of.values()):
                 if os.path.normcase(os.path.abspath(proj)) == wd:
                     busy.setdefault(proj, f"its Docker container {name} is running")
+    return busy
 
-    # Measure (the slow part: these folders hold many small files).
+
+def _measure_all(found: list[_Found], progress, cancel) -> dict[Path, Measure | None]:
+    """Each folder's size, side by side (the slow part: these folders hold many small files). None: a folder
+    with a repository inside, which is never listed."""
     sizes: dict[Path, Measure | None] = {}
     lock = threading.Lock()
     done = [0]
@@ -502,10 +535,12 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
 
     with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2) * 2)) as pool:
         list(pool.map(work, found))
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
+    return sizes
 
+
+def _project_items(result: ScanResult, found: list[_Found], sizes, project_of, busy: dict[Path, str],
+                   idle_days: int) -> dict[Path, float]:
+    """List the project folders, biggest projects first; returns when each project was last worked on."""
     now = time.time()
     last_work: dict[Path, float] = {}
     heavy = {n for r in RULES for n in r.names} | set(AMBIGUOUS) | {".git", "node_modules"}
@@ -535,6 +570,14 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     for c in result.items:
         totals[c.group] += c.size
     result.items.sort(key=lambda c: (-totals[c.group], c.group, -c.size))   # biggest projects first
+    return last_work
+
+
+def _other_sources(result: ScanResult, shared: bool, docker: bool, kinds_off, protected, busy: dict[Path, str],
+                   last_work: dict[Path, float], idle_days: int, progress, cancel) -> None:
+    """Shared developer caches, what Docker can let go, and virtual disks."""
+    from . import docker as docker_mod
+    from .caches import find_caches
 
     if shared and "shared" not in kinds_off and not cancelled(cancel):
         def shared_size(p: Path, c) -> tuple[int, int]:
@@ -548,6 +591,7 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     if docker and "docker" not in kinds_off and not cancelled(cancel):
         if progress:
             progress("Asking Docker what it can let go…", 0, 0)
+        now = time.time()
         active: dict[str, str] = {}
         for proj, last in last_work.items():
             reason = busy.get(proj) or (f"you worked on it {_ago((now - last) / 86400)}"
@@ -569,26 +613,10 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
         for c in vdisk.find():
             c.extra["kind"] = "vdisk"
             result.items.append(c)
-    if any(f.path in sizes and sizes[f.path] is None for f in found):
-        result.notes.append("Folders with a git repository inside were left out.")
-    if skipped:
-        result.notes.append(f"{len(skipped)} folder{'s' if len(skipped) != 1 else ''} with files committed to "
-                            "git were left out.")
-    if in_apps:
-        result.notes.append(f"{len(in_apps)} folder{'s' if len(in_apps) != 1 else ''} inside installed apps "
-                            "were left out.")
-    if switched_off:
-        result.notes.append(f"{len(switched_off)} folder{'s' if len(switched_off) != 1 else ''} of kinds you "
-                            "switched off not shown.")
-    if hidden:
-        result.notes.append(f"{len(hidden)} folder{'s' if len(hidden) != 1 else ''} in protected projects "
-                            "not shown.")
-    return result
 
 
 def _compose_name(project: Path) -> str:
     """The name Docker Compose gives a project by default: its folder name, lower case, letters and digits."""
-    import re
 
     return re.sub(r"[^a-z0-9_-]", "", project.name.lower())
 
@@ -598,7 +626,7 @@ def group_title(group: str, items: list[Candidate]) -> str:
         return group
     idle = items[0].extra.get("idle_days", 0)
     n = len(items)
-    return f"{Path(group).name}  ·  {n} folder{'s' if n != 1 else ''}  ·  changed {_ago(idle)}"
+    return f"{Path(group).name}  ·  {plural(n, 'folder')}  ·  changed {_ago(idle)}"
 
 
 __all__ = ["find_dev_clutter", "shared_specs", "group_title", "RULES", "SHARED"]

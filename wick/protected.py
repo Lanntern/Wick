@@ -12,6 +12,7 @@ it dataless). Reading it would download it, so it's skipped like OneDrive's onli
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 LIBRARY_SUFFIXES = (
@@ -45,6 +46,35 @@ def inside_library(path: Path) -> Path | None:
 
 def dataless(st: os.stat_result) -> bool:
     return bool(getattr(st, "st_flags", 0) & SF_DATALESS)
+
+
+# Windows: OFFLINE | RECALL_ON_OPEN | RECALL_ON_DATA_ACCESS. Set on cloud-only OneDrive/Dropbox placeholders.
+CLOUD_ONLY_ATTRS = 0x1000 | 0x40000 | 0x400000
+
+
+def cloud_only(st: os.stat_result) -> bool:
+    """Only in the cloud (OneDrive's online-only files on Windows, iCloud Drive's dataless ones on a Mac): reading
+    it would download it."""
+    return bool(getattr(st, "st_file_attributes", 0) & CLOUD_ONLY_ATTRS) or dataless(st)
+
+
+def is_hidden(entry: os.DirEntry) -> bool:
+    """Hidden the way the system shows it: a dot name; Finder's hidden flag on a Mac (~/Library, where apps keep
+    their data, has it); Windows' hidden or system attribute."""
+    if entry.name.startswith("."):
+        return True
+    if sys.platform == "darwin":
+        try:
+            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
+        except OSError:
+            return False
+    if sys.platform == "win32":
+        try:
+            attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
+            return bool(attrs & 0x2 or attrs & 0x4)  # HIDDEN | SYSTEM
+        except (OSError, AttributeError):
+            return False
+    return False
 
 
 def describe(library: Path) -> str:

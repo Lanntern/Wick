@@ -4,14 +4,16 @@ process imports only this module."""
 
 from __future__ import annotations
 
+import os
+import sys
+
 
 def set_low_priority(low: bool) -> None:
     if not low:
         return
-    import os
 
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
 
             k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -21,7 +23,6 @@ def set_low_priority(low: bool) -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("_workers.set_low_priority")
-        pass
 
 
 def oxipng_file(src: str, dst: str, deep: bool) -> None:

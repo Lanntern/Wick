@@ -9,6 +9,7 @@ which step (Copy Details, Open Log), so a problem can be narrowed down.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -16,9 +17,12 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from .. import fixes, report
 from ..engine import CANCELLED, DONE, FAILED
-from .. import report
-from ..formats import human
+from ..eta import TimeLeft, say
+from ..formats import human, plural
+from ..log import log_file
+from .filelist import open_file
 from .style import Space, Type, tokens
 from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, text
 
@@ -75,14 +79,14 @@ class CompareStrip(QWidget):
             col.setSpacing(2)
             pic = QLabel()
             pic.setFixedSize(COMPARE_PX, COMPARE_PX)
-            pic.setAlignment(Qt.AlignCenter)
+            pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cap = text("", Type.FOOTNOTE, secondary=True)
             col.addWidget(pic)
             col.addWidget(cap)
             lay.addLayout(col)
             self.pics[which], self.captions[which] = pic, cap
         self.note = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        lay.addWidget(self.note, 1, Qt.AlignBottom)
+        lay.addWidget(self.note, 1, Qt.AlignmentFlag.AlignBottom)
         self.signals = _ThumbSignals()
         self.signals.done.connect(self._got)
         self.token = 0
@@ -158,7 +162,7 @@ class JobStatus(Card):
         self.setAccessibleName("Progress")
         self.title = ElidedLabel("", Type.BODY, bold=True)      # file names can be long
         self.detail = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        self.detail.setTextFormat(Qt.PlainText)
+        self.detail.setTextFormat(Qt.TextFormat.PlainText)
         self.detail.setAccessibleName("Details")
         self.stop_btn = button("Stop", "", "stop", "Stop after the current file, keeping its original", "Esc")
         self.stop_btn.clicked.connect(self.stop_requested)
@@ -194,7 +198,7 @@ class JobStatus(Card):
         self.lay.addWidget(self.compare)
         # What to do about failures (fixes.py): a line of advice with the button that usually fixes it.
         self.fix_text = text("", Type.FOOTNOTE, wrap=True)
-        self.fix_text.setTextFormat(Qt.PlainText)
+        self.fix_text.setTextFormat(Qt.TextFormat.PlainText)
         self.fix_text.setAccessibleName("How to fix it")
         self.fix_row = FlowLayout(spacing=Space.S)
         self.lay.addWidget(self.fix_text)
@@ -241,7 +245,6 @@ class JobStatus(Card):
 
     # ---------------------------------------------------------------- a job
     def start(self, n_files: int, total_bytes: int) -> None:
-        from ..eta import TimeLeft
 
         self._n, self._bytes, self._bytes_done, self._finished = n_files, max(1, total_bytes), 0, 0
         self._saved = 0
@@ -265,7 +268,7 @@ class JobStatus(Card):
         self.bar.setVisible(True)
         self.bar.setRange(0, 0)
         self.detail.setVisible(True)
-        self.title.setText(f"{self.verb} {n_files} file{'s' if n_files != 1 else ''}…")
+        self.title.setText(f"{self.verb} {plural(n_files, 'file')}…")
         self.detail.setText("Starting…")
         self.setVisible(True)
         self._tick.start()
@@ -327,7 +330,6 @@ class JobStatus(Card):
             self.title.setText(f"{paused}{self.verb} {self._n} files · {self._finished} done{saved}")
         partial = sum(size * f for _n, size, _s, f in running if f is not None)
         known = self._bytes_done + partial
-        from ..eta import say
 
         whole = "" if self._paused_reason else say(self._eta.update(known, self._bytes, spent))
         left = ""
@@ -445,7 +447,6 @@ class JobStatus(Card):
                 lines.append(f"{len(skipped):,} left as they were: {why}.")
             self._color("danger" if failed and not done else "warning" if failed else "success" if done else None)
         self.detail.setText("\n".join(lines))
-        from .. import fixes
 
         self._show_fixes(fixes.suggest([r.message for r in failed + skipped]))
         self._set_buttons(show=bool(self._outputs), copy=bool(failed or skipped), log=bool(failed), close=True,
@@ -464,7 +465,7 @@ class JobStatus(Card):
             return
         lines, labels = [], []
         for key, label, why, n in found[:3]:
-            lines.append(f"{n} file{'s' if n != 1 else ''}: {why}")
+            lines.append(f"{plural(n, 'file')}: {why}")
             if label in labels:
                 continue
             labels.append(label)
@@ -558,8 +559,6 @@ class JobStatus(Card):
         QTimer.singleShot(1500, lambda: self.copy_btn.setText("Copy Details"))
 
     def _open_log(self) -> None:
-        from ..log import log_file
-        from .filelist import open_file
 
         open_file(log_file())
 
@@ -617,7 +616,7 @@ class ResumeBanner(Card):
         when = time.strftime("%a %d %b, %H:%M", time.localtime(p.started))
         left, total = len(p.remaining), len(p.paths)
         self.title.setText(f"A job started {when} didn't finish")
-        self.detail.setText(f"{left:,} of {total:,} file{'s' if total != 1 else ''} weren't done yet (Wick "
+        self.detail.setText(f"{left:,} of {plural(total, 'file')} weren't done yet (Wick "
                             "was closed or the computer restarted). Resume continues with them, using the options "
                             "the job was started with. The files that were done are in the history.")
         self.setVisible(True)
@@ -641,25 +640,31 @@ class PauseControl:
     def _running(self) -> bool:
         return self.thread is not None and self.thread.isRunning() and hasattr(self.thread, "pause")
 
+    def _pause_event(self) -> threading.Event | None:
+        """The running job's pause switch (None when no job that can pause is running)."""
+        return getattr(self.thread, "pause", None) if self._running() else None
+
     def _user(self, on: bool) -> None:
-        if not self._running():
+        pause = self._pause_event()
+        if pause is None:
             return
         self.by_user = on
         if on:
-            self.thread.pause.set()
+            pause.set()
         else:
-            self.thread.pause.clear()
+            pause.clear()
             self.apply()
 
     def apply(self) -> None:
-        if not self._running() or self.by_user:
+        pause = self._pause_event()
+        if pause is None or self.by_user:
             return
         if self.win.battery_pause():
-            if not self.thread.pause.is_set():
-                self.thread.pause.set()
+            if not pause.is_set():
+                pause.set()
                 self.status.set_paused(self.BATTERY)
-        elif self.thread.pause.is_set():
-            self.thread.pause.clear()
+        elif pause.is_set():
+            pause.clear()
             self.status.set_paused("")
 
 

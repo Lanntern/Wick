@@ -113,7 +113,7 @@ def test_files_the_scan_cant_use_get_no_further_look(tmp_path, monkeypatch):
     (tmp_path / "data.bin").write_bytes(b"x")
     Image.new("RGB", (4, 4)).save(tmp_path / "a.png")
     looked = []
-    real = scanner._is_hidden
-    monkeypatch.setattr(scanner, "_is_hidden", lambda e: looked.append(e.name) or real(e))
+    real = scanner.is_hidden
+    monkeypatch.setattr(scanner, "is_hidden", lambda e: looked.append(e.name) or real(e))
     result = scanner.scan([tmp_path], Settings(min_image_kb=0), probe=False)
     assert [e.path.name for e in result.entries] == ["a.png"] and looked == ["a.png"]

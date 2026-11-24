@@ -33,9 +33,9 @@ def supported(path: Path | None = None) -> bool:
 
 
 def volume_type(path: Path) -> str:
-    from ..drives import _mac_mount_fs
+    from ..drives import mac_mount_fs
 
-    return _mac_mount_fs(path)
+    return mac_mount_fs(path)
 
 
 def is_compressed(st: os.stat_result) -> bool:
@@ -54,6 +54,8 @@ def check_folder(folder: Path) -> None:
 
 def one(path: Path, undo: bool = False) -> int:
     """Compress (or decompress) one file in place; returns bytes saved (negative for undo), 0 if skipped."""
+    if sys.platform == "win32":
+        raise OSError("APFS compression is a Mac's")
     st = path.stat(follow_symlinks=False)
     if not path.is_file() or path.is_symlink() or st.st_nlink > 1 or st.st_size < MIN_BYTES:
         return 0
@@ -85,6 +87,8 @@ AFSCEXPAND = Path("/usr/bin/afscexpand")
 
 def _expand(path: Path, st: os.stat_result) -> int:
     """Store a compressed file uncompressed again; returns the bytes it takes now beyond before."""
+    if sys.platform == "win32":
+        raise OSError("APFS compression is a Mac's")
     if AFSCEXPAND.exists():
         proc = subprocess.run([str(AFSCEXPAND), str(path)], capture_output=True, text=True, timeout=600)
         if proc.returncode != 0:

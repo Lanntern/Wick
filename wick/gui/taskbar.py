@@ -10,12 +10,13 @@ to install; off Windows everything here does nothing.
 from __future__ import annotations
 
 import ctypes
-import os
 import sys
 
 from ..log import log
+from ..macobjc import Pool, cls, nsstring, sel, send
+from .style import icon_pixmap
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 
 # ITaskbarList3
@@ -42,10 +43,9 @@ def _hicon(name: str, size: int, light_taskbar: bool):
 
     from PySide6.QtGui import QImage
 
-    from .style import icon_pixmap
 
     img = icon_pixmap(name, "#202020" if light_taskbar else "#FFFFFF", size, 1.0, 2.0).toImage() \
-        .convertToFormat(QImage.Format_ARGB32)
+        .convertToFormat(QImage.Format.Format_ARGB32)
     w, h = img.width(), img.height()
     bits = bytes(img.constBits())[: w * h * 4]           # BGRA, top-down
 
@@ -82,6 +82,8 @@ def _hicon(name: str, size: int, light_taskbar: bool):
 
 def _light_taskbar() -> bool:
     """Whether Windows' taskbar (the "system" mode) is light."""
+    if sys.platform != "win32":
+        return False
     try:
         import winreg
 
@@ -112,7 +114,6 @@ class Taskbar:
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("gui.taskbar.__init__")
-                pass
 
     # ------------------------------------------------------------- settings
     @property
@@ -129,9 +130,9 @@ class Taskbar:
             return None
         if self._list is None:
             try:
-                from .jumplist import _create
+                from .jumplist import create_instance
 
-                tb = _create(CLSID_TaskbarList, IID_ITaskbarList3)
+                tb = create_instance(CLSID_TaskbarList, IID_ITaskbarList3)
                 tb.call(_HR_INIT, ())
                 self._list = tb
             except OSError as e:
@@ -183,7 +184,6 @@ class Taskbar:
     def _apply_mac(self) -> None:
         import ctypes as c
 
-        from ..macobjc import Pool, cls, nsstring, sel, send
 
         label = self.badge()
         if label == getattr(self, "_shown_badge", None):
@@ -250,7 +250,7 @@ class Taskbar:
     def _button_array(self):
         panel = self.active_panel()
         visible = panel is not None and self.show_buttons
-        paused = visible and getattr(panel, "_paused_reason", "")
+        paused = bool(visible and getattr(panel, "_paused_reason", ""))
         light = _light_taskbar()
         size = ctypes.windll.user32.GetSystemMetrics(49) or 16  # type: ignore[attr-defined]  # SM_CXSMICON
         arr = (_ThumbButton * 2)()

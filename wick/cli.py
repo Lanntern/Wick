@@ -5,18 +5,35 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
+import time
 from pathlib import Path
 
-from . import __version__, journal, tools
+from . import __version__, journal, presets, tools
 from .engine import DONE, FAILED, FileResult, JobEvents, run_job, undo_run
+from .formats import human
 from .plan import plan_entry
 from .scanner import scan
-from .formats import human
-from .settings import (IMAGE_FORMATS, IMAGE_MODES, JPEG_SUBSAMPLING, METADATA_MODES, OUTPUT_MODES, SMART_TARGETS,
-                       AUDIO_FORMATS, AUDIO_LOSSLESS_MODES, AUDIO_LOSSY_MODES, AUDIO_QUALITIES,
-                       VIDEO_CODECS, VIDEO_ENCODERS, VIDEO_QUALITIES, Settings)
+from .settings import (
+    AUDIO_FORMATS,
+    AUDIO_LOSSLESS_MODES,
+    AUDIO_LOSSY_MODES,
+    AUDIO_QUALITIES,
+    IMAGE_FORMATS,
+    IMAGE_MODES,
+    JPEG_SUBSAMPLING,
+    METADATA_MODES,
+    OUTPUT_MODES,
+    SMART_TARGETS,
+    VIDEO_CODECS,
+    VIDEO_ENCODERS,
+    VIDEO_QUALITIES,
+    Settings,
+)
+from .video import available_encoders
 
 
 def _add_settings_args(p: argparse.ArgumentParser) -> None:
@@ -216,7 +233,8 @@ class _CliEvents(JobEvents):
         with self.lock:
             self.done += 1
             mark = {"done": "OK  ", "skipped": "skip", "failed": "FAIL", "cancelled": "stop"}[r.status]
-            extra = f" → {r.output.name} ({human(r.entry.size)} → {human(r.new_size)})" if r.status == DONE else ""
+            extra = (f" → {r.output.name} ({human(r.entry.size)} → {human(r.new_size)})"
+                     if r.status == DONE and r.output is not None else "")
             print(f"\r[{self.done}/{self.total}] {mark} {r.entry.path}{extra}  {r.message}" + " " * 10)
 
 
@@ -252,7 +270,6 @@ def cmd_history(a: argparse.Namespace) -> int:
     if not runs:
         print("No runs yet.")
         return 0
-    import time
     for r in runs:
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.started))
         print(f"{r.run_id}  {when}  {r.active_files:>4} files  saved {human(r.saved_bytes):>9}  {r.root}")
@@ -276,7 +293,6 @@ def cmd_undo(a: argparse.Namespace) -> int:
 
 
 def cmd_presets(a: argparse.Namespace) -> int:
-    from . import presets
 
     for name in presets.names():
         print(f"{name}\n    {presets.description(name)}")
@@ -284,7 +300,6 @@ def cmd_presets(a: argparse.Namespace) -> int:
 
 
 def cmd_tools(a: argparse.Namespace) -> int:
-    from .video import available_encoders
 
     for name, path in tools.tool_status().items():
         print(f"{name:8} {path or 'MISSING'}")
@@ -296,8 +311,6 @@ def cmd_tools(a: argparse.Namespace) -> int:
 
 def _decoder_check(report: Path) -> int:
     """Decode a picture in a decoder worker; write {"ok", "applied", "unavailable"} as JSON to ``report``."""
-    import json
-    import tempfile
 
     from PIL import Image
 
@@ -321,10 +334,8 @@ def _installer_setup(args: list[str]) -> int:
     set on a first install, so a choice made in Settings later is kept."""
     from PySide6.QtCore import QSettings
 
-    from . import APP_NAME
+    from . import APP_NAME, updates
     from .gui import integration
-
-    from . import updates
 
     opts = dict(a.split("=", 1) for a in args if "=" in a)
     on = {k: v == "1" for k, v in opts.items()}
@@ -339,12 +350,11 @@ def _installer_setup(args: list[str]) -> int:
             except Exception:  # noqa: BLE001 - the app's Settings can still turn it on
                 from wick.log import ignored
                 ignored("cli._installer_setup")
-                pass
     from .gui.main_window import carry_over_settings
 
     carry_over_settings()          # (before writing anything under the new name, which would stop the carry-over)
     path = os.environ.get("WICK_SETTINGS_FILE")
-    qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+    qs = QSettings(path, QSettings.Format.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
     freq = {"1": updates.DEFAULT_FREQUENCY, "0": "never"}.get(opts.get("updates", ""), opts.get("updates", ""))
     chosen_before = qs.contains("updates/frequency") or qs.contains("updates/auto")
     if freq in updates.FREQUENCIES and not on.get("upgrade") and not chosen_before:
@@ -354,7 +364,6 @@ def _installer_setup(args: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import os
 
     args = sys.argv[1:] if argv is None else argv
     if args and args[0] == "mcp":       # an AI agent's connection (stdio): before anything touches stdout
@@ -371,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     # must never crash the program.
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]  # (TextIOWrapper's)
         except (AttributeError, ValueError):
             pass
     trace = os.environ.get("WICK_TRACE")
@@ -381,15 +390,9 @@ def main(argv: list[str] | None = None) -> int:
         faulthandler.dump_traceback_later(20, repeat=True, file=open(trace, "a", encoding="utf-8"))  # noqa: SIM115
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "--uninstall-cleanup":   # the uninstaller: undo what the app added to Windows
-        from .gui import integration
-
-        from .gui import toasts
-
-        from .gui import jumplist
+        from .gui import integration, jumplist, toasts
 
         def old_temp_files() -> None:          # (versions before 0.2.0 kept their UI images in %TEMP%)
-            import shutil
-            import tempfile
 
             shutil.rmtree(os.path.join(tempfile.gettempdir(), "wick-ui"), ignore_errors=True)
 
@@ -400,14 +403,13 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:  # noqa: BLE001 - remove what can be removed
                 from wick.log import ignored
                 ignored("cli.main")
-                pass
         return 0
     if argv and argv[0] == "--installer-setup":   # the installer: apply the choices made on its options page
         return _installer_setup(argv[1:])
     if argv and argv[0] == "--decoder-check" and len(argv) == 2:   # packaging/smoke_test.py: the built app's
         return _decoder_check(Path(argv[1]))                         # decoder worker starts and is restricted
     if argv and argv[0] == "--ntfs-dump":       # the administrator helper for fast drive scans (ntfs.py)
-        from .ntfs import _main as ntfs_main
+        from .ntfs import main as ntfs_main
 
         return ntfs_main(argv)
     commands = {"scan", "run", "history", "undo", "tools", "presets", "speedtest", "gui", "mcp", "-h", "--help",

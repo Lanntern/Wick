@@ -7,23 +7,24 @@ Undo runs ``compact /u`` (Windows) or decompresses each file (Mac).
 
 from __future__ import annotations
 
-import os
-import sys
-import subprocess
-import threading
-import tempfile
 import hashlib
 import json
+import os
 import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time as _time
 from collections.abc import Callable
 from pathlib import Path
 
+from .. import tools, walk
 from .caches import steam_libraries
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
-ESTIMATED_RATIO = 0.62   # typical size after LZX for programs/games (shown as an estimate)
 ALGORITHMS = {
     "xpress4k": ("XPRESS4K", "Fastest reads; smaller savings. Prefer for loading-sensitive games.", 0.80),
     "xpress8k": ("XPRESS8K", "Balanced reads and savings. Recommended starting point.", 0.74),
@@ -79,7 +80,7 @@ def compression_records(include_undone: bool = False) -> dict:
     """Oldest measured pre-compression size and latest active settings, from local History."""
     from .. import journal
 
-    records = {}
+    records: dict[str, dict] = {}
     for run in sorted(journal.list_runs(), key=lambda r: r.started):
         for rec in sorted(run.files, key=lambda r: r.trashed_at):
             if rec.mode != "compact":
@@ -143,44 +144,29 @@ def measure(folder: Path, cancel: threading.Event | None = None, seen: set[str] 
             by_extension: dict | None = None) -> tuple[int, int, int]:
     """(logical bytes, bytes on disk, file count). ``seen`` collects lower-case file names (to look for
     tell-tale files such as DirectStorage's)."""
-    logical = disk = count = 0
-    stack = [folder]
-    while stack:
-        if cancelled(cancel):
-            break
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                for e in it:
-                    try:
-                        if e.is_symlink():
-                            continue
-                        if e.is_dir(follow_symlinks=False):
-                            if getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400:
-                                continue
-                            stack.append(Path(e.path))
-                        else:
-                            st = e.stat(follow_symlinks=False)
-                            from .common import cloud_only
+    from .common import cloud_only
 
-                            if cloud_only(st):
-                                continue
-                            logical += st.st_size
-                            allocated = size_on_disk(Path(e.path))
-                            disk += allocated
-                            if by_extension is not None:
-                                ext = Path(e.name).suffix.lower()
-                                old = by_extension.get(ext, (0, 0))
-                                by_extension[ext] = (old[0] + st.st_size, old[1] + allocated)
-                            count += 1
-                            if seen is not None and e.name.lower() in _DIRECTSTORAGE:
-                                seen.add(e.name.lower())
-                            if seen is not None and Path(e.name).suffix.lower() in (".ucas", ".utoc"):
-                                seen.add("streaming-assets")
-                    except OSError:
-                        continue
-        except OSError:
-            continue
+    logical = disk = count = 0
+    for d in walk.folders([folder], cancel=cancel):
+        for e in d.files():
+            try:
+                st = e.stat(follow_symlinks=False)
+                if cloud_only(st):
+                    continue
+                logical += st.st_size
+                allocated = size_on_disk(Path(e.path))
+                disk += allocated
+                if by_extension is not None:
+                    ext = Path(e.name).suffix.lower()
+                    old = by_extension.get(ext, (0, 0))
+                    by_extension[ext] = (old[0] + st.st_size, old[1] + allocated)
+                count += 1
+                if seen is not None and e.name.lower() in _DIRECTSTORAGE:
+                    seen.add(e.name.lower())
+                if seen is not None and Path(e.name).suffix.lower() in (".ucas", ".utoc"):
+                    seen.add("streaming-assets")
+            except OSError:
+                continue
     return logical, disk, count
 
 
@@ -263,10 +249,9 @@ def old_folders(roots: list[Path], cancel: threading.Event | None = None, now: f
                 months: int = OLD_FOLDER_MONTHS, min_size: int = OLD_FOLDER_MIN) -> list[Path]:
     """Folders right inside ``roots`` (Documents, Downloads...) that nothing in has changed for ``months`` months,
     of at least ``min_size``, and not mostly files that are compressed already (photos, videos, archives)."""
-    import time as _time
 
     cutoff = (now if now is not None else _time.time()) - months * 30 * 86400
-    found = []
+    found: list[Path] = []
     for root in roots:
         try:
             children = [p for p in root.iterdir() if p.is_dir() and not p.is_symlink()]
@@ -457,7 +442,8 @@ def sample_ratio(folder: Path, algorithm_name: str, skip_extensions=(), cancel=N
 
 def _commands(folder, undo, algorithm_name, skip, cancel, changed_since):
     base = [arg for arg in _compact_args(folder, undo, algorithm_name) if not arg.startswith('/s:')]
-    batch, length = [], sum(len(a) + 3 for a in base)
+    batch: list[str] = []
+    length = sum(len(a) + 3 for a in base)
     for path in _compact_files(folder, set() if undo else skip, cancel, changed_since):
         name = str(path)
         if batch and (len(batch) >= 64 or length + len(name) + 3 > 7000):
@@ -477,7 +463,6 @@ def run_compact(folder: Path, undo: bool = False, on_line: Callable[[str], None]
                 cancel: threading.Event | None = None, elevate: bool = False,
                 algorithm_name: str = DEFAULT_ALGORITHM, skip_extensions=(), changed_since: float = 0) -> int:
     """One explicit folder; skip links/cloud files and exclusions. Elevated work prompts once."""
-    from .. import tools
 
     selected = algorithm(algorithm_name)
     folder = folder.resolve()
@@ -579,31 +564,18 @@ def compressed_folders() -> list[tuple[Path, float]]:
 def uncompressed_since(folder: Path, since: float, cancel: threading.Event | None = None) -> int:
     """Bytes in files changed after ``since`` that aren't compressed (what an update added). Files Windows
     can't compress well are small anyway; anything at 95 % or more of its size counts as uncompressed."""
+
     total = 0
-    stack = [folder]
-    while stack:
-        if cancelled(cancel):
-            break
-        try:
-            with os.scandir(stack.pop()) as it:
-                for e in it:
-                    try:
-                        if e.is_symlink():
-                            continue
-                        if e.is_dir(follow_symlinks=False):
-                            if getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400:
-                                continue
-                            stack.append(Path(e.path))
-                            continue
-                        st = e.stat(follow_symlinks=False)
-                        if st.st_mtime <= since or st.st_size < 64 * 1024:
-                            continue
-                        if size_on_disk(Path(e.path)) >= st.st_size * 0.95:
-                            total += st.st_size
-                    except OSError:
-                        continue
-        except OSError:
-            continue
+    for d in walk.folders([folder], cancel=cancel):
+        for e in d.files():
+            try:
+                st = e.stat(follow_symlinks=False)
+                if st.st_mtime <= since or st.st_size < 64 * 1024:
+                    continue
+                if size_on_disk(Path(e.path)) >= st.st_size * 0.95:
+                    total += st.st_size
+            except OSError:
+                continue
     return total
 
 

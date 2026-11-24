@@ -16,6 +16,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from .macobjc import cls, nsstring, sel, send
+
 _ES_CONTINUOUS = 0x80000000
 _ES_SYSTEM_REQUIRED = 0x00000001
 
@@ -37,7 +39,6 @@ def _mac_begin() -> bool:
     global _activity
     import ctypes
 
-    from .macobjc import nsstring, sel, send, cls
 
     try:
         info = send(ctypes.c_void_p)(cls("NSProcessInfo"), sel("processInfo"))
@@ -57,7 +58,6 @@ def _mac_end() -> None:
     global _activity
     import ctypes
 
-    from .macobjc import sel, send, cls
 
     if _activity is None:
         return
@@ -99,7 +99,6 @@ def _release_other() -> None:
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("power._release_other")
-            pass
         _inhibitor = None
 
 
@@ -111,7 +110,7 @@ def awake(enabled: bool = True) -> Iterator[None]:
         yield
         return
     win = None
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
 
@@ -133,8 +132,7 @@ def awake(enabled: bool = True) -> Iterator[None]:
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("power.awake")
-                pass
-        elif os.name != "nt":
+        elif sys.platform != "win32":
             with _lock:
                 _holders -= 1
                 if _holders == 0:
@@ -143,7 +141,7 @@ def awake(enabled: bool = True) -> Iterator[None]:
 
 def on_battery() -> bool | None:
     """True on battery, False on mains power, None if it can't be told (desktops: no battery)."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
             from ctypes import wintypes
@@ -210,7 +208,7 @@ def background():
     thread runs in Windows' background mode, at low CPU, disk and memory priority, so whatever you're doing
     keeps the machine. Elsewhere: a lower scheduling priority for the thread where the OS has one."""
     started = False
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
 
@@ -230,7 +228,6 @@ def background():
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("power.background")
-                pass
 
 
 _efficiency = False
@@ -245,7 +242,7 @@ def set_efficiency_mode(on: bool) -> bool:
     """Windows 11's efficiency mode for the whole app (EcoQoS: efficient cores, lower clock; idle priority),
     for while it runs hidden in the tray with nothing you started. Returns whether it changed."""
     global _efficiency
-    if os.name != "nt" or on == _efficiency:
+    if sys.platform != "win32" or on == _efficiency:
         return False
     try:
         import ctypes
@@ -269,7 +266,7 @@ def set_efficiency_mode(on: bool) -> bool:
 def user_busy() -> bool:
     """Windows: is something full-screen running (a game, a video, a presentation) or presentation mode on? Then
     background work waits and nothing pops up. False elsewhere, or when it can't be told."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import ctypes
@@ -289,7 +286,7 @@ def set_restart_after_update(on: bool, args: str = "--background") -> bool:
     """Windows: if Windows restarts the computer (for updates) while this is on, start Wick again with
     ``args`` when you sign back in (only for people who have "Restart apps" turned on in Windows' sign-in
     options). Not after a crash or hang. Returns whether Windows accepted it."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import ctypes

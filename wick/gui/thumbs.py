@@ -5,7 +5,19 @@ from __future__ import annotations
 from collections import OrderedDict
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRectF, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import (
+    QEvent,
+    QObject,
+    QPersistentModelIndex,
+    QPoint,
+    QRectF,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QColor, QCursor, QFont, QGuiApplication, QImage, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
@@ -64,7 +76,7 @@ def _png(img: QImage) -> bytes:
 
     ba = QByteArray()
     buf = QBuffer(ba)
-    buf.open(QIODevice.WriteOnly)
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
     img.save(buf, "PNG")       # type: ignore[call-overload]  # (the stubs say bytes; PySide6 6.12 only takes str)
     return bytes(ba.data())
 
@@ -127,17 +139,17 @@ class HoverCard(QWidget):
     """Floating preview card (doesn't take focus; hidden on any key, click or scroll)."""
 
     def __init__(self, parent=None):
-        super().__init__(parent, Qt.ToolTip | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        super().__init__(parent, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(Space.M, Space.M, Space.M, Space.M)
         lay.setSpacing(Space.S)
         self.image = QLabel()
-        self.image.setAlignment(Qt.AlignCenter)
+        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image.setMinimumSize(QSize(THUMB_PX // 2, THUMB_PX // 3))
         self.title = QLabel()
-        self.title.setFont(ui_font(Type.BODY, QFont.DemiBold))
+        self.title.setFont(ui_font(Type.BODY, QFont.Weight.DemiBold))
         self.meta = QLabel()
         self.meta.setFont(ui_font(Type.FOOTNOTE))
         lay.addWidget(self.image)
@@ -153,7 +165,7 @@ class HoverCard(QWidget):
         self.title.setStyleSheet(f"color: {t.text}; background: transparent;")
         self.meta.setStyleSheet(f"color: {t.text2}; background: transparent;")
         self.where.setStyleSheet(f"color: {t.text3}; background: transparent;")
-        self.where.setText(self.where.fontMetrics().elidedText(where, Qt.ElideMiddle, THUMB_PX))
+        self.where.setText(self.where.fontMetrics().elidedText(where, Qt.TextElideMode.ElideMiddle, THUMB_PX))
         self.where.setVisible(bool(where))
         self.image.setStyleSheet(f"color: {t.text2}; background: transparent;")
         self.image.setVisible(pixmap is not None or loading)
@@ -164,14 +176,14 @@ class HoverCard(QWidget):
             self.image.setText("")
             self.image.setPixmap(pixmap)
         fm = self.title.fontMetrics()
-        self.title.setText(fm.elidedText(title, Qt.ElideMiddle, THUMB_PX))
+        self.title.setText(fm.elidedText(title, Qt.TextElideMode.ElideMiddle, THUMB_PX))
         self.meta.setText(meta)
         self.adjustSize()
 
     def paintEvent(self, _e) -> None:
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         path = QPainterPath()
         path.addRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), Radius.CARD, Radius.CARD)
         p.fillPath(path, QColor(t.card))
@@ -206,8 +218,8 @@ class HoverPreviewer(QObject):
         self.cache.ready.connect(self._ready)
         self.timer = QTimer(self, singleShot=True, interval=HOVER_DELAY_MS)
         self.timer.timeout.connect(self._show)
-        self.row = -1
-        self.index = None
+        self.row: tuple[int, int, int] | int = -1
+        self.index: QPersistentModelIndex | None = None
         self.current: tuple | None = None
         view.setMouseTracking(True)
         view.viewport().installEventFilter(self)
@@ -217,7 +229,7 @@ class HoverPreviewer(QObject):
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
         et = ev.type()
-        if et == QEvent.MouseMove and self.enabled:
+        if et == QEvent.Type.MouseMove and self.enabled:
             idx = self.view.indexAt(ev.position().toPoint())
             if idx.isValid() and idx.column() != self.column:
                 idx = idx.siblingAtColumn(-1)   # not over the name: no preview card
@@ -234,12 +246,18 @@ class HoverPreviewer(QObject):
                     self.timer.stop()
             elif self.card.isVisible():
                 self.card.show_near(QCursor.pos())
-        elif et == QEvent.ToolTip and self.enabled and obj is self.view.viewport():
+        elif et == QEvent.Type.ToolTip and self.enabled and obj is self.view.viewport():
             idx = self.view.indexAt(ev.pos())
             if idx.isValid() and idx.column() == self.column:
                 return True   # the preview card is this column's popup: no second, separate tooltip
-        elif et in (QEvent.Leave, QEvent.MouseButtonPress, QEvent.Wheel, QEvent.KeyPress, QEvent.FocusOut,
-                    QEvent.Hide):
+        elif et in (
+            QEvent.Type.Leave,
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.Wheel,
+            QEvent.Type.KeyPress,
+            QEvent.Type.FocusOut,
+            QEvent.Type.Hide,
+        ):
             self.hide()
         return False
 
@@ -260,8 +278,9 @@ class HoverPreviewer(QObject):
         if pm is not None:
             pm.setDevicePixelRatio(self.view.devicePixelRatioF())
         loading = pm is None and self.cache.key(path) in self.cache.pending
-        self.card.set_content(pm, title, meta if pm is not None or loading else meta + " · no preview", loading,
-                              str(path.parent))
+        self.card.set_content(
+            pm, title, meta if pm is not None or loading else meta + " · no preview", loading, str(path.parent)
+        )
         self.card.show_near(QCursor.pos())
 
     def _ready(self, key: str) -> None:
@@ -269,8 +288,9 @@ class HoverPreviewer(QObject):
             pm = self.cache.cache.get(key)
             if pm is not None:
                 pm.setDevicePixelRatio(self.view.devicePixelRatioF())
-            self.card.set_content(pm, self.current[1], self.current[2] if pm else self.current[2] + " · no preview",
-                                  where=self.current[3])
+            self.card.set_content(
+                pm, self.current[1], self.current[2] if pm else self.current[2] + " · no preview", where=self.current[3]
+            )
             self.card.show_near(QCursor.pos())
 
 

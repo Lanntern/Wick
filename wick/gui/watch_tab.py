@@ -9,15 +9,25 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QCheckBox, QComboBox, QFileDialog, QFrame, QLabel, QListWidget,
-                               QListWidgetItem)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+)
 
 from .. import presets
 from ..engine import DONE, FAILED, run_job
-from ..formats import count, human
+from ..formats import human, plural
 from ..plan import plan_entry
 from ..scanner import scan
 from ..settings import Settings
+from ..suggest import watch_suggestions
 from .filelist import ListPlaceholder
 from .style import Size, Space, Type, icon
 from .watcher import FolderWatcher
@@ -50,7 +60,7 @@ class WatchJobThread(QThread):
                 from ..log import log
 
                 log.exception("Watched files failed")
-                self.log.emit(f"Couldn't process {count(len(paths), 'new file')}: {e}")
+                self.log.emit(f"Couldn't process {plural(len(paths), 'new file')}: {e}")
                 o, d, f, b = [], 0, len(paths), 0
             outputs += o
             done, failed, saved = done + d, failed + f, saved + b
@@ -70,7 +80,7 @@ class WatchJobThread(QThread):
         results, _ = run_job(items, s, Path(paths[0]).parent, tool="watch", cancel=self.cancel)
         outputs = []
         for r in results:
-            if r.status == DONE:
+            if r.status == DONE and r.output is not None:
                 outputs.append(str(r.output))
                 self.log.emit(f"Compressed {r.entry.path.name} → {r.output.name}, saved {human(r.saved)}")
             else:
@@ -83,9 +93,9 @@ def _list(name: str) -> QListWidget:
     lw = QListWidget()
     lw.setObjectName("plainList")
     lw.setAccessibleName(name)
-    lw.setFrameShape(QFrame.NoFrame)
+    lw.setFrameShape(QFrame.Shape.NoFrame)
     lw.setIconSize(QSize(Size.ICON_M, Size.ICON_M))
-    lw.setSelectionMode(QAbstractItemView.ExtendedSelection)
+    lw.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
     lw.setAlternatingRowColors(True)
     return lw
 
@@ -129,7 +139,7 @@ class WatchTab(Page):
         self.remove_btn = button("Remove", "", "minus", "Stop watching the selected folders", "Delete")
         self.remove_btn.clicked.connect(self.remove_folder)
         self.preset = QComboBox()
-        self.preset.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)   # long preset names
+        self.preset.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)   # long preset names
         self.preset.setMinimumContentsLength(14)                                          # don't widen the page
         self.preset.setAccessibleName("Options for the selected folder")
         self.preset.setToolTip("Which options new files in the selected folder are compressed with")
@@ -142,7 +152,7 @@ class WatchTab(Page):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addLayout(options, 1)
-        row.addWidget(self.remove_btn, 0, Qt.AlignBottom)
+        row.addWidget(self.remove_btn, 0, Qt.AlignmentFlag.AlignBottom)
         folders_card.lay.addLayout(row)
         # Screenshots and recordings fill up fast and shrink well: offer them with one click.
         self.suggest_row = QHBoxLayout()
@@ -161,7 +171,7 @@ class WatchTab(Page):
         self.status = text("Not watching", Type.FOOTNOTE, secondary=True)
         activity.lay.addLayout(hbox(text("Activity", Type.HEADLINE, bold=True), None, self.status))
         self.logw = _list("Activity log")
-        self.logw.setSelectionMode(QAbstractItemView.NoSelection)
+        self.logw.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         activity.lay.addWidget(self.logw, 1)
         self.log_empty = ListPlaceholder(self.logw)
         self.log_empty.show_message("Nothing listed yet. Files compressed while watching appear here.")
@@ -183,12 +193,12 @@ class WatchTab(Page):
     # ---- folders
     def _add_item(self, path: str) -> None:
         it = QListWidgetItem(icon("folder", None, Size.ICON_M), path)
-        it.setData(Qt.UserRole, path)
+        it.setData(Qt.ItemDataRole.UserRole, path)
         self.folders.addItem(it)
         self._label_item(it)
 
     def _label_item(self, it: QListWidgetItem) -> None:
-        path = it.data(Qt.UserRole)
+        path = it.data(Qt.ItemDataRole.UserRole)
         name = self.folder_presets.get(path, "")
         it.setText(f"{path}   ·   {name}" if name else path)
         it.setToolTip(f"{path}\nOptions: {name or 'Compress page'}")
@@ -203,7 +213,7 @@ class WatchTab(Page):
         self._selection_changed()
 
     def folder_paths(self) -> list[Path]:
-        return [Path(self.folders.item(i).data(Qt.UserRole)) for i in range(self.folders.count())]
+        return [Path(self.folders.item(i).data(Qt.ItemDataRole.UserRole)) for i in range(self.folders.count())]
 
     def _save(self) -> None:
         self.qs.setValue("watch_folders", [str(p) for p in self.folder_paths()])
@@ -220,7 +230,7 @@ class WatchTab(Page):
         self.preset.addItem("Compress page options", "")
         for name in presets.names():
             self.preset.addItem(name, name)
-            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ToolTipRole)
+            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ItemDataRole.ToolTipRole)
         self.preset.blockSignals(False)
         self.folder_presets = {k: v for k, v in self.folder_presets.items() if presets.get(v) is not None}
         for i in range(self.folders.count()):
@@ -231,7 +241,7 @@ class WatchTab(Page):
         sel = self.folders.selectedItems()
         self.preset.setEnabled(bool(sel))
         self.preset_label.setEnabled(bool(sel))
-        names = {self.folder_presets.get(it.data(Qt.UserRole), "") for it in sel}
+        names = {self.folder_presets.get(it.data(Qt.ItemDataRole.UserRole), "") for it in sel}
         self.preset.blockSignals(True)
         self.preset.setCurrentIndex(max(0, self.preset.findData(names.pop())) if len(names) == 1 else 0)
         self.preset.blockSignals(False)
@@ -239,7 +249,7 @@ class WatchTab(Page):
     def _preset_chosen(self, _index: int) -> None:
         name = self.preset.currentData() or ""
         for it in self.folders.selectedItems():
-            self.folder_presets[it.data(Qt.UserRole)] = name
+            self.folder_presets[it.data(Qt.ItemDataRole.UserRole)] = name
             self._label_item(it)
         self._save()
 
@@ -264,7 +274,6 @@ class WatchTab(Page):
             self._restart()
 
     def refresh_suggestions(self) -> None:
-        from ..suggest import watch_suggestions
 
         while self.suggest_row.count():
             w = self.suggest_row.takeAt(0).widget()
@@ -310,7 +319,7 @@ class WatchTab(Page):
         self.switch.setAccessibleDescription("on" if on else "off")
         if on:
             self.watcher.start(self.folder_paths(), self.recursive.isChecked())
-            self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')}")
+            self.status.setText(f"Watching {plural(len(self.folder_paths()), 'folder')}")
             self._log("Started watching")
         else:
             self.watcher.stop()
@@ -332,7 +341,7 @@ class WatchTab(Page):
                 self.switch.setChecked(False)
                 return
             self.watcher.start(self.folder_paths(), self.recursive.isChecked())
-            self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')}")
+            self.status.setText(f"Watching {plural(len(self.folder_paths()), 'folder')}")
 
     def ignore(self, paths) -> None:
         for p in paths:
@@ -355,7 +364,7 @@ class WatchTab(Page):
             return
         self._waiting_for_quiet = False
         batch, self.queue = self.queue[:200], self.queue[200:]
-        self._log(f"Compressing {count(len(batch), 'new file')}…")
+        self._log(f"Compressing {plural(len(batch), 'new file')}…")
         groups: dict[str, tuple[list[str], Settings]] = {}
         for path in batch:
             s = self.settings_for(path)
@@ -370,11 +379,11 @@ class WatchTab(Page):
     def _batch_done(self, outputs: list, done: int, failed: int, saved: int) -> None:
         self.ignore(outputs)
         self.saved_total += saved
-        self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')} · saved {human(self.saved_total)} "
+        self.status.setText(f"Watching {plural(len(self.folder_paths()), 'folder')} · saved {human(self.saved_total)} "
                             f"this session")
         self.win.history.refresh()
         if done or failed:
-            self.win.tray_message(f"Compressed {count(done, 'new file')}, saved {human(saved)}"
+            self.win.tray_message(f"Compressed {plural(done, 'new file')}, saved {human(saved)}"
                                   + (f"; {failed} failed" if failed else ""),
                                   actions=[("Show in History", "history")], launch="watch")
 

@@ -11,6 +11,8 @@ send2trash can delete but not restore, so this reads the bins directly:
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 import struct
 import sys
 import time
@@ -19,8 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
 
-_IS_WINDOWS = os.name == "nt"
-_IS_MAC = sys.platform == "darwin"
+IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
 
 
 @dataclass
@@ -131,10 +133,9 @@ def _freedesktop_bins(original: Path) -> list[tuple[Path, Path | None]]:
     """(trash dir, topdir for relative paths or None)."""
     xdg = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
     bins: list[tuple[Path, Path | None]] = [(Path(xdg) / "Trash", None)]
-    try:
-        uid = os.getuid()
-    except AttributeError:
+    if sys.platform == "win32":
         return bins
+    uid = os.getuid()
     top = _mount_point(original.parent)
     bins += [(top / ".Trash" / str(uid), top), (top / f".Trash-{uid}", top)]
     return bins
@@ -177,10 +178,10 @@ def find_trashed(original: Path, not_before: float = 0.0, bins=None) -> TrashedI
     ``bins`` overrides the bin locations (for tests).
     """
     original = Path(original)
-    if _IS_MAC and bins is None:
+    if IS_MAC and bins is None:
         want = os.path.normpath(str(original))
         items = [i for i in _all_mac() if os.path.normpath(str(i.original)) == want]
-    elif _IS_WINDOWS:
+    elif IS_WINDOWS:
         items = _windows_candidates(original, bins if bins is not None else _windows_bins(original))
     else:
         items = _freedesktop_candidates(original, bins if bins is not None else _freedesktop_bins(original))
@@ -254,13 +255,13 @@ def index(originals, bins=None) -> dict[str, list[TrashedItem]]:
     """Everything in the bins that hold ``originals`` (each bin read once), by normalized original path.
     ``bins`` overrides the bin locations (for tests)."""
     originals = [Path(o) for o in originals]
-    if _IS_MAC and bins is None:
+    if IS_MAC and bins is None:
         out_mac: dict[str, list[TrashedItem]] = {}
         for it in _all_mac():
             out_mac.setdefault(os.path.normcase(os.path.normpath(str(it.original))), []).append(it)
         return out_mac
     if bins is None:
-        if _IS_WINDOWS:
+        if IS_WINDOWS:
             drives = {os.path.splitdrive(str(o))[0].upper(): o for o in originals}
             bins = [b for o in drives.values() for b in _windows_bins(o)]
         else:
@@ -272,7 +273,7 @@ def index(originals, bins=None) -> dict[str, list[TrashedItem]]:
                 except OSError:
                     continue
             bins = list(seen.values())
-    items = _all_windows(bins) if _IS_WINDOWS else _all_freedesktop(bins)
+    items = _all_windows(bins) if IS_WINDOWS else _all_freedesktop(bins)
     out: dict[str, list[TrashedItem]] = {}
     for it in items:
         out.setdefault(os.path.normcase(os.path.normpath(str(it.original))), []).append(it)
@@ -299,8 +300,6 @@ def restore(item: TrashedItem) -> None:
 
 def purge(item: TrashedItem) -> None:
     """Delete one item we put in the bin for good (frees its space without emptying the whole bin)."""
-    import shutil
-    import stat
 
     def force(func, path, _exc):   # read-only files (Go's module cache, git objects): make writable, retry
         os.chmod(path, stat.S_IWRITE | stat.S_IREAD)

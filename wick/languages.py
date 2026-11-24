@@ -76,6 +76,8 @@ def track_codes(keys: list[str]) -> set[str]:
 
 
 def _windows() -> list[str]:
+    if sys.platform != "win32":
+        return []
     import ctypes
     from ctypes import wintypes
 
@@ -86,7 +88,7 @@ def _windows() -> list[str]:
     if k32.GetUserPreferredUILanguages(0x8, ctypes.byref(num), None, ctypes.byref(size)) and size.value:
         buf = ctypes.create_unicode_buffer(size.value)
         if k32.GetUserPreferredUILanguages(0x8, ctypes.byref(num), buf, ctypes.byref(size)):
-            found += [x for x in buf[:size.value].split("\0") if x]     # MUI_LANGUAGE_NAME: "sv-SE"
+            found += [x for x in ctypes.wstring_at(buf, size.value).split("\0") if x]     # MUI_LANGUAGE_NAME: "sv-SE"
     # Installed keyboard layouts: their low word is the input language.
     n = user32.GetKeyboardLayoutList(0, None)
     if n > 0:

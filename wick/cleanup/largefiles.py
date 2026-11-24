@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import os
+import sys
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 
-from ..formats import VIDEO_EXTS, human
-from .common import _CLOUD_ONLY_ATTRS, Candidate, ScanResult, publish, walk_files
+from ..formats import VIDEO_EXTS, human, plural
+from ..protected import CLOUD_ONLY_ATTRS
+from .common import Candidate, ScanResult, publish, walk_files
 
 LIMIT = 500                    # the biggest this many are listed
 
@@ -58,7 +59,7 @@ def _from_everything(roots: list[Path], min_size: int) -> list[tuple[Path, int, 
     if not everything.available():
         return None
     out: list[tuple[Path, int, float]] = []
-    if not any(r == Path.home() or (os.name == "nt" and r.anchor and Path(r.anchor) == r) for r in roots):
+    if not any(r == Path.home() or (sys.platform == "win32" and r.anchor and Path(r.anchor) == r) for r in roots):
         return None                      # (a smaller folder is read directly: certain to be current)
     for root in roots:
         folder = str(everything.long_path(root)).rstrip("\\/") + "\\"
@@ -67,7 +68,7 @@ def _from_everything(roots: list[Path], min_size: int) -> list[tuple[Path, int, 
             return None
         out += [(Path(n), s, m) for n, is_dir, s, m, a in items
                 if not is_dir and s >= min_size and not a & 0x2         # (hidden files left out, like the walk,
-                and not a & _CLOUD_ONLY_ATTRS]                          #  and files only in the cloud)
+                and not a & CLOUD_ONLY_ATTRS]                          #  and files only in the cloud)
     return out
 
 
@@ -75,7 +76,7 @@ def find_large_files(roots: list[Path], min_mb: float, kind: str = "all",
                      progress: Callable | None = None, cancel: threading.Event | None = None) -> ScanResult:
     min_size = max(1, int(min_mb * 1024 * 1024))
     found = None
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             found = _from_everything(roots, min_size)
         except Exception:  # noqa: BLE001 - Everything's answer is a bonus: any problem, walk instead
@@ -89,7 +90,7 @@ def find_large_files(roots: list[Path], min_mb: float, kind: str = "all",
     items = []
     for path, size, mtime in found[:LIMIT]:
         age = int((now - mtime) // 86400) if mtime else 0
-        when = "changed today" if age < 1 else f"unchanged for {age:,} day{'s' if age != 1 else ''}"
+        when = "changed today" if age < 1 else f"unchanged for {plural(age, 'day')}"
         items.append(Candidate(path, size, detail=f"{_label(path)} · {when}", selected=False))
     notes = [f"Showing the largest {LIMIT}."] if len(found) > LIMIT else []
     if not items:

@@ -9,6 +9,7 @@ parameters (what Task Manager's "command line" column shows); processes of other
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,8 @@ def _linux() -> list[Proc]:
 
 
 def _windows() -> list[Proc]:
+    if sys.platform != "win32":
+        return []
     import ctypes
     from ctypes import wintypes
 
@@ -160,7 +163,6 @@ def parse_mac(ps_out: str, args_out: str, lsof_out: str) -> list[Proc]:
 
 
 def _mac() -> list[Proc]:
-    import subprocess
 
     def run(*cmd: str) -> str:
         try:
@@ -183,7 +185,6 @@ def processes() -> list[Proc]:
     except Exception:  # noqa: BLE001 - a nicety: never fail a scan over it
         from wick.log import ignored
         ignored("cleanup.inuse.processes")
-        pass
     return []
 
 

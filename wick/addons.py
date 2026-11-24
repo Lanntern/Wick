@@ -11,11 +11,14 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import tempfile
 import threading
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import tools
 
 
 @dataclass(frozen=True)
@@ -49,11 +52,11 @@ def folder() -> Path:
 
 def can_download(addon: Addon) -> bool:
     """Only the Windows build is downloaded (elsewhere it comes from the system's packages)."""
-    return os.name == "nt" and os.environ.get("WICK_NO_NETWORK") != "1"
+    return sys.platform == "win32" and os.environ.get("WICK_NO_NETWORK") != "1"
 
 
 def install_hint(addon: Addon) -> str:
-    if os.name == "nt":
+    if sys.platform == "win32":
         return f"Wick can download {addon.tool.capitalize()} for you ({addon.size / 1e6:.0f} MB)."
     if sys.platform == "darwin":
         return f"Install it with Homebrew (brew install {addon.tool}), then add the files again."
@@ -68,10 +71,8 @@ class Cancelled(Exception):
 def download(addon: Addon, progress: Callable[[int, int], None] | None = None,
              cancel: threading.Event | None = None, url: str | None = None) -> Path:
     """Download, check the fingerprint, and unpack the program. Returns its path."""
-    import tempfile
     import urllib.request
 
-    from . import tools
 
     dest = folder()
     exe = dest / Path(addon.member).name

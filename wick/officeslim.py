@@ -18,9 +18,13 @@ import html
 import io
 import posixpath
 import re
+import tempfile
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import unquote
+
+from .formats import plural
 
 _REL = re.compile(r"<Relationship\b[^>]*?/?>", re.S)
 _ATTR = re.compile(r'([\w:]+)="([^"]*)"')
@@ -128,7 +132,7 @@ def remove_orphans(pkg: Package) -> int:
             pkg.set("META-INF/manifest.xml", manifest.encode("utf-8"))
             removed += 1
     if removed:
-        pkg.notes.append(f"{removed} unused picture{'s' if removed != 1 else ''} or file{'s' if removed != 1 else ''}"
+        pkg.notes.append(f"{plural(removed, 'unused picture')} or file{'s' if removed != 1 else ''}"
                          " removed")
     return removed
 
@@ -137,7 +141,7 @@ def remove_orphans(pkg: Package) -> int:
 
 def bitmaps_to_png(pkg: Package) -> int:
     """BMP and TIFF pictures in an Office file's media folders become PNG (same pixels). Returns how many."""
-    from .documents import _same_pixels, shrink_png
+    from .documents import same_pixels, shrink_png
 
     if not pkg.ooxml:
         return 0
@@ -159,7 +163,7 @@ def bitmaps_to_png(pkg: Package) -> int:
                 buf = io.BytesIO()
                 im.save(buf, "PNG")
             png = shrink_png(buf.getvalue())
-            if not _same_pixels(pkg.data[name], png):
+            if not same_pixels(pkg.data[name], png):
                 continue
         except Exception:  # noqa: BLE001 - this picture stays as it is
             continue
@@ -187,7 +191,7 @@ def bitmaps_to_png(pkg: Package) -> int:
         pkg.changed.add(new)
         done += 1
     if done:
-        pkg.notes.append(f"{done} BMP or TIFF picture{'s' if done != 1 else ''} stored as PNG")
+        pkg.notes.append(f"{plural(done, 'BMP or TIFF picture')} stored as PNG")
     return done
 
 
@@ -274,7 +278,7 @@ def crop_pictures(pkg: Package, lossy_ok: bool) -> int:
             text = text[:s] + rep + text[e:]
         pkg.set(part, text.encode("utf-8"))
     if done:
-        pkg.notes.append(f"cropped-away parts of {done} picture{'s' if done != 1 else ''} removed")
+        pkg.notes.append(f"cropped-away parts of {plural(done, 'picture')} removed")
     return done
 
 
@@ -318,7 +322,7 @@ def drop_pivot_caches(pkg: Package) -> int:
         _drop_override(pkg, records)
         done += 1
     if done:
-        pkg.notes.append(f"{done} pivot table cache{'s' if done != 1 else ''} left for Excel to rebuild")
+        pkg.notes.append(f"{plural(done, 'pivot table cache')} left for Excel to rebuild")
     return done
 
 
@@ -350,8 +354,6 @@ ADOBE = "http://ns.adobe.com/pdf/enc#RC"
 
 def epub_fonts(pkg: Package) -> int:
     """Cut an e-book's fonts to the characters in its text. Returns how many."""
-    import tempfile
-    from pathlib import Path
 
     from .subfonts import BASE, subset
 
@@ -399,7 +401,7 @@ def epub_fonts(pkg: Package) -> int:
             pkg.set(name, _xor(new, keys[algo], lengths[algo]) if algo else new)
             done += 1
     if done:
-        pkg.notes.append(f"{done} font{'s' if done != 1 else ''} cut to the characters in the book")
+        pkg.notes.append(f"{plural(done, 'font')} cut to the characters in the book")
     return done
 
 

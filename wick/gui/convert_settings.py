@@ -9,11 +9,19 @@ from __future__ import annotations
 import dataclasses
 
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel, QSpinBox, QWidget,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QSpinBox,
+    QWidget,
 )
 
 from .. import convert
 from ..formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, PDF, VIDEO
+from ..icons import ICO_PRESETS, preset_of
 from .style import Size, Space, Type
 from .widgets import dialog_buttons, dialog_layout, text
 
@@ -51,8 +59,8 @@ def _name_fields(form: QFormLayout) -> None:
     """Each field takes its row's label as its name for screen readers (dropdowns otherwise read out only their
     current value)."""
     for row in range(form.rowCount()):
-        label = form.itemAt(row, QFormLayout.LabelRole)
-        field = form.itemAt(row, QFormLayout.FieldRole)
+        label = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+        field = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
         text = label.widget().text() if label is not None and isinstance(label.widget(), QLabel) else ""
         target = field.widget() if field is not None else None
         if text and target is not None and not target.accessibleName():
@@ -231,7 +239,6 @@ class ConvertSettingsDialog(QDialog):
         self._enable()
 
     def _ico_preset_chosen(self) -> None:
-        from ..icons import ICO_PRESETS
 
         key = self.ico_preset.currentData()
         if key in ICO_PRESETS:
@@ -241,7 +248,6 @@ class ConvertSettingsDialog(QDialog):
                 b.blockSignals(False)
 
     def _ico_ticked(self) -> None:
-        from ..icons import preset_of
 
         self.ico_preset.blockSignals(True)
         self.ico_preset.setCurrentIndex(self.ico_preset.findData(preset_of(self._ico_sizes())))
@@ -251,8 +257,9 @@ class ConvertSettingsDialog(QDialog):
         return tuple(s for s, b in self.ico_boxes.items() if b.isChecked())
 
     def _enable(self) -> None:
-        if getattr(self, "pdf_target", None) is not None:
-            self.pdf_dpi.setEnabled(self.pdf_target.currentData() in ("png", "jpeg"))
+        pdf_target = getattr(self, "pdf_target", None)
+        if pdf_target is not None:
+            self.pdf_dpi.setEnabled(pdf_target.currentData() in ("png", "jpeg"))
         if self.image_target is not None:
             info = convert.IMAGE_TARGETS.get(self.image_target.currentData())
             on = info is not None

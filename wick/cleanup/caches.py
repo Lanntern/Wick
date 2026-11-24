@@ -6,13 +6,14 @@ import fnmatch
 import glob
 import os
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 
 
 @dataclass(frozen=True)
@@ -26,13 +27,13 @@ class CacheSpec:
     exclude: tuple[str, ...] = ()   # folder names (globs) the patterns must not match
 
 
-def _env(name: str, default: str = "") -> str:
+def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)
 
 
 def specs() -> list[CacheSpec]:
     if IS_WINDOWS:
-        L, R, H = _env("LOCALAPPDATA"), _env("APPDATA"), str(Path.home())
+        L, R, H = env("LOCALAPPDATA"), env("APPDATA"), str(Path.home())
         chromium = ("Cache", "Code Cache", "GPUCache", "Service Worker/CacheStorage")
         s = [
             CacheSpec("Chrome cache", "Browsers",
@@ -91,8 +92,8 @@ def specs() -> list[CacheSpec]:
                       "Teams downloads it again as needed.", "ms-teams"),
         ]
     else:
-        C = _env("XDG_CACHE_HOME", str(Path.home() / ".cache"))
-        cfg = _env("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+        C = env("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+        cfg = env("XDG_CONFIG_HOME", str(Path.home() / ".config"))
         s = [
             CacheSpec("Chrome cache", "Browsers", (f"{C}/google-chrome",), "Web pages load a little slower the first time.",
                       "chrome"),
@@ -121,8 +122,8 @@ def steam_libraries() -> list[Path]:
     """Steam library folders (from libraryfolders.vdf)."""
     roots = []
     if IS_WINDOWS:
-        roots = [Path(p) for p in (_env("ProgramFiles(x86)", "C:/Program Files (x86)") + "/Steam",
-                                   _env("ProgramFiles", "C:/Program Files") + "/Steam")]
+        roots = [Path(p) for p in (env("ProgramFiles(x86)", "C:/Program Files (x86)") + "/Steam",
+                                   env("ProgramFiles", "C:/Program Files") + "/Steam")]
         try:
             import winreg
 
@@ -145,9 +146,9 @@ def steam_libraries() -> list[Path]:
             libs.append(r)
     out, seen = [], set()
     for lib in libs:
-        k = os.path.normcase(str(lib))
-        if k not in seen and (lib / "steamapps").is_dir():
-            seen.add(k)
+        lib_key = os.path.normcase(str(lib))
+        if lib_key not in seen and (lib / "steamapps").is_dir():
+            seen.add(lib_key)
             out.append(lib)
     return out
 
@@ -184,7 +185,6 @@ def running_processes() -> set[str]:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("cleanup.caches.running_processes")
-        pass
     return names
 
 

@@ -16,6 +16,8 @@ from __future__ import annotations
 import hashlib
 import html
 import re
+import tempfile
+from io import BytesIO
 from pathlib import Path
 
 from .subfonts import BASE
@@ -59,7 +61,6 @@ def _xor(data: bytes, key: bytes) -> bytes:
 
 
 def _readable(data: bytes) -> bool:
-    from io import BytesIO
 
     from fontTools.ttLib import TTFont
 
@@ -73,7 +74,6 @@ def _readable(data: bytes) -> bool:
 def cut_office_font(data: bytes, chars: set[int], keys: list[bytes]) -> tuple[bytes, bytes | None] | None:
     """(the font cut and scrambled again as it was, the font table's key it was scrambled with or None), or None
     when it can't or needn't be cut."""
-    import tempfile
 
     from .subfonts import subset
 
@@ -172,8 +172,8 @@ def _walk(pdf):
         fonts = resources_fonts(res)
         xobjects = res.get("/XObject") if isinstance(res, pikepdf.Dictionary) else None
         current = None
-        for operands, op in pikepdf.parse_content_stream(content):
-            op = str(op)
+        for instruction in pikepdf.parse_content_stream(content):
+            operands, op = instruction.operands, str(instruction.operator)
             if op == "Tf" and operands:
                 current = fonts.get(str(operands[0]))
             elif op in ("Tj", "'", '"') and operands and current is not None:
@@ -248,14 +248,13 @@ def _simple_glyphs(tt, codes: set[int], font=None) -> set[str]:
 
 def cut_pdf_fonts(pdf) -> int:
     """Cut the fonts embedded whole in an open PDF (pikepdf) to the glyphs drawn. Returns the bytes saved."""
-    from io import BytesIO
 
     from fontTools import subset as ft_subset
     from fontTools.ttLib import TTFont
 
-    from .subfonts import _quiet_fonttools
+    from .subfonts import quiet_fonttools
 
-    _quiet_fonttools()
+    quiet_fonttools()
     if pdf.Root.get("/AcroForm") is not None:
         return 0                   # (form fields draw their text when they're filled in: any character)
     used: dict = {}

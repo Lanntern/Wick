@@ -22,6 +22,8 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .formats import JPEG, PNG, WEBP
+
 EXIF_HEADER = b"Exif\x00\x00"
 XMP_JPEG_HEADER = b"http://ns.adobe.com/xap/1.0/\x00"
 ICC_JPEG_HEADER = b"ICC_PROFILE\x00"
@@ -146,7 +148,7 @@ def _jpeg_segments(data: bytes) -> tuple[list[tuple[int, bytes]], int]:
     """(marker, full segment bytes) up to SOS; returns (segments, offset of SOS)."""
     if data[:2] != b"\xff\xd8":
         raise ValueError("not a JPEG")
-    i, segs = 2, []
+    i, segs = 2, list[tuple[int, bytes]]()
     while i < len(data) - 3:
         if data[i] != 0xFF:
             raise ValueError("corrupt JPEG marker stream")
@@ -189,7 +191,8 @@ def jpeg_write_meta(data: bytes, meta: Meta, drop_other: bool) -> bytes:
     ``drop_other`` also removes comments, IPTC and other application segments.
     """
     segs, sos = _jpeg_segments(data)
-    head, kept = [], []
+    head: list[bytes] = []
+    kept: list[bytes] = []
     for marker, seg in segs:
         body = seg[4:]
         is_meta = (marker == 0xE1 and (body.startswith(EXIF_HEADER) or body.startswith(XMP_JPEG_HEADER))) \
@@ -294,7 +297,6 @@ def webp_write_meta(data: bytes, meta: Meta) -> bytes:
 
 def rewrite_file_meta(src: Path, dst: Path, kind: str, policy: str) -> bool:
     """Write ``src`` to ``dst`` with filtered metadata (lossless). Returns False if unsupported."""
-    from .formats import JPEG, PNG, WEBP
 
     data = src.read_bytes()
     drop_other = policy in ("strip_all", "strip_all_keep_date", "strip_private")

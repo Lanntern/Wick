@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+    QPushButton,
+    QSizePolicy,
+    QVBoxLayout,
+    QWidget,
 )
 
+from ..formats import plural
 from .style import Size, Space, Type, icon, ui_font
 from .widgets import ProgressBar, text
 
@@ -34,7 +43,7 @@ class Sidebar(QFrame):
         self.logo = QLabel()
         brand.addWidget(self.logo)
         self.brand_name = text(app_name, Type.TITLE3, bold=True)
-        self.brand_name.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)   # the name is never cut short
+        self.brand_name.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)   # the name is never cut short
         brand.addWidget(self.brand_name)
         brand.addStretch(1)
         self.brand = brand
@@ -49,13 +58,13 @@ class Sidebar(QFrame):
         self.list.setAccessibleName("Navigation")
         self.list.setIconSize(QSize(Size.ICON_M, Size.ICON_M))
         self.list.setFont(ui_font(Type.BODY))
-        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.list.setFrameShape(QFrame.NoFrame)
-        self.list.setAttribute(Qt.WA_MacShowFocusRect, False)
+        self.list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setFrameShape(QFrame.Shape.NoFrame)
+        self.list.setAttribute(Qt.WidgetAttribute.WA_MacShowFocusRect, False)
         self.compact = False
         for label, _icon, shortcut in items:
             it = QListWidgetItem(label)
-            it.setData(Qt.AccessibleTextRole, label)
+            it.setData(Qt.ItemDataRole.AccessibleTextRole, label)
             it.setToolTip(f"{label}  ({shortcut})")
             it.setSizeHint(QSize(0, Size.SIDEBAR_ROW))
             self.list.addItem(it)
@@ -84,18 +93,18 @@ class Sidebar(QFrame):
         foot.addWidget(self.foot_value)
         self.update_btn = QPushButton()
         self.update_btn.setObjectName("updateLink")
-        self.update_btn.setCursor(Qt.PointingHandCursor)
+        self.update_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.update_btn.setFlat(True)
         self.update_btn.hide()
-        foot.addWidget(self.update_btn, 0, Qt.AlignLeft)
+        foot.addWidget(self.update_btn, 0, Qt.AlignmentFlag.AlignLeft)
         foot.addSpacing(Space.XS)
         self.support_btn = QPushButton("Support Wick")
         self.support_btn.setObjectName("supportLink")
-        self.support_btn.setCursor(Qt.PointingHandCursor)
+        self.support_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.support_btn.setFlat(True)
         self.support_btn.setToolTip("Star Wick on GitHub or donate on Ko-fi")
         self.support_btn.setAccessibleName("Support Wick")
-        foot.addWidget(self.support_btn, 0, Qt.AlignLeft)
+        foot.addWidget(self.support_btn, 0, Qt.AlignmentFlag.AlignLeft)
         lay.addLayout(foot)
         self._saved: str | None = None
         self._tasks: list = []
@@ -153,7 +162,7 @@ class Sidebar(QFrame):
         if not tasks:
             return
         self.activity_btn.setText(str(len(tasks)) if self.compact else
-                                 f"{len(tasks)} task{'s' if len(tasks) != 1 else ''} running")
+                                 f"{plural(len(tasks), 'task')} running")
         description = "\n".join(f"{t.name}: {t.stage}" for t in tasks)
         self.activity_box.setToolTip(description)
         self.activity_btn.setAccessibleDescription(description)

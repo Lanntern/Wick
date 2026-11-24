@@ -15,6 +15,7 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 ARCHIVE_EXTS = (".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tgz", ".tar.xz", ".txz", ".tar.bz2", ".tbz2")
@@ -192,7 +193,7 @@ def find_extracted_archives(roots: list[Path], *, progress: ProgressFn | None = 
             return result
         if same:
             result.items.append(Candidate(path, st.st_size,
-                                          detail=f"All {total} file{'s' if total != 1 else ''} are identical in {where}",
+                                          detail=f"All {plural(total, 'file')} are identical in {where}",
                                           extra={"extracted_to": str(base)}))
         else:
             result.items.append(Candidate(path, st.st_size, detail=f"Extracted into {where}",

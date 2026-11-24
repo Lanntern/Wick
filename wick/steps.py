@@ -10,6 +10,8 @@ import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
+from .log import log
+
 _local = threading.local()
 
 _NAMES = {".jxl": "JPEG XL", ".jpg": "JPEG", ".jpeg": "JPEG", ".heic": "HEIC", ".webp": "WebP", ".avif": "AVIF",
@@ -22,7 +24,6 @@ def format_name(ext: str) -> str:
 
 
 def report(message: str) -> None:
-    from .log import log
 
     log.info("Stage: %s", message)
     _local.last = message

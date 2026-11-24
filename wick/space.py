@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,13 +35,13 @@ class Breakdown:
         return max(0, self.used - sum(self.sizes.values()))
 
 
-def _anchor(p: Path) -> Path:
+def anchor(p: Path) -> Path:
     return Path(Path(os.path.abspath(p)).anchor or "/")
 
 
 def same_drive(a: Path, b: Path) -> bool:
-    if os.name == "nt":
-        return _anchor(a).drive.upper() == _anchor(b).drive.upper()
+    if sys.platform == "win32":
+        return anchor(a).drive.upper() == anchor(b).drive.upper()
     try:
         return os.stat(a).st_dev == os.stat(b).st_dev
     except OSError:
@@ -49,7 +50,7 @@ def same_drive(a: Path, b: Path) -> bool:
 
 def bin_size(drive: Path) -> int:
     """How much the Recycle Bin (Trash) holds for ``drive``."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
 
@@ -64,7 +65,6 @@ def bin_size(drive: Path) -> int:
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("space.bin_size")
-            pass
         return 0
     from .cleanup.common import folder_size
 
@@ -79,7 +79,7 @@ def measure(overview, roots: list[Path], cancel: threading.Event | None = None) 
     """The breakdown for the drive holding ``roots`` (Home's folders), from Home's ``overview``."""
     if not roots:
         return None
-    drive = _anchor(roots[0])
+    drive = anchor(roots[0])
     try:
         usage = shutil.disk_usage(drive)
     except OSError:
@@ -96,7 +96,6 @@ def measure(overview, roots: list[Path], cancel: threading.Event | None = None) 
     except Exception:  # noqa: BLE001 - a breakdown without caches is still useful
         from wick.log import ignored
         ignored("space.measure")
-        pass
     b.sizes[BIN] = bin_size(drive)
     return b
 

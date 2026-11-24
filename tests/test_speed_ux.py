@@ -154,7 +154,7 @@ def test_the_scan_lists_files_before_reading_them(tmp_path):
 def test_the_list_fills_in_as_details_arrive(tmp_path):
     pytest = __import__("pytest")
     pytest.importorskip("PySide6")
-    from wick.formats import ImageInfo, PNG
+    from wick.formats import PNG, ImageInfo
     from wick.gui.file_model import FileFilterProxy, FileTableModel
     from wick.scanner import FileEntry
 

@@ -8,7 +8,13 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QGridLayout, QLabel, QLineEdit, QSlider, QVBoxLayout,
+    QCheckBox,
+    QDialog,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QSlider,
+    QVBoxLayout,
 )
 
 from .. import tools
@@ -69,7 +75,7 @@ class TrimDialog(QDialog):
         lay.setContentsMargins(Space.XL, Space.XL, Space.XL, Space.XL)
         lay.setSpacing(Space.L)
         self.picture = QLabel()
-        self.picture.setAlignment(Qt.AlignCenter)
+        self.picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.picture.setMinimumSize(480, 270)
         self.picture.setAccessibleName("The frame at the chosen time")
         if is_video:
@@ -78,7 +84,7 @@ class TrimDialog(QDialog):
         grid.setHorizontalSpacing(Space.M)
         self.sliders, self.fields = [], []
         for row, (label, value) in enumerate((("Start", 0.0), ("End", self.duration))):
-            slider = QSlider(Qt.Horizontal)
+            slider = QSlider(Qt.Orientation.Horizontal)
             slider.setRange(0, round(self.duration * STEP))
             slider.setValue(round(value * STEP))
             slider.setAccessibleName(f"{label} time")
@@ -102,7 +108,8 @@ class TrimDialog(QDialog):
             lay.addWidget(self.exact)
         lay.addLayout(dialog_buttons(self, ("Save Trimmed Copy", self.accept)))
         self.save = self._primary_button
-        self.is_video, self._ticket, self._shown, self._workers = is_video, 0, 0, []
+        self.is_video, self._ticket, self._shown = is_video, 0, 0
+        self._workers: list[QThread] = []
         self._timer = QTimer(self, singleShot=True, interval=150)
         self._timer.timeout.connect(self._grab)
         self._editing = 0

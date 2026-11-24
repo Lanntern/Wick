@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -52,7 +53,7 @@ try {
 
 
 def _ms_office(app: str) -> bool:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import winreg
@@ -67,7 +68,7 @@ def libreoffice() -> str | None:
     found = tools.find_tool("soffice")
     if found:
         return found
-    if os.name == "nt":
+    if sys.platform == "win32":
         for base in (os.environ.get("ProgramFiles", r"C:\Program Files"),
                      os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")):
             exe = Path(base) / "LibreOffice" / "program" / "soffice.exe"

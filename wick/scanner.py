@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -11,13 +12,36 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import walk
 from .formats import (
-    _EXT_KIND, AUDIO, AUDIO_EXTS, CONVERT_INPUTS, CONVERT_ONLY_KINDS, DOC, DOCUMENT, DOCUMENT_EXTS, HEIC, IMAGE_KINDS,
-    ARCHIVE, COMIC, COMIC_EXTS, FONT, JPEG, JXL, PDF, SVG, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
-    ImageInfo, classify, read_image_info, sniff,
+    ARCHIVE,
+    AUDIO,
+    AUDIO_EXTS,
+    COMIC,
+    COMIC_EXTS,
+    CONVERT_INPUTS,
+    CONVERT_ONLY_KINDS,
+    DOC,
+    DOCUMENT,
+    DOCUMENT_EXTS,
+    EXT_KIND,
+    FONT,
+    HEIC,
+    IMAGE_KINDS,
+    JPEG,
+    JXL,
+    PDF,
+    SVG,
+    TEMP_PREFIX,
+    VIDEO,
+    VIDEO_EXTS,
+    ImageInfo,
+    classify,
+    read_image_info,
+    sniff,
 )
-from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
-from .protected import dataless, inside_library, is_library
+from .probe import NOT_MEASURED, AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
+from .protected import cloud_only, inside_library, is_hidden, is_library
 from .settings import Settings
 
 # Folder names that are never scanned (case-insensitive). These hold OS,
@@ -34,9 +58,6 @@ EXCLUDED_DIR_NAMES = {
 # and skipped together with its subfolders (when skip_program_folders is on).
 PROGRAM_MARKER_EXTS = {".dll", ".so", ".dylib"}
 
-# Windows: OFFLINE | RECALL_ON_OPEN | RECALL_ON_DATA_ACCESS. Set on cloud-only
-# OneDrive/Dropbox placeholders; reading them would download the file.
-_CLOUD_ONLY_ATTRS = 0x1000 | 0x40000 | 0x400000
 
 
 @dataclass
@@ -80,29 +101,6 @@ class ScanResult:
 
 ProgressFn = Callable[[str, int, int], None]  # (message, done, total)
 PARTS_PREFIX = ".wick-parts-"   # a video being encoded scene by scene (chunked.py): never scanned
-
-
-def _is_hidden(entry: os.DirEntry) -> bool:
-    if entry.name.startswith("."):
-        return True
-    if sys.platform == "darwin":            # (Finder's hidden flag: ~/Library, where apps keep their data, has it)
-        try:
-            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
-        except OSError:
-            return False
-    if os.name == "nt":
-        try:
-            attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
-            return bool(attrs & 0x2 or attrs & 0x4)  # HIDDEN | SYSTEM
-        except (OSError, AttributeError):
-            return False
-    return False
-
-
-def _cloud_only(st: os.stat_result) -> bool:
-    """Only in the cloud (OneDrive on Windows, iCloud Drive's optimised storage on a Mac): reading it would
-    download it."""
-    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS) or dataless(st)
 
 
 def scan(
@@ -220,7 +218,7 @@ def _add_file(result: ScanResult, p: Path, root: Path | None, seen: set[str], se
         st = p.stat()
     except OSError:
         return
-    if _cloud_only(st):
+    if cloud_only(st):
         result.cloud_only_files += 1
         return
     seen.add(key)
@@ -231,14 +229,14 @@ def _add_file(result: ScanResult, p: Path, root: Path | None, seen: set[str], se
 
 
 # Every extension the scanner lists (and JPEG XL, counted as already efficient): what to ask Everything for.
-_LISTED_EXTS = ({*_EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, *DOCUMENT_EXTS, *CONVERT_INPUTS, ".zip", ".7z", ".tar", ".tgz",
+_LISTED_EXTS = ({*EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, *DOCUMENT_EXTS, *CONVERT_INPUTS, ".zip", ".7z", ".tar", ".tgz",
                  ".gz", ".tbz2", ".bz2", ".txz", ".xz"})
 
 FAST_DRIVES = True   # Settings › "Fast whole-drive scanning" (Windows, NTFS: reads the drive's file table)
 
 
 def _is_drive_root(p: Path) -> bool:
-    return os.name == "nt" and p.anchor != "" and Path(p.anchor) == p
+    return sys.platform == "win32" and p.anchor != "" and Path(p.anchor) == p
 
 
 def _mac_volume_root(p: Path) -> bool:
@@ -267,7 +265,7 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
             return spotlight.listing_for(root, _LISTED_EXTS, progress)
         except Exception:  # noqa: BLE001 - Spotlight's answer is a bonus: any problem, the usual way
             return None
-    if os.name == "nt" and _big_scope(root):
+    if sys.platform == "win32" and _big_scope(root):
         from . import everything
 
         try:
@@ -278,8 +276,8 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
             return listing
     if not (FAST_DRIVES and _is_drive_root(root)):
         return None
+
     from . import ntfs
-    import tempfile
 
     if progress:
         progress(f"Reading the file table of {root} (Windows asks for permission)…", 0, 0)
@@ -351,49 +349,30 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
 def _walk(result: ScanResult, root: Path, settings: Settings, progress: ProgressFn | None,
           cancel: threading.Event | None, seen: set[str],
           found: Callable[[FileEntry], None] | None = None) -> None:
-    stack = [root]
-    while stack:
-        if cancel is not None and cancel.is_set():
-            return
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                children = list(it)
-        except OSError:
-            result.unreadable_dirs.append(d)
-            continue
+
+    def enter(c: os.DirEntry) -> bool:
+        if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
+            return False
+        if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
+            result.skipped_libraries.append(Path(c.path))
+            return False
+        return settings.include_hidden or not is_hidden(c)
+
+    for folder in walk.folders([root], cancel=cancel, enter=enter, unreadable=result.unreadable_dirs.append,
+                               ordered=True):
         result.dirs_scanned += 1
-
-        if settings.skip_program_folders and any(
-            c.is_file(follow_symlinks=False)
-            and os.path.splitext(c.name)[1].lower() in PROGRAM_MARKER_EXTS
-            for c in children
-        ):
-            result.skipped_program_dirs.append(d)
+        if settings.skip_program_folders and any(os.path.splitext(c.name)[1].lower() in PROGRAM_MARKER_EXTS
+                                                 and c.is_file(follow_symlinks=False) for c in folder.entries):
+            result.skipped_program_dirs.append(folder.path)
+            folder.skip()
             continue
-
-        subdirs = []
-        for c in children:
+        for c in folder.files():
             if cancel is not None and cancel.is_set():
                 return
             try:
-                if c.is_symlink():
-                    continue
-                if c.is_dir(follow_symlinks=False):
-                    if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
-                        continue
-                    if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
-                        result.skipped_libraries.append(Path(c.path))
-                        continue
-                    if not settings.include_hidden and _is_hidden(c):
-                        continue
-                    subdirs.append(Path(c.path))
-                    continue
-                if not c.is_file(follow_symlinks=False) or c.name.startswith(TEMP_PREFIX):
-                    continue
-                if os.path.splitext(c.name)[1].lower() not in _LISTED_EXTS:
+                if c.name.startswith(TEMP_PREFIX) or os.path.splitext(c.name)[1].lower() not in _LISTED_EXTS:
                     continue            # (most files: no path made, and on a Mac no extra look for the hidden flag)
-                if not settings.include_hidden and _is_hidden(c):
+                if not settings.include_hidden and is_hidden(c):
                     continue
                 p = Path(c.path)
                 kind = _kind(p, settings)
@@ -403,7 +382,7 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                         result.jxl_bytes += c.stat(follow_symlinks=False).st_size
                     continue
                 st = c.stat(follow_symlinks=False)
-                if _cloud_only(st):
+                if cloud_only(st):
                     result.cloud_only_files += 1
                     if kind in (VIDEO, JPEG, HEIC):
                         result.cloud_only_live.append(p)
@@ -418,9 +397,8 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     found(entry)
             except OSError:
                 continue
-        stack.extend(sorted(subdirs, reverse=True))
         if progress and result.dirs_scanned % 25 == 0:
-            progress(f"Scanning {d}", result.dirs_scanned, 0)
+            progress(f"Scanning {folder.path}", result.dirs_scanned, 0)
 
 
 _preloaded = False
@@ -446,7 +424,6 @@ def preload_codecs(heif: bool = True) -> None:
             except Exception:  # noqa: BLE001 - reported when a file actually needs it
                 from wick.log import ignored
                 ignored("scanner.preload_codecs")
-                pass
     if heif and not _heif_loaded:
         _heif_loaded = True
         from .formats import register_heif
@@ -468,7 +445,6 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
                   ready: Callable[[list[FileEntry]], None] | None = None) -> None:
     """Read image headers and video info (in parallel). Repeated frames in videos are only looked for when
     the option to remove them is on (one FFmpeg run per video saved otherwise)."""
-    from .probe import NOT_MEASURED
 
     cadence = settings is None or settings.video_fix_cadence
     from . import index

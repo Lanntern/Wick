@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import re
+import sys
 import threading
 import time
 from pathlib import Path
@@ -33,7 +33,7 @@ _NOISE = {"setup", "installer", "install", "win", "windows", "x64", "x86", "amd6
 
 def installed_programs() -> list[str]:
     """Display names of installed programs (Windows uninstall registry)."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return []
     import winreg
 

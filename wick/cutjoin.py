@@ -11,6 +11,7 @@ Join: files with the same kind of streams (codec, picture size, sample rate, cha
 
 from __future__ import annotations
 
+import tempfile
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -95,7 +96,6 @@ def join_problem(paths: list[Path]) -> str:
 def join(paths: list[Path], dest: Path, reencode: bool = False,
          on_progress: Callable[[float], None] | None = None, cancel: threading.Event | None = None) -> float:
     """``paths`` one after another into ``dest``. Returns the result's length."""
-    import tempfile
 
     ffmpeg = tools.require("ffmpeg")
     total = sum(duration_of(p) for p in paths)

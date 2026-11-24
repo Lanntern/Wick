@@ -551,7 +551,6 @@ def compute_ssimulacra2_with_alpha(orig_path, dist_path):
     except:
         from wick.log import ignored
         ignored("_ssimulacra2.compute_ssimulacra2_with_alpha")
-        pass
 
     if not has_alpha:
         return compute_ssimulacra2(orig_path, dist_path)

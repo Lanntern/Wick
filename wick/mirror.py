@@ -21,7 +21,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import tools
+from .audio import FORMATS as AF
+from .audio import build_args, cover_metadata, is_lossless, verify_audio
+from .fileops import remove_quietly, temp_name
 from .formats import AUDIO, classify
+from .probe import probe_audio
 from .settings import Settings
 
 MANIFEST = ".wick-sync.json"
@@ -42,7 +46,6 @@ class SyncResult:
 
 
 def _ext(fmt: str) -> str:
-    from .audio import FORMATS as AF
 
     return AF[fmt][0]
 
@@ -69,13 +72,10 @@ def _inside(a: Path, b: Path) -> bool:
         return False
 
 
-def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced",
+def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced",  # noqa: C901 (to split up)
          progress: Callable[[str, int, int], None] | None = None, cancel: threading.Event | None = None,
          workers: int = 0) -> SyncResult:
     """Bring the copy in ``dest`` up to date with ``library`` (see the module notes)."""
-    from .audio import _cover_metadata, build_args, is_lossless, verify_audio
-    from .fileops import remove_quietly, temp_name
-    from .probe import probe_audio
 
     library, dest = Path(os.path.abspath(library)), Path(os.path.abspath(dest))
     if fmt not in FORMATS or quality not in QUALITIES:
@@ -140,7 +140,7 @@ def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced"
                 res.failed.append((rel, "can't be read"))
             tick(src.name)
             return
-        encode = not is_cover and is_lossless(info.codec)
+        encode = info is not None and is_lossless(info.codec)
         out_rel = str(Path(rel).with_suffix(_ext(fmt)).as_posix()) if encode else rel
         out = dest / out_rel
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +149,7 @@ def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced"
         try:
             if encode:
                 assert info is not None           # (only covers have none, and they're copied)
-                meta = _cover_metadata(src, info, out.parent) if fmt == "opus" else None
+                meta = cover_metadata(src, info, out.parent) if fmt == "opus" else None
                 tools.run(build_args(src, tmp, info, s, fmt, False, meta), timeout=3600)
                 verify_audio(src, info, tmp, fmt, False, exact=False)
             else:

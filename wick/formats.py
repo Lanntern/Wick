@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import struct
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -39,10 +40,8 @@ COMIC_EXTS = (".cbz", ".cb7", ".cbt")
 IMAGE_KINDS = (JPEG, PNG, GIF, WEBP, TIFF, BMP, HEIC, AVIF)
 # Sources whose pixels are exact (lossless): can be converted losslessly.
 LOSSLESS_SOURCE_KINDS = (PNG, GIF, TIFF, BMP)
-# Already lossy-compressed photo formats.
-LOSSY_PHOTO_KINDS = (HEIC, AVIF)
 
-_EXT_KIND = {
+EXT_KIND = {
     ".jpg": JPEG, ".jpeg": JPEG, ".jpe": JPEG, ".jfif": JPEG,
     ".png": PNG, ".apng": PNG,
     ".gif": GIF,
@@ -80,9 +79,6 @@ KIND_LABEL = {JPEG: "JPEG", PNG: "PNG", GIF: "GIF", WEBP: "WebP", TIFF: "TIFF", 
               HEIC: "HEIC", AVIF: "AVIF", VIDEO: "Video", AUDIO: "Audio", DOCUMENT: "Document", JXL: "JPEG XL",
               RAW: "RAW", PSD: "Photoshop", SVG: "SVG", ICO: "Icon", DOC: "Document", PDF: "PDF", FONT: "Font",
               PICTURE: "Picture", COMIC: "Comic book", ARCHIVE: "Archive"}
-# Extension used when an image keeps its format.
-KEEP_EXT = {JPEG: ".jpg", PNG: ".png", GIF: ".gif", WEBP: ".webp", TIFF: ".tif", BMP: ".png",
-            HEIC: ".heic", AVIF: ".avif", JXL: ".jxl"}
 
 _MP4_SOURCES = {".mp4", ".m4v", ".mov", ".3gp"}
 
@@ -98,7 +94,7 @@ def classify(path: Path) -> str | None:
         return AUDIO
     if ext in DOCUMENT_EXTS:
         return DOCUMENT
-    return _EXT_KIND.get(ext)
+    return EXT_KIND.get(ext)
 
 
 def type_label(path: Path, kind: str) -> str:
@@ -117,9 +113,9 @@ def video_output_ext(src_ext: str, codec: str) -> str:
     return ".mkv"
 
 
-def count(n: int, word: str, plural: str = "") -> str:
-    """"1 file", "3 files" ("1 game", "2 games"; ``plural`` for irregular words)."""
-    return f"{n:,} {word if n == 1 else (plural or word + 's')}"
+def plural(n: int, word: str, many: str = "") -> str:
+    """"1 file", "3 files" (``many``: the plural of an irregular word)."""
+    return f"{n:,} {word if n == 1 else (many or word + 's')}"
 
 
 def human(n: float) -> str:
@@ -299,7 +295,6 @@ _MOTION_TAIL = (b"MotionPhoto_Data",)            # Samsung's trailer ("SEFT" alo
 def _heif_meta(path: Path) -> bytes:
     """The 'meta' box of a HEIF/AVIF file (its item list and properties), wherever it is: some phones write it
     after the picture data. Top-level boxes are walked by their sizes; nothing else is read."""
-    import struct
 
     with open(path, "rb") as f:
         size_total = path.stat().st_size
@@ -329,7 +324,6 @@ def heif_extras(path: Path) -> str:
         head = _heif_meta(path)
     except OSError:
         return ""
-    import re
 
     # (a 'tmap' item is declared in an item-info entry: 'infe', version and flags, item ID, protection, type)
     if b":aux:hdrgainmap" in head or re.search(rb"infe.{8,10}tmap", head, re.S):
@@ -526,7 +520,6 @@ def _jxl_codestream_info(cs: bytes) -> tuple[int, int, bool, int]:
 
 def read_jxl_info(path: Path) -> JxlInfo | None:
     """Size, animation and container boxes of a JPEG XL file, from its headers (nothing is decoded)."""
-    import struct
 
     try:
         with open(path, "rb") as f:
@@ -537,7 +530,7 @@ def read_jxl_info(path: Path) -> JxlInfo | None:
                 return JxlInfo(w, h, anim, depth)
             if head[:12] != JXL_SIGNATURE:
                 return None
-            pos, boxes, cs = 12, [], b""
+            pos, boxes, cs = 12, list[str](), b""
             end = os.fstat(f.fileno()).st_size
             while pos + 8 <= end and len(boxes) < 10_000:
                 f.seek(pos)

@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
-import sys
-import threading
-from dataclasses import dataclass, field
-from collections.abc import Callable
+import hashlib
+import json
+import os
 import re
-from functools import lru_cache
+import sys
+import tempfile
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from functools import cache, lru_cache
 from pathlib import Path
 
+from . import audio as audio_mod
 from . import steps, tools
+from .audio import SPEECH_KBPS
 from .fileops import remove_quietly, temp_name
+from .formats import human, plural
 from .images import NotWorthIt, VerificationFailed
+from .log import log
 from .plan import Plan
-from .probe import StreamInfo, VideoInfo, probe_video
-from .settings import Settings
+from .probe import NOT_MEASURED, AudioInfo, StreamInfo, VideoInfo, detect_cadence, is_camera_original, probe_video
+from .settings import Settings, my_languages
 
 # GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF), Apple (VideoToolbox: Macs have
 # no AV1 encoder). Each is used only if a short test encode with its real settings works on this computer
@@ -59,7 +68,7 @@ NVENC_TUNINGS = (("-preset", "p7", "-tune", "uhq", "-rc-lookahead", "32"),
 SPLIT_FROM_PIXELS = 3840 * 2160 * 0.9   # 4K and up: both encoders of a two-encoder GPU work on each frame
 
 
-@lru_cache(maxsize=None)
+@cache
 def nvenc_tuning(encoder: str) -> tuple[str, ...]:
     """The best NVENC settings this computer takes (each tried once with a tiny encode)."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -69,7 +78,7 @@ def nvenc_tuning(encoder: str) -> tuple[str, ...]:
     return NVENC_BASIC
 
 
-@lru_cache(maxsize=None)
+@cache
 def nvenc_split(encoder: str) -> bool:
     """Whether split-frame encoding works here (GPUs with two or more encoders, recent drivers): tried once
     with a 4K frame, the size it's used for."""
@@ -92,7 +101,7 @@ NVENC_EXTRAS: tuple[tuple[str, ...], ...] = (("-multipass", "fullres"), ("-tempo
 QSV_EXTRAS: tuple[tuple[str, ...], ...] = (("-extbrc", "1", "-look_ahead_depth", "40"),)
 
 
-@lru_cache(maxsize=None)
+@cache
 def gpu_extras(encoder: str) -> tuple[str, ...]:
     """The extra settings (NVENC_EXTRAS, QSV_EXTRAS) this GPU takes, each tried once with a tiny encode."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -135,7 +144,7 @@ def _qvbr(level: int, extras: tuple[str, ...]) -> list[str]:
     return ["-quality", "quality", "-rc", "qvbr", "-qvbr_quality_level", str(level), *extras]
 
 
-@lru_cache(maxsize=None)
+@cache
 def amf_extras(encoder: str) -> tuple[str, ...] | None:
     """The pre-analysis settings this AMD GPU takes with QVBR, or None if it doesn't do QVBR."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -145,7 +154,7 @@ def amf_extras(encoder: str) -> tuple[str, ...] | None:
     return None
 
 
-@lru_cache(maxsize=None)
+@cache
 def amf_qvbr_level(encoder: str, qp: int) -> int | None:
     """The QVBR level that makes about the same size as constant QP ``qp`` on the test clip (None: use the QP)."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -169,7 +178,7 @@ def amf_qvbr_level(encoder: str, qp: int) -> int | None:
     return lo
 
 
-@lru_cache(maxsize=None)
+@cache
 def svt_tuning() -> str:
     """SVT-AV1's visual-quality tuning (instead of its default, which aims at the PSNR number) and variance boost
     (protects dark and flat areas), where the bundled build has them; tried once."""
@@ -272,8 +281,6 @@ def check_quality_budget(score, info: VideoInfo, s: Settings, encoder: str) -> N
 
 def _encoder_cache(ffmpeg: str) -> tuple[Path, str, dict]:
     """Saved test results for this exact ffmpeg build (so each launch doesn't re-test the GPU)."""
-    import json
-    import os
 
     from .journal import data_dir
 
@@ -290,13 +297,11 @@ def _encoder_cache(ffmpeg: str) -> tuple[Path, str, dict]:
     return path, stamp, data
 
 
-@lru_cache(maxsize=None)
+@cache
 def encoder_works(encoder: str) -> bool:
     """Try a tiny test encode; NVENC is only usable with a supported NVIDIA GPU + driver.
     Results are remembered for a week per ffmpeg build (a GPU that stops working still falls back to the
     CPU encoder on Auto)."""
-    import json
-    import time
 
     ffmpeg = tools.find_tool("ffmpeg")
     if not ffmpeg:
@@ -407,7 +412,6 @@ def codec_for(info: VideoInfo | None, s: Settings) -> str:
     smooth too much; and more devices play it), AV1 for everything else."""
     if s.video_codec != "auto":
         return s.video_codec
-    from .probe import is_camera_original
 
     if info is not None and is_camera_original(info):
         return "hevc"
@@ -425,7 +429,6 @@ def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
     default track, else the first), so a film always keeps its original audio. Nothing is dropped when
     the option is off."""
     from .languages import track_codes
-    from .settings import my_languages
 
     audio, subs = info.audio_streams(), info.subtitle_streams()
     keep_a, keep_s = audio, subs
@@ -480,13 +483,13 @@ def tracks_note(info: VideoInfo, s: Settings) -> str:
     other = len(dropped) - copies - silent - twins
     parts = []
     if other:
-        parts.append(f"{other} track{'s' if other != 1 else ''} in other languages left out")
+        parts.append(f"{plural(other, 'track')} in other languages left out")
     if copies:
         parts.append(f"{copies} lower-quality cop{'ies' if copies != 1 else 'y'} of a soundtrack left out")
     if silent:
-        parts.append(f"{silent} silent soundtrack{'s' if silent != 1 else ''} left out")
+        parts.append(f"{plural(silent, 'silent soundtrack')} left out")
     if twins:
-        parts.append(f"{twins} duplicate subtitle track{'s' if twins != 1 else ''} left out")
+        parts.append(f"{plural(twins, 'duplicate subtitle track')} left out")
     return ", ".join(parts)
 
 
@@ -496,7 +499,6 @@ _TEXT_SUBTITLES = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
 def find_duplicate_subtitles(src: Path, info: VideoInfo) -> None:
     """Mark text subtitle tracks that repeat another one in the same language (same lines at the same times,
     styling aside). Of each set, a styled (ASS) track is kept over a plain one, else the first."""
-    import hashlib
 
     seen: dict[tuple, StreamInfo] = {}
     tracks = sorted((t for t in info.subtitle_streams() if t.codec in _TEXT_SUBTITLES),
@@ -518,8 +520,6 @@ def find_duplicate_subtitles(src: Path, info: VideoInfo) -> None:
 def analyse_audio(src: Path, info: VideoInfo, s: Settings, mp4: bool) -> None:
     """Listen to the soundtracks where the answer changes what's done: silent ones (when they may be left out),
     stereo with identical channels (stored as mono when the track is encoded), and talk (a lower bitrate)."""
-    from . import audio as audio_mod
-    from .probe import AudioInfo
 
     if s.video_dup_audio:
         try:
@@ -581,14 +581,14 @@ def _hdr10_params(info: VideoInfo, encoder: str) -> str:
     return ":".join(parts)
 
 
-@lru_cache(maxsize=None)
-def _has_filter(name: str) -> bool:
+@cache
+def has_filter(name: str) -> bool:
     try:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-filters"], timeout=30, check=False).stdout
         return f" {name} " in out
     except Exception:  # noqa: BLE001
         from wick.log import ignored
-        ignored("video._has_filter")
+        ignored("video.has_filter")
         return False
 
 
@@ -597,7 +597,7 @@ def display_filter(info: VideoInfo) -> str:
     parts = []
     if info.interlaced:
         parts.append("bwdif=mode=send_frame")
-    if info.hdr and _has_filter("zscale"):
+    if info.hdr and has_filter("zscale"):
         parts.append("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,"
                      "zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
     return ",".join(parts)
@@ -633,7 +633,6 @@ def crop_filter(info: VideoInfo) -> str:
 def detect_bars(src: Path, info: VideoInfo, cancel: threading.Event | None = None) -> tuple[int, int, int, int] | None:
     """Black bars around the picture, found at several points of the video (the area kept is the union of what
     every point shows, so nothing that's ever on screen is cut). None if there are none worth removing."""
-    import re
 
     ffmpeg = tools.require("ffmpeg")
     seconds = max(1.0, info.duration)
@@ -759,44 +758,12 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     from there and take everything else from ``src``. ``fonts``: a subfonts.FontPlan for the subtitle fonts.
     ``fonts.covers``: MP4 cover pictures stored smaller. ``info.screen``: a screen recording (SVT-AV1's screen-content
     tools)."""
-    ffmpeg = tools.require("ffmpeg")
     mp4 = is_mp4(dst.suffix)
     if q is None and not remux:
         q = encoder_quality(s, encoder)
-    args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error"]
-    if progress:
-        args += ["-progress", "pipe:1", "-nostats"]
-    if hw_decode:
-        # Decode the source on the graphics card where it can (D3D11VA, CUDA, Quick Sync...): the frames come back
-        # to normal memory, so filters and every encoder work as before; ffmpeg decodes on the CPU otherwise.
-        args += ["-hwaccel", "auto"]
-    if segment:
-        if segment[0] > 0:
-            args += ["-ss", f"{segment[0]:.3f}"]
-        if segment[1] > 0:                                  # (0: to the end)
-            args += ["-t", f"{segment[1]:.3f}"]
-    args += ["-i", str(src)]
-    if video_from is not None:
-        args += ["-i", str(video_from)]
-    picture_input = {}
-    pictures = fonts.covers if fonts is not None and not segment else {}
-    for n, (index, path) in enumerate(sorted(pictures.items())):
-        args += ["-i", str(path)]
-        picture_input[index] = (2 if video_from is not None else 1) + n
-
-    # Which input streams go into the output, in order.
-    keep_audio, keep_subs, dropped = select_tracks(info, s)
-    if segment:
-        mapped = [st for st in info.streams if st.index == info.main_video_index]
-    elif mp4:
-        mapped = [st for st in info.streams if st.index == info.main_video_index]
-        mapped += keep_audio
-        mapped += [st for st in keep_subs if st.codec in _TEXT_SUBS]
-        mapped += [st for st in info.streams if st.attached_pic and st.codec in ("mjpeg", "png")]    # covers
-    else:  # mkv / webm keep everything except data streams (and tracks in languages left out)
-        gone = {st.index for st in dropped} | set(fonts.replace if fonts is not None else ())
-        mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone
-                  and not (st.kind == "subtitle" and st.codec not in _MKV_SUBTITLES)]    # (teletext: no place in MKV)
+    args, picture_input = _input_args(src, segment, progress, hw_decode, video_from,
+                                      fonts.covers if fonts is not None and not segment else {})
+    keep_audio, mapped = _mapped_streams(info, s, mp4, segment, fonts)
     for st in mapped:
         joined = video_from is not None and st.index == info.main_video_index
         args += ["-map", "1:v:0" if joined else f"{picture_input[st.index]}:0" if st.index in picture_input
@@ -812,10 +779,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
             args += [f"-disposition:v:{n}", "attached_pic"]
     if remux or video_from is not None:
         if video_from is not None:
-            for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
-                             ("range", "color_range")):
-                if info.color.get(key):
-                    args += [f"-{opt}:v:{v_out}", info.color[key]]
+            args += _color_args(info, v_out)
             if mp4 and codec_for(info, s) == "hevc":
                 args += [f"-tag:v:{v_out}", "hvc1"]
         args += _audio_args(keep_audio, s, mp4, fit, remux=remux) + default_audio_args(info, keep_audio)
@@ -826,7 +790,80 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     args += [f"-c:v:{v_out}", encoder]
     if info.hdr == "Dolby Vision" and _encoder_option(encoder, "dolbyvision"):
         args += ["-dolbyvision", "0"]          # (the Dolby Vision layer isn't carried over: the base layer is kept)
+    rate, pix = _rate_args(info, s, encoder, q, fit, probe, grain, threads)
+    args += rate
+    args += [f"-pix_fmt:v:{v_out}", pix]
+    args += _color_args(info, v_out)        # (essential for HDR: without it the picture looks washed out)
+    filters = _video_filters(info, s, fit, segment)
+    if filters:
+        args += [f"-filter:v:{v_out}", ",".join(filters)]
+    if mp4 and (encoder.startswith("hevc_") or encoder == "libx265"):
+        args += [f"-tag:v:{v_out}", "hvc1"]  # plays in Windows/Apple players
 
+    if not segment:
+        args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
+        args += _container_args(dst, s, mapped, fonts,
+                                f"{encoder} {'size limit' if fit is not None else q}", grain, live_photo_id(info))
+    args.append(str(dst))
+    return args
+
+
+def _input_args(src: Path, segment, progress: bool, hw_decode: bool, video_from: Path | None,
+                pictures: dict) -> tuple[list[str], dict[int, int]]:
+    """ffmpeg and its inputs: the source (or a part of it), the already-encoded video, smaller cover pictures.
+    Also, for each cover stream, the input it now comes from."""
+    args = [tools.require("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-v", "error"]
+    if progress:
+        args += ["-progress", "pipe:1", "-nostats"]
+    if hw_decode:
+        # Decode the source on the graphics card where it can (D3D11VA, CUDA, Quick Sync...): the frames come back
+        # to normal memory, so filters and every encoder work as before; ffmpeg decodes on the CPU otherwise.
+        args += ["-hwaccel", "auto"]
+    if segment:
+        if segment[0] > 0:
+            args += ["-ss", f"{segment[0]:.3f}"]
+        if segment[1] > 0:                                  # (0: to the end)
+            args += ["-t", f"{segment[1]:.3f}"]
+    args += ["-i", str(src)]
+    if video_from is not None:
+        args += ["-i", str(video_from)]
+    picture_input = {}
+    for n, (index, path) in enumerate(sorted(pictures.items())):
+        args += ["-i", str(path)]
+        picture_input[index] = (2 if video_from is not None else 1) + n
+    return args, picture_input
+
+
+def _mapped_streams(info: VideoInfo, s: Settings, mp4: bool, segment, fonts) -> tuple[list, list]:
+    """(audio tracks kept, every input stream that goes into the output, in order)."""
+    keep_audio, keep_subs, dropped = select_tracks(info, s)
+    if segment:
+        mapped = [st for st in info.streams if st.index == info.main_video_index]
+    elif mp4:
+        mapped = [st for st in info.streams if st.index == info.main_video_index]
+        mapped += keep_audio
+        mapped += [st for st in keep_subs if st.codec in _TEXT_SUBS]
+        mapped += [st for st in info.streams if st.attached_pic and st.codec in ("mjpeg", "png")]    # covers
+    else:  # mkv / webm keep everything except data streams (and tracks in languages left out)
+        gone = {st.index for st in dropped} | set(fonts.replace if fonts is not None else ())
+        mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone
+                  and not (st.kind == "subtitle" and st.codec not in _MKV_SUBTITLES)]    # (teletext: no place in MKV)
+    return keep_audio, mapped
+
+
+def _color_args(info: VideoInfo, v_out: int) -> list[str]:
+    """The source's color description, kept on the output video."""
+    args = []
+    for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
+                     ("range", "color_range")):
+        if info.color.get(key):
+            args += [f"-{opt}:v:{v_out}", info.color[key]]
+    return args
+
+
+def _rate_args(info: VideoInfo, s: Settings, encoder: str, q: int | None, fit, probe: bool, grain: int,
+               threads: int) -> tuple[list[str], str]:
+    """The encoder's quality (or, with a size limit, bitrate) settings, and the pixel format it encodes."""
     ten_bit = info.is_10bit or bool(info.hdr) or encoder in ("av1_nvenc", "libsvtav1")
     gpu_pix = "p010le" if ten_bit else ("yuv420p" if encoder.endswith("_nvenc") else "nv12")   # (QSV/AMF: NV12)
     hdr10 = _hdr10_params(info, encoder)
@@ -844,6 +881,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         svt = ":".join(p for p in (svt, f"mbr={min(cap, 100000)}") if p)
     x265 = ":".join(p for p in ("log-level=error", hdr10 if encoder == "libx265" else "",
                                 f"pools={threads}" if threads and encoder == "libx265" else "") if p)
+    args: list[str] = []
     if fit is not None:                  # a size limit: an average bitrate instead of a constant quality
         kbps = fit[0]
         rate = ["-b:v", f"{kbps}k", "-maxrate", f"{int(kbps * 1.5)}k", "-bufsize", f"{kbps * 2}k"]
@@ -873,13 +911,11 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         args += ["-profile:v", "main10"]        # (10-bit, HDR included: VideoToolbox needs the profile named)
     if cap and encoder != "libsvtav1":
         args += ["-maxrate", f"{cap}k", "-bufsize", f"{cap * 2}k"]
-    args += [f"-pix_fmt:v:{v_out}", pix]
-    # Keep the color description (essential for HDR: without it the picture looks washed out).
-    for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
-                     ("range", "color_range")):
-        if info.color.get(key):
-            args += [f"-{opt}:v:{v_out}", info.color[key]]
+    return args, pix
 
+
+def _video_filters(info: VideoInfo, s: Settings, fit, segment) -> list[str]:
+    """Deinterlacing, black bars, repeated frames, size and frame rate, in that order."""
     filters = []
     if info.interlaced:
         filters.append("bwdif=mode=send_frame:deint=all")  # one progressive frame per frame, no combing
@@ -895,17 +931,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         filters.append(f"fps={fps:g}")
     if segment:
         filters.append("setpts=PTS-STARTPTS")      # (a part starts at 0: parts are joined by their exact lengths)
-    if filters:
-        args += [f"-filter:v:{v_out}", ",".join(filters)]
-    if mp4 and (encoder.startswith("hevc_") or encoder == "libx265"):
-        args += [f"-tag:v:{v_out}", "hvc1"]  # plays in Windows/Apple players
-
-    if not segment:
-        args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
-        args += _container_args(dst, s, mapped, fonts,
-                                f"{encoder} {'size limit' if fit is not None else q}", grain, live_photo_id(info))
-    args.append(str(dst))
-    return args
+    return filters
 
 
 TAG = "WICK"        # container tag: the Wick version and settings that made the file (a remux or re-encode)
@@ -1086,7 +1112,6 @@ _MKV_SUBTITLES = {"ass", "ssa", "subrip", "srt", "webvtt", "hdmv_pgs_subtitle", 
 
 
 def _speech_kbps(mp4: bool) -> int:
-    from .audio import SPEECH_KBPS
 
     return SPEECH_KBPS["aac" if mp4 else "opus"]["balanced"]
 
@@ -1260,7 +1285,6 @@ def preview_video(src: Path, info: VideoInfo, s: Settings, cancel: threading.Eve
                   start: float | None = None, frame_count: int = 12) -> VideoPreview:
     """Encode a short sample (from the middle, or from ``start``), measure it, estimate the full result,
     and extract matching frames from the original and the sample for a side-by-side comparison."""
-    import tempfile
 
     from . import quality
 
@@ -1346,9 +1370,7 @@ def convert_video(
     cancel: threading.Event | None = None,
 ) -> tuple[Path, str]:
     """Encode to a temp file next to ``src``; verify; return (temp path, encoder used)."""
-    import tempfile
 
-    from .probe import NOT_MEASURED, detect_cadence
 
     if plan.route == "video" and s.video_fix_cadence and info.cadence == NOT_MEASURED:
         # (left until now for videos that are re-encoded whatever it finds: see scanner.probe_entries)
@@ -1390,7 +1412,7 @@ def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
         return None
 
 
-def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:
+def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:  # noqa: C901 (to split up)
     out = temp_name(src.parent, plan.target_ext)
     keep_audio, _subs, dropped = select_tracks(info, s)
     if plan.route == "video_remux":   # efficient already: tracks, fonts and lossless audio packing only
@@ -1403,7 +1425,7 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
             tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
                                       on_progress, cancel)
             steps.report("Checking the result")
-            verify_video(info, out, info.codec, dst_is_mp4=is_mp4(out.suffix), audio_tracks=len(keep_audio),
+            verify_video(info, out, info.codec, audio_tracks=len(keep_audio),
                          src_path=src, copied=True)
             done = ["picture untouched", "rewrapped from a TV recording" if info.container == "mpegts" else "",
                     tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix), True)]
@@ -1459,8 +1481,7 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
 
     def finish(used: str) -> tuple[Path, str]:
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix),
-                     expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
+        verify_video(info, out, codec, expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
         steps.report("Measuring how close it looks to the original")
         score = measure(src, info, out, s, cancel, grain if used == "libsvtav1" else 0)
         if score is not None:
@@ -1537,7 +1558,6 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
 def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Settings, codec: str, encoder: str,
                    audio_tracks: int, on_progress, cancel, fonts=None) -> tuple[Path, str]:
     """Encode at the bitrate that fits ``s.fit_under_kb``; if the encoder overshoots, again a little lower."""
-    from .formats import human
 
     limit = s.fit_under_kb * 1024
     try:
@@ -1566,7 +1586,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
                                                   f"(it made {human(got)})")
             video_kbps = max(30, int(video_kbps * limit / got * 0.93))     # overshot: aim lower
         steps.report("Checking the result")
-        verify_video(info, out, codec, dst_is_mp4=is_mp4(out.suffix), expected_size=size,
+        verify_video(info, out, codec, expected_size=size,
                      audio_tracks=audio_tracks, src_path=src)
         plan.outcome = f"{video_kbps:,} kbps, {size[0]}×{size[1]} to fit under {human(limit)}"
         return out, encoder
@@ -1575,7 +1595,7 @@ def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Setting
         raise
 
 
-def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
+def verify_video(src: VideoInfo, out: Path, codec: str,
                  expected_size: tuple[int, int] | None = None, audio_tracks: int | None = None,
                  src_path: Path | None = None, copied: bool = False) -> None:
     """``copied``: the picture was copied as it is (a Dolby Vision layer may stay); else it must be gone."""
@@ -1601,7 +1621,6 @@ def verify_video(src: VideoInfo, out: Path, codec: str, dst_is_mp4: bool,
     if (got.width, got.height) != tuple(expected_size):
         raise VerificationFailed(f"Output is {got.width}×{got.height}, expected {expected_size[0]}×{expected_size[1]}")
     # Decode the start and the end to catch truncated or corrupt output.
-    from .log import log
 
     for seek in (["-t", "3"], ["-sseof", "-3"]):
         code, messages = _decode_check(out, seek)
