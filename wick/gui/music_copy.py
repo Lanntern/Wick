@@ -94,7 +94,7 @@ class MusicCopyCard(Card):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addLayout(options, 1)
-        row.addWidget(self.sync_btn, 0, Qt.AlignBottom)
+        row.addWidget(self.sync_btn, 0, Qt.AlignmentFlag.AlignBottom)
         self.lay.addLayout(row)
         self.status = text("", Type.FOOTNOTE, secondary=True, wrap=True)
         self.lay.addWidget(self.status)

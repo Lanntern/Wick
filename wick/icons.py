@@ -47,7 +47,7 @@ def _square(img, size: int):
     if img.size != (size, size):
         scale = size / max(img.size)
         w, h = max(1, round(img.width * scale)), max(1, round(img.height * scale))
-        img = img.resize((w, h), Image.LANCZOS, reducing_gap=3.0)
+        img = img.resize((w, h), Image.Resampling.LANCZOS, reducing_gap=3.0)
         if (w, h) != (size, size):
             canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
             canvas.paste(img, ((size - w) // 2, (size - h) // 2))
@@ -69,10 +69,10 @@ def draw_svg(path_or_data: Path | bytes, size: int):
     w, h = (box.width(), box.height()) if box.width() > 0 else (r.defaultSize().width(), r.defaultSize().height())
     scale = size / max(w, h, 1e-9)
     dw, dh = w * scale, h * scale
-    image = QImage(size, size, QImage.Format_RGBA8888)
-    image.fill(Qt.transparent)
+    image = QImage(size, size, QImage.Format.Format_RGBA8888)
+    image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
-    painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+    painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
     r.render(painter, QRectF((size - dw) / 2, (size - dh) / 2, dw, dh))
     painter.end()
     return Image.frombuffer("RGBA", (size, size), bytes(image.constBits()), "raw", "RGBA",

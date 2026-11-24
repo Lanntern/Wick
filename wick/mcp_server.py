@@ -184,7 +184,7 @@ class Server:
             from PySide6.QtCore import QSettings
 
             path = os.environ.get("WICK_SETTINGS_FILE")
-            qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+            qs = QSettings(path, QSettings.Format.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
             return bool(qs.value("history_enabled", True, bool))
         except Exception:  # noqa: BLE001 - assume the safer answer
             from wick.log import ignored

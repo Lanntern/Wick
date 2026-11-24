@@ -59,8 +59,8 @@ def _name_fields(form: QFormLayout) -> None:
     """Each field takes its row's label as its name for screen readers (dropdowns otherwise read out only their
     current value)."""
     for row in range(form.rowCount()):
-        label = form.itemAt(row, QFormLayout.LabelRole)
-        field = form.itemAt(row, QFormLayout.FieldRole)
+        label = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+        field = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
         text = label.widget().text() if label is not None and isinstance(label.widget(), QLabel) else ""
         target = field.widget() if field is not None else None
         if text and target is not None and not target.accessibleName():

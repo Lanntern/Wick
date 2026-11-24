@@ -165,7 +165,7 @@ def _rgba(img, max_pixels: int):
     img = img.convert("RGBA")
     if img.width * img.height > max_pixels:
         scale = (max_pixels / (img.width * img.height)) ** 0.5
-        img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))), Image.LANCZOS)
+        img = img.resize((max(1, int(img.width * scale)), max(1, int(img.height * scale))), Image.Resampling.LANCZOS)
     return {"w": img.width, "h": img.height}, img.tobytes()
 
 
@@ -222,7 +222,7 @@ def thumbnail(path: str, kind: str, max_px: int):
         from .images import open_for_display
 
         pic = open_for_display(p)
-        pic.thumbnail((max_px, max_px), Image.LANCZOS)
+        pic.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
         return _rgba(pic, max_px * max_px)
     if kind == HEIC:
         register_heif()
@@ -231,7 +231,7 @@ def thumbnail(path: str, kind: str, max_px: int):
             im.draft("RGB", (max_px * 2, max_px * 2))          # fast DCT-domain downscale
         im.seek(0)
         pic = (ImageOps.exif_transpose(im) or im).convert("RGBA")
-        pic.thumbnail((max_px, max_px), Image.LANCZOS)
+        pic.thumbnail((max_px, max_px), Image.Resampling.LANCZOS)
         return _rgba(pic, max_px * max_px)
 
 

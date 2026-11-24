@@ -99,10 +99,10 @@ def _to_qimage(hbitmap, max_px: int, gdi32):
     data = buf.raw
     # Thumbnails with transparency carry premultiplied alpha; plain ones have 0 in every alpha byte.
     has_alpha = any(data[3::4])
-    fmt = QImage.Format_ARGB32_Premultiplied if has_alpha else QImage.Format_RGB32
+    fmt = QImage.Format.Format_ARGB32_Premultiplied if has_alpha else QImage.Format.Format_RGB32
     img = QImage(data, w, h, w * 4, fmt).copy()       # (copy: own the pixels before the buffer goes)
     if max(w, h) > max_px:
-        img = img.scaled(max_px, max_px, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        img = img.scaled(max_px, max_px, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
     return img
 
 

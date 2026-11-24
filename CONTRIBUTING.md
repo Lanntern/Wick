@@ -88,8 +88,8 @@ scripts/fetch_tools.py   download Windows encoders
 
 The lint job checks most of these; the rest are here so a change doesn't have to learn them in review.
 
-- **Checks:** `ruff check .`, `vulture`, and mypy once per system:
-  `mypy wick --platform linux --always-false IS_WINDOWS --always-false IS_MAC` (then `win32` with
+- **Checks:** `ruff check .`, `vulture`, and mypy once per system, run with the project's own Python (`python -m mypy`, so it sees PySide6 and the other libraries):
+  `python -m mypy wick --platform linux --always-false IS_WINDOWS --always-false IS_MAC` (then `win32` with
   `--always-true IS_WINDOWS`, and `darwin` with `--always-true IS_MAC`). Each run skips the other systems'
   branches, so system checks are written `sys.platform == "win32"` (or the module's `IS_WINDOWS` / `IS_MAC`),
   never `os.name`, and a Windows-only helper starts with `if sys.platform != "win32": return ...`.

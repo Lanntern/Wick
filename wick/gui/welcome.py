@@ -38,13 +38,13 @@ class WelcomeDialog(QDialog):
 
         logo.setPixmap(app_icon().pixmap(Size.ICON_L * 3 // 2, Size.ICON_L * 3 // 2))
         logo.setAccessibleName(f"{APP_NAME} icon")
-        lay.addWidget(logo, 0, Qt.AlignHCenter)
+        lay.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
         title = text(f"Welcome to {APP_NAME}", Type.TITLE1, bold=True, wrap=True)   # (large text: two lines)
-        title.setAlignment(Qt.AlignCenter)
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(title)
         intro = text("Makes your photos, videos, music and documents smaller without changing how they look or "
                      "sound, and clears out what can be rebuilt.", Type.BODY, secondary=True, wrap=True)
-        intro.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+        intro.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         lay.addWidget(intro)
         lay.addSpacing(Space.S)
 
@@ -55,11 +55,11 @@ class WelcomeDialog(QDialog):
         for row, (name, head, body) in enumerate(PROMISES):
             mark = QLabel()
             mark.setFixedSize(badge, badge)
-            mark.setAlignment(Qt.AlignCenter)
+            mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
             mark.setPixmap(icon_pixmap(name, tk.accent_text, Size.ICON_M))
             mark.setStyleSheet(f"background: {tk.accent_soft}; border-radius: {badge // 2}px;")
             mark.setAccessibleName(head)
-            grid.addWidget(mark, row, 0, Qt.AlignTop)
+            grid.addWidget(mark, row, 0, Qt.AlignmentFlag.AlignTop)
             col = QVBoxLayout()
             col.setSpacing(Space.XXS)
             col.addWidget(text(head, Type.HEADLINE, bold=True))

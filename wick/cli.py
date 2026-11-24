@@ -354,7 +354,7 @@ def _installer_setup(args: list[str]) -> int:
 
     carry_over_settings()          # (before writing anything under the new name, which would stop the carry-over)
     path = os.environ.get("WICK_SETTINGS_FILE")
-    qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+    qs = QSettings(path, QSettings.Format.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
     freq = {"1": updates.DEFAULT_FREQUENCY, "0": "never"}.get(opts.get("updates", ""), opts.get("updates", ""))
     chosen_before = qs.contains("updates/frequency") or qs.contains("updates/auto")
     if freq in updates.FREQUENCIES and not on.get("upgrade") and not chosen_before:

@@ -38,8 +38,8 @@ def _box(parent: QWidget | None, text: str, info: str = "") -> QMessageBox:
 def ask(parent: QWidget | None, text: str, info: str = "", action: str = "OK", destructive: bool = False) -> bool:
     """Confirm an action. The action button is the default (Enter); Esc cancels."""
     box = _box(parent, text, info)
-    cancel = box.addButton("Cancel", QMessageBox.RejectRole)
-    go = box.addButton(action, QMessageBox.DestructiveRole if destructive else QMessageBox.AcceptRole)
+    cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+    go = box.addButton(action, QMessageBox.ButtonRole.DestructiveRole if destructive else QMessageBox.ButtonRole.AcceptRole)
     _role(go, "danger" if destructive else "primary")
     box.setDefaultButton(go)
     box.setEscapeButton(cancel)
@@ -50,9 +50,9 @@ def ask(parent: QWidget | None, text: str, info: str = "", action: str = "OK", d
 def choose(parent: QWidget | None, text: str, info: str, default: str, other: str) -> bool:
     """A message with a default button and one other choice. True when ``other`` was chosen."""
     box = _box(parent, text, info)
-    alt = box.addButton(other, QMessageBox.ActionRole)
+    alt = box.addButton(other, QMessageBox.ButtonRole.ActionRole)
     _role(alt, "")
-    ok = box.addButton(default, QMessageBox.AcceptRole)
+    ok = box.addButton(default, QMessageBox.ButtonRole.AcceptRole)
     _role(ok, "primary")
     box.setDefaultButton(ok)
     box.setEscapeButton(ok)
@@ -62,7 +62,7 @@ def choose(parent: QWidget | None, text: str, info: str, default: str, other: st
 
 def inform(parent: QWidget | None, text: str, info: str = "") -> None:
     box = _box(parent, text, info)
-    ok = box.addButton("OK", QMessageBox.AcceptRole)
+    ok = box.addButton("OK", QMessageBox.ButtonRole.AcceptRole)
     _role(ok, "primary")
     box.setDefaultButton(ok)
     box.exec()

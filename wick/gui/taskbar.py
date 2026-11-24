@@ -45,7 +45,7 @@ def _hicon(name: str, size: int, light_taskbar: bool):
 
 
     img = icon_pixmap(name, "#202020" if light_taskbar else "#FFFFFF", size, 1.0, 2.0).toImage() \
-        .convertToFormat(QImage.Format_ARGB32)
+        .convertToFormat(QImage.Format.Format_ARGB32)
     w, h = img.width(), img.height()
     bits = bytes(img.constBits())[: w * h * 4]           # BGRA, top-down
 

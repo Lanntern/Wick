@@ -179,7 +179,7 @@ def render_pages(src: Path, folder: Path, fmt: str = "png", dpi: int = 150, pass
                 raise InterruptedError()
             pts = doc.pagePointSize(i)
             size = QSize(max(1, round(pts.width() * dpi / 72)), max(1, round(pts.height() * dpi / 72)))
-            img = doc.render(i, size).convertToFormat(QImage.Format_RGBA8888)
+            img = doc.render(i, size).convertToFormat(QImage.Format.Format_RGBA8888)
             pic = Image.frombuffer("RGBA", (img.width(), img.height()), bytes(img.constBits()), "raw", "RGBA",
                                    img.bytesPerLine(), 1)
             page = Image.new("RGB", pic.size, "white")

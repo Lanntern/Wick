@@ -51,8 +51,8 @@ if TYPE_CHECKING:
     from .metadata_scan import MetadataScan
 
 
-ROLE_ROW = Qt.UserRole + 30
-ROLE_OUT = Qt.UserRole + 31   # result path once done
+ROLE_ROW = Qt.ItemDataRole.UserRole + 30
+ROLE_OUT = Qt.ItemDataRole.UserRole + 31   # result path once done
 
 
 class FileJobPage(Page):
@@ -123,17 +123,17 @@ class FileJobPage(Page):
         rl.addWidget(self.job_status)
         card = Card(padding=0, spacing=0, inset=True)
         self.summary = text("", Type.BODY, secondary=True, wrap=True)
-        self.summary.setTextFormat(Qt.RichText)
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
         self.summary.setContentsMargins(Space.L, Space.M, Space.L, Space.S)
         card.lay.addWidget(self.summary)
         self.tree = QTreeWidget()
         self.tree.setAccessibleName(f"{title} files")
         self.tree.setHeaderLabels(self.COLUMNS)
         self.tree.setRootIsDecorated(False)
-        self.tree.setFrameShape(QFrame.NoFrame)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
-        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
         self.tree.setItemDelegateForColumn(self.STATUS_COL, StatusDelegate(self.tree))
         self.tree.header().setStretchLastSection(True)
@@ -142,10 +142,10 @@ class FileJobPage(Page):
             self.tree.setColumnWidth(i, 150)
         self.tree.itemChanged.connect(self._item_changed)
         make_sortable(self.tree)
-        self.tree.sortByColumn(-1, Qt.AscendingOrder)
+        self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         self.tree.header().remember(type(self).__name__)
         add_header_checkbox(self.tree, 0, self._item_changed)
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         keyboard_list(self.tree, self._menu)
         click_to_check(self.tree, 0)
@@ -269,7 +269,7 @@ class FileJobPage(Page):
         for i in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(i)
             e, p = it.data(0, ROLE_ROW)
-            if p is not None and it.checkState(0) != Qt.Checked:     # (excluded rows weren't the user's choice)
+            if p is not None and it.checkState(0) != Qt.CheckState.Checked:     # (excluded rows weren't the user's choice)
                 unticked.add(id(e))
         self.tree.clear()
         self.rows = {}
@@ -290,10 +290,10 @@ class FileJobPage(Page):
             it.setToolTip(0, str(e.path))
             for c, title in enumerate(self.COLUMNS):
                 if title == "Size":
-                    it.setTextAlignment(c, Qt.AlignRight | Qt.AlignVCenter)
+                    it.setTextAlignment(c, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             if p is not None:
-                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-                it.setCheckState(0, Qt.Unchecked if id(e) in unticked else Qt.Checked)
+                it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                it.setCheckState(0, Qt.CheckState.Unchecked if id(e) in unticked else Qt.CheckState.Checked)
                 it.setData(self.STATUS_COL, STATUS_ROLE, "ready")
             else:
                 it.setData(self.STATUS_COL, STATUS_ROLE, "excluded")
@@ -308,7 +308,7 @@ class FileJobPage(Page):
             return
         paths = [it.data(0, ROLE_ROW)[0].path for it in items]
         outputs = [Path(o) for it in items if (o := it.data(0, ROLE_OUT))]
-        checkable = [it for it in items if it.flags() & Qt.ItemIsUserCheckable]
+        checkable = [it for it in items if it.flags() & Qt.ItemFlag.ItemIsUserCheckable]
         extra: list = []
         if outputs:
             from .file_model import open_in_file_manager_many
@@ -320,7 +320,8 @@ class FileJobPage(Page):
                 for it in checkable:
                     it.setCheckState(0, state)
             n = "" if len(checkable) == 1 else f" {len(checkable)}"
-            extra += [None, (f"Select{n}", lambda: check(Qt.Checked)), (f"Deselect{n}\tDelete", lambda: check(Qt.Unchecked))]
+            extra += [None, (f"Select{n}", lambda: check(Qt.CheckState.Checked)),
+                      (f"Deselect{n}\tDelete", lambda: check(Qt.CheckState.Unchecked))]
         if not self.busy():
             own = self.menu_entries([it.data(0, ROLE_ROW)[0] for it in items])
             if own:
@@ -352,8 +353,12 @@ class FileJobPage(Page):
         for i in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(i)
             e, p = it.data(0, ROLE_ROW)
-            if p is not None and it.checkState(0) == Qt.Checked and not it.isHidden() \
-                    and it.data(self.STATUS_COL, STATUS_ROLE) != "done":
+            if (
+                p is not None
+                and it.checkState(0) == Qt.CheckState.Checked
+                and not it.isHidden()
+                and it.data(self.STATUS_COL, STATUS_ROLE) != "done"
+            ):
                 out.append((e, p))
         return out
 
@@ -383,11 +388,18 @@ class FileJobPage(Page):
         if not items or self.busy():
             return
         n = len(items)
-        if confirm and not ask(self, self.confirm_title.format(n=n, s="s" if n != 1 else ""), self.confirm_info,
-                               self.action_label):
+        if confirm and not ask(
+            self, self.confirm_title.format(n=n, s="s" if n != 1 else ""), self.confirm_info, self.action_label
+        ):
             return
-        self.job_thread = JobThread(items, self.settings(), self.paths[0] if self.paths else Path.home(), self,
-                                    processor=self.processor(), tool=self.tool)
+        self.job_thread = JobThread(
+            items,
+            self.settings(),
+            self.paths[0] if self.paths else Path.home(),
+            self,
+            processor=self.processor(),
+            tool=self.tool,
+        )
         self.job_thread.file_started.connect(self._started_one)
         self.job_thread.file_progress.connect(self._progress)
         self.job_thread.file_step.connect(self._step)
@@ -434,19 +446,20 @@ class FileJobPage(Page):
         if it is not None and r.status == DONE:
             if r.output:
                 it.setData(0, ROLE_OUT, str(r.output))
-            it.setCheckState(0, Qt.Unchecked)
-            it.setFlags(it.flags() & ~Qt.ItemIsUserCheckable)
+            it.setCheckState(0, Qt.CheckState.Unchecked)
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
 
     def _done(self, results, run_id) -> None:
         self.win.history.refresh()
         many = len(results) > 1
         if self.settings().output_mode == "replace":
-            note = (f"The original{'s are' if many else ' is'} in the {BIN_NAME}: empty it to free the space, or "
-                    "undo it later.")
+            note = (
+                f"The original{'s are' if many else ' is'} in the {BIN_NAME}: empty it to free the space, or "
+                "undo it later."
+            )
         else:
             note = f"The original{'s were' if many else ' was'} kept."
-        self.job_status.finish(results, note,
-                               on_undo=(lambda: self.win.history.undo_run(run_id)) if run_id else None)
+        self.job_status.finish(results, note, on_undo=(lambda: self.win.history.undo_run(run_id)) if run_id else None)
         if not self.window().isActiveWindow():
             self.win.tray_message(self.job_status.title.text())
             QApplication.alert(self.window())
@@ -472,7 +485,7 @@ class FileJobPage(Page):
         if busy and msg:
             self.job_status.busy(msg)
         elif not busy and not self.job_status.stop_btn.isHidden():
-            self.job_status.hide()          # a scan ended (a job's outcome stays until dismissed)
+            self.job_status.hide()  # a scan ended (a job's outcome stays until dismissed)
         for w in (self.options, self.add_files_btn, self.add_folder_btn, self.drop):
             w.setEnabled(not busy)
         self._update()
@@ -483,8 +496,11 @@ class FileJobPage(Page):
         if not data:
             return None
         e = data[0]
-        return (e.path, e.kind, e.path.name, f"{KIND_LABEL.get(e.kind, e.kind)} · {human(e.size)}") \
-            if e.path.exists() else None
+        return (
+            (e.path, e.kind, e.path.name, f"{KIND_LABEL.get(e.kind, e.kind)} · {human(e.size)}")
+            if e.path.exists()
+            else None
+        )
 
 
 def set_visible(w: QWidget, on: bool) -> None:
@@ -504,7 +520,7 @@ def option_row(*pairs) -> FlowLayout:
         elif label:
             lab = text(label, Type.BODY)
             lab.setBuddy(w)
-            w.setProperty("rowLabel", lab)   # hide/show the label together with its control
+            w.setProperty("rowLabel", lab)  # hide/show the label together with its control
             w.setAccessibleName(label)
             row.add_group(lab, w)
         else:

@@ -75,7 +75,7 @@ class TrimDialog(QDialog):
         lay.setContentsMargins(Space.XL, Space.XL, Space.XL, Space.XL)
         lay.setSpacing(Space.L)
         self.picture = QLabel()
-        self.picture.setAlignment(Qt.AlignCenter)
+        self.picture.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.picture.setMinimumSize(480, 270)
         self.picture.setAccessibleName("The frame at the chosen time")
         if is_video:
@@ -84,7 +84,7 @@ class TrimDialog(QDialog):
         grid.setHorizontalSpacing(Space.M)
         self.sliders, self.fields = [], []
         for row, (label, value) in enumerate((("Start", 0.0), ("End", self.duration))):
-            slider = QSlider(Qt.Horizontal)
+            slider = QSlider(Qt.Orientation.Horizontal)
             slider.setRange(0, round(self.duration * STEP))
             slider.setValue(round(value * STEP))
             slider.setAccessibleName(f"{label} time")

@@ -104,7 +104,10 @@ def _group4(img) -> bytes | None:
     buf = io.BytesIO()
     img.save(buf, "TIFF", compression="group4", tiffinfo={278: img.height})
     with Image.open(io.BytesIO(buf.getvalue())) as tif:
-        offsets, counts = tif.tag_v2.get(273), tif.tag_v2.get(279)
+        from PIL import TiffImagePlugin
+
+        assert isinstance(tif, TiffImagePlugin.TiffImageFile)
+        offsets, counts = tif.tag_v2.get(273), tif.tag_v2.get(279)     # (strip offsets, strip byte counts)
     if offsets is None or counts is None or len(offsets) != 1:
         return None
     return buf.getvalue()[offsets[0]:offsets[0] + counts[0]]

@@ -175,7 +175,7 @@ class ConvertTab(FileJobPage):
         pr.setContentsMargins(0, 0, 0, 0)
         pr.setSpacing(Space.M)
         pr.addWidget(self.pandoc_note, 1)
-        pr.addWidget(self.pandoc_btn, 0, Qt.AlignVCenter)
+        pr.addWidget(self.pandoc_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.pandoc_row.hide()
         card.lay.addWidget(self.pandoc_row)
         self._pandoc_worker: QThread | None = None
@@ -701,7 +701,7 @@ class ConvertTab(FileJobPage):
         form = QFormLayout()
         first, again = QLineEdit(), QLineEdit()
         for f in (first, again):
-            f.setEchoMode(QLineEdit.Password)
+            f.setEchoMode(QLineEdit.EchoMode.Password)
         form.addRow("Password", first)
         if confirm:
             form.addRow("Again", again)
@@ -714,7 +714,7 @@ class ConvertTab(FileJobPage):
         first.textChanged.connect(valid)
         again.textChanged.connect(valid)
         valid()
-        return first.text() if dlg.exec() == QDialog.Accepted else ""
+        return first.text() if dlg.exec() == QDialog.DialogCode.Accepted else ""
 
     def _combine_pdf(self, entries: list[FileEntry]) -> None:
         """The chosen pictures and PDFs, in the list's order, as one new PDF (JPEGs as they are)."""

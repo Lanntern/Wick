@@ -200,7 +200,7 @@ class CompareView(QWidget):
         self.expected: tuple[int, int] | None = None   # the picture's size, known before it's decoded
         self.setMinimumSize(Space.XXL * 12, Space.XXL * 8)
         self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName("Comparison")
         self.setAccessibleDescription("The original is on the left and the compressed version on the right. Arrow "
                                       "keys move the line, plus and minus zoom, 0 fits and 1 shows actual size.")
@@ -248,7 +248,7 @@ class CompareView(QWidget):
     def paintEvent(self, _event) -> None:
         tk = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         bg = QPainterPath()
         bg.addRoundedRect(QRectF(self.rect()), Radius.CARD, Radius.CARD)
         p.fillPath(bg, QColor(tk.canvas))
@@ -265,16 +265,16 @@ class CompareView(QWidget):
                 p.drawRect(area.adjusted(0.5, 0.5, -0.5, -0.5))
             p.setPen(QColor(tk.text2))
             p.setFont(ui_font(Type.BODY))
-            p.drawText(area, Qt.AlignCenter | Qt.TextWordWrap, self.message)
+            p.drawText(area, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, self.message)
             return
         if self._fit:
             self._apply_fit()
         if self.side_by_side:
             self._paint_side_by_side(p)
             return
-        p.setRenderHint(QPainter.SmoothPixmapTransform, self.zoom < 1)
-        w, h = self.before.width() * self.zoom, self.before.height() * self.zoom
-        target = QRectF(self.offset.x(), self.offset.y(), w, h)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self.zoom < 1)
+        shown_w, shown_h = self.before.width() * self.zoom, self.before.height() * self.zoom
+        target = QRectF(self.offset.x(), self.offset.y(), shown_w, shown_h)
         split_x = self.width() * self.split
         p.save()
         p.setClipRect(QRectF(0, 0, split_x, self.height()))
@@ -289,7 +289,7 @@ class CompareView(QWidget):
         p.drawLine(QPointF(split_x, 0), QPointF(split_x, self.height()))
         p.setPen(QPen(QColor(0, 0, 0, 160), 1))
         p.drawLine(QPointF(split_x + 1.5, 0), QPointF(split_x + 1.5, self.height()))
-        p.setFont(ui_font(Type.FOOTNOTE, QFont.DemiBold))
+        p.setFont(ui_font(Type.FOOTNOTE, QFont.Weight.DemiBold))
         fm = p.fontMetrics()
         for label, left in (("Original", True), ("Compressed", False)):
             w_txt = fm.horizontalAdvance(label) + Space.L
@@ -299,13 +299,13 @@ class CompareView(QWidget):
             pill.addRoundedRect(rect, h_txt / 2, h_txt / 2)
             p.fillPath(pill, QColor(0, 0, 0, 150))
             p.setPen(QColor("#FFFFFF"))
-            p.drawText(rect, Qt.AlignCenter, label)
+            p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
         # handle on the split line
         knob = QRectF(split_x - Space.M, self.height() / 2 - Space.M, Space.XL, Space.XL)
         p.setPen(QPen(QColor(0, 0, 0, 80), 1))
         p.setBrush(QColor("#FFFFFF"))
         p.drawEllipse(knob)
-        p.setPen(QPen(QColor("#3A3A3C"), 1.6, Qt.SolidLine, Qt.RoundCap))
+        p.setPen(QPen(QColor("#3A3A3C"), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         cx, cy = knob.center().x(), knob.center().y()
         for d in (-1, 1):
             p.drawLine(QPointF(cx + d * 2, cy - 4), QPointF(cx + d * 6, cy))
@@ -318,41 +318,41 @@ class CompareView(QWidget):
         tk = tokens()
         pw = self._pane_width()
         w, h = self.before.width() * self.zoom, self.before.height() * self.zoom
-        p.setRenderHint(QPainter.SmoothPixmapTransform, self.zoom < 1)
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self.zoom < 1)
         p.fillRect(QRectF(pw, 0, self.GAP, self.height()), QColor(tk.window))
         for i, (pm, label) in enumerate(((self.before, "Original"), (self.after, "Compressed"))):
             if pm is None:
                 continue
             left = i * (pw + self.GAP)
             p.save()
-            p.setClipRect(QRectF(left, 0, pw, self.height()), Qt.IntersectClip)
+            p.setClipRect(QRectF(left, 0, pw, self.height()), Qt.ClipOperation.IntersectClip)
             # A resized result is stretched to the original's size so details line up.
             p.drawPixmap(QRectF(left + self.offset.x(), self.offset.y(), w, h), pm, QRectF(pm.rect()))
             p.restore()
             self._pill(p, label, QPointF(left + Space.M, Space.M))
 
     def _pill(self, p: QPainter, label: str, at: QPointF) -> None:
-        p.setFont(ui_font(Type.FOOTNOTE, QFont.DemiBold))
+        p.setFont(ui_font(Type.FOOTNOTE, QFont.Weight.DemiBold))
         fm = p.fontMetrics()
         rect = QRectF(at.x(), at.y(), fm.horizontalAdvance(label) + Space.L, fm.height() + Space.S)
         pill = QPainterPath()
         pill.addRoundedRect(rect, rect.height() / 2, rect.height() / 2)
         p.fillPath(pill, QColor(0, 0, 0, 150))
         p.setPen(QColor("#FFFFFF"))
-        p.drawText(rect, Qt.AlignCenter, label)
+        p.drawText(rect, Qt.AlignmentFlag.AlignCenter, label)
 
     def keyPressEvent(self, e) -> None:
         k = e.key()
-        if k in (Qt.Key_Left, Qt.Key_Right) and not self.side_by_side:
-            step = 0.1 if e.modifiers() & Qt.ShiftModifier else 0.02
-            self.split = max(0.0, min(1.0, self.split + (step if k == Qt.Key_Right else -step)))
+        if k in (Qt.Key.Key_Left, Qt.Key.Key_Right) and not self.side_by_side:
+            step = 0.1 if e.modifiers() & Qt.KeyboardModifier.ShiftModifier else 0.02
+            self.split = max(0.0, min(1.0, self.split + (step if k == Qt.Key.Key_Right else -step)))
             self.split_changed.emit(self.split)
             self.update()
-        elif k in (Qt.Key_Plus, Qt.Key_Equal, Qt.Key_Minus):
-            self._zoom_at(QPointF(self.width() / 2, self.height() / 2), 1.25 if k != Qt.Key_Minus else 0.8)
-        elif k == Qt.Key_0:
+        elif k in (Qt.Key.Key_Plus, Qt.Key.Key_Equal, Qt.Key.Key_Minus):
+            self._zoom_at(QPointF(self.width() / 2, self.height() / 2), 1.25 if k != Qt.Key.Key_Minus else 0.8)
+        elif k == Qt.Key.Key_0:
             self.fit()
-        elif k == Qt.Key_1:
+        elif k == Qt.Key.Key_1:
             self.actual_size()
         else:
             super().keyPressEvent(e)
@@ -372,7 +372,7 @@ class CompareView(QWidget):
         self._zoom_at(self._local(e.position()), 1.25 if e.angleDelta().y() > 0 else 0.8)
 
     def mousePressEvent(self, e) -> None:
-        if not self.side_by_side and e.button() == Qt.LeftButton and \
+        if not self.side_by_side and e.button() == Qt.MouseButton.LeftButton and \
                 abs(e.position().x() - self.width() * self.split) < 8:
             self._drag = None
             self._splitting = True
@@ -382,12 +382,13 @@ class CompareView(QWidget):
 
     def mouseMoveEvent(self, e) -> None:
         near = not self.side_by_side and abs(e.position().x() - self.width() * self.split) < 8
-        self.setCursor(Qt.SplitHCursor if near or getattr(self, "_splitting", False) else Qt.OpenHandCursor)
-        if getattr(self, "_splitting", False) and e.buttons() & Qt.LeftButton:
+        splitting = getattr(self, "_splitting", False)
+        self.setCursor(Qt.CursorShape.SplitHCursor if near or splitting else Qt.CursorShape.OpenHandCursor)
+        if getattr(self, "_splitting", False) and e.buttons() & Qt.MouseButton.LeftButton:
             self.split = max(0.0, min(1.0, e.position().x() / max(1, self.width())))
             self.split_changed.emit(self.split)
             self.update()
-        elif self._drag is not None and e.buttons() & Qt.LeftButton:
+        elif self._drag is not None and e.buttons() & Qt.MouseButton.LeftButton:
             if self._fit:
                 self._apply_fit()
                 self._fit = False
@@ -403,22 +404,22 @@ class CompareView(QWidget):
 class PreviewDialog(QDialog):
     """Shows before/after for one image or a video sample; lets you try other qualities."""
 
-    quality_chosen = Signal(object)              # Settings with the chosen quality: use it for every file
+    quality_chosen = Signal(object)  # Settings with the chosen quality: use it for every file
     view: CompareView
-    compress_requested = Signal(object)          # Settings: compress this file now
-    save_as_requested = Signal(object, object)   # Settings, Path: save the result there (original kept)
+    compress_requested = Signal(object)  # Settings: compress this file now
+    save_as_requested = Signal(object, object)  # Settings, Path: save the result there (original kept)
 
     def __init__(self, entry: FileEntry, settings: Settings, parent=None):
         super().__init__(parent)
         self.entry, self.settings = entry, copy.deepcopy(settings)
         self.worker: PreviewThread | None = None
         self.is_video = entry.kind == VIDEO
-        self.video = None            # the current VideoPreview
+        self.video = None  # the current VideoPreview
         self.sample_start: float | None = None
         self._frames: dict[int, tuple[QPixmap, QPixmap]] = {}
         self.setWindowTitle(f"Preview — {entry.path.name}")
         self.resize(1120, 780)
-        self.setMinimumWidth(640)     # (the height follows the controls: videos have an extra row)
+        self.setMinimumWidth(640)  # (the height follows the controls: videos have an extra row)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(Space.L, Space.L, Space.L, Space.L)
@@ -427,15 +428,17 @@ class PreviewDialog(QDialog):
         head.setSpacing(Space.S)
         title_box = QVBoxLayout()
         title_box.setSpacing(Space.XXS)
-        title_box.addWidget(ElidedLabel(entry.path.name, Type.TITLE3, bold=True))   # long names never widen it
+        title_box.addWidget(ElidedLabel(entry.path.name, Type.TITLE3, bold=True))  # long names never widen it
         # Two lines that never change height (so nothing below moves when the result arrives): the outcome, and
         # the details (shortened to fit, in full in the tooltip).
         self.info = text("Making the preview…", Type.BODY, secondary=True)
-        self.info.setTextFormat(Qt.RichText)
-        self.info.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.info.setTextFormat(Qt.TextFormat.RichText)
+        self.info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.info.setAccessibleName("Result")
         title_box.addWidget(self.info)
-        self.details = ElidedLabel(self._source_line(entry), Type.FOOTNOTE, secondary=True, mode=Qt.ElideRight)
+        self.details = ElidedLabel(
+            self._source_line(entry), Type.FOOTNOTE, secondary=True, mode=Qt.TextElideMode.ElideRight
+        )
         self.details.setAccessibleName("Details")
         title_box.addWidget(self.details)
         head.addLayout(title_box, 1)
@@ -447,9 +450,9 @@ class PreviewDialog(QDialog):
         self.mode.setObjectName("segmented")
         self.mode.setExpanding(False)
         self.mode.setDrawBase(False)
-        self.mode.setUsesScrollButtons(False)        # always both segments in full, never arrows
-        self.mode.setElideMode(Qt.ElideNone)
-        self.mode.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.mode.setUsesScrollButtons(False)  # always both segments in full, never arrows
+        self.mode.setElideMode(Qt.TextElideMode.ElideNone)
+        self.mode.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.mode.setAccessibleName("Comparison style")
         self.mode.addTab("Split")
         self.mode.addTab("Side by Side")
@@ -472,30 +475,47 @@ class PreviewDialog(QDialog):
         bottom.setSpacing(Space.S)
         self.split_label = text("Line", Type.BODY, secondary=True)
         bottom.addWidget(self.split_label)
-        self.split = QSlider(Qt.Horizontal)
+        self.split = QSlider(Qt.Orientation.Horizontal)
         self.split.setRange(0, 100)
         self.split.setValue(50)
         self.split.setAccessibleName("Comparison line position")
         self.split.valueChanged.connect(lambda v: (setattr(self.view, "split", v / 100), self.view.update()))
-        self.view.split_changed.connect(lambda f: (self.split.blockSignals(True), self.split.setValue(round(f * 100)),
-                                                    self.split.blockSignals(False)))
+        self.view.split_changed.connect(
+            lambda f: (
+                self.split.blockSignals(True),
+                self.split.setValue(round(f * 100)),
+                self.split.blockSignals(False),
+            )
+        )
         bottom.addWidget(self.split, 1)
-        bottom.addStretch(0)        # takes the slider's room while it's hidden (side by side)
+        bottom.addStretch(0)  # takes the slider's room while it's hidden (side by side)
         bottom.addSpacing(Space.L)
-        lay.addLayout(bottom)       # (first: a widget shown before it has a parent flashes up as a window)
+        lay.addLayout(bottom)  # (first: a widget shown before it has a parent flashes up as a window)
         self._build_quality(bottom, settings)
-        actions = QHBoxLayout()            # a row of its own: everything fits a narrow window
+        actions = QHBoxLayout()  # a row of its own: everything fits a narrow window
         actions.setSpacing(Space.S)
         close = button("Close", "", None, "", "Esc")
         close.clicked.connect(self.reject)
-        self.use = button("Use for All Files", "", None, "Use this quality for every file in the list. Nothing is "
-                                                         "compressed until you press Compress.")
+        self.use = button(
+            "Use for All Files",
+            "",
+            None,
+            "Use this quality for every file in the list. Nothing is compressed until you press Compress.",
+        )
         self.use.clicked.connect(self._use)
-        self.save_as = button("Save a Copy…", "", None, "Save the result as a new file and leave the original as it "
-                                                        "is", "Ctrl+S")
+        self.save_as = button(
+            "Save a Copy…", "", None, "Save the result as a new file and leave the original as it is", "Ctrl+S"
+        )
         self.save_as.clicked.connect(self._save_as)
-        self.compress = button({"replace": "Compress and Replace", "folder": "Compress to Folder"}.get(
-            self.settings.output_mode, "Compress Beside Original"), "primary", None, self._compress_tip(), "Ctrl+Enter")
+        self.compress = button(
+            {"replace": "Compress and Replace", "folder": "Compress to Folder"}.get(
+                self.settings.output_mode, "Compress Beside Original"
+            ),
+            "primary",
+            None,
+            self._compress_tip(),
+            "Ctrl+Enter",
+        )
         self.compress.clicked.connect(self._compress)
         actions.addWidget(self.use)
         actions.addStretch(1)
@@ -503,7 +523,7 @@ class PreviewDialog(QDialog):
         actions.addWidget(self.save_as)
         actions.addWidget(self.compress)
         for b in (close, self.use, self.save_as, self.compress, fit, one):
-            b.setAutoDefault(False)          # Enter makes the preview again; it never compresses by accident
+            b.setAutoDefault(False)  # Enter makes the preview again; it never compresses by accident
         self.rerun.setDefault(True)
         lay.addLayout(actions)
         self.use.setVisible(self.quality.isEnabled())
@@ -519,17 +539,18 @@ class PreviewDialog(QDialog):
         self.play = button("Play", "", None, "Step through the sample's frames", "Space")
         self.play.setCheckable(True)
         self.play.toggled.connect(self._play_toggled)
-        self.frame = QSlider(Qt.Horizontal)
+        self.frame = QSlider(Qt.Orientation.Horizontal)
         self.frame.setAccessibleName("Frame")
         self.frame.setEnabled(False)
         self.frame.valueChanged.connect(self._show_frame)
         self.frame_label = text("", Type.FOOTNOTE, secondary=True)
         self.frame_label.setMinimumWidth(Space.XXL * 4)
         self.timer = QTimer(self, interval=250)
-        self.timer.timeout.connect(lambda: self.frame.setValue((self.frame.value() + 1) % max(1, self.frame.maximum()
-                                                                                           + 1)))
+        self.timer.timeout.connect(
+            lambda: self.frame.setValue((self.frame.value() + 1) % max(1, self.frame.maximum() + 1))
+        )
         duration = max(1, int(entry.video.duration)) if entry.video else 1
-        self.position = QSlider(Qt.Horizontal)
+        self.position = QSlider(Qt.Orientation.Horizontal)
         self.position.setRange(0, duration)
         self.position.setValue(duration // 2)
         self.position.setAccessibleName("Sample position in the video")
@@ -581,7 +602,7 @@ class PreviewDialog(QDialog):
         self._drop_frames()
         self.video = r
         if self.worker is not None and self.worker._video_result is r:
-            self.worker._video_result = None    # the dialog now owns the frame files
+            self.worker._video_result = None  # the dialog now owns the frame files
         if r.frames:
             self.frame.setRange(0, len(r.frames) - 1)
             self.frame.setEnabled(True)
@@ -612,28 +633,35 @@ class PreviewDialog(QDialog):
         self.view.setAccessibleDescription(
             "The original is on the left and the compressed version on the right. Plus and minus zoom, 0 fits and 1 "
             "shows actual size."
-            if on else "The original is left of the line and the compressed version right of it. Arrow keys move "
-                       "the line, plus and minus zoom, 0 fits and 1 shows actual size.")
+            if on
+            else "The original is left of the line and the compressed version right of it. Arrow keys move "
+            "the line, plus and minus zoom, 0 fits and 1 shows actual size."
+        )
 
     def keyPressEvent(self, e) -> None:
-        ctrl = e.modifiers() & Qt.ControlModifier
-        if ctrl and e.key() == Qt.Key_S and self.save_as.isEnabled():
+        ctrl = e.modifiers() & Qt.KeyboardModifier.ControlModifier
+        if ctrl and e.key() == Qt.Key.Key_S and self.save_as.isEnabled():
             self._save_as()
-        elif ctrl and e.key() in (Qt.Key_Return, Qt.Key_Enter) and self.compress.isEnabled():
+        elif ctrl and e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.compress.isEnabled():
             self._compress()
-        elif e.key() == Qt.Key_S and not e.modifiers():
+        elif e.key() == Qt.Key.Key_S and not e.modifiers():
             self.mode.setCurrentIndex(1 - self.mode.currentIndex())
-        elif e.key() == Qt.Key_Space and self.is_video and self.frame.isEnabled():
+        elif e.key() == Qt.Key.Key_Space and self.is_video and self.frame.isEnabled():
             self.play.toggle()
-        elif e.key() in (Qt.Key_Comma, Qt.Key_Period) and self.is_video and self.frame.isEnabled():
-            self.frame.setValue(self.frame.value() + (1 if e.key() == Qt.Key_Period else -1))
+        elif e.key() in (Qt.Key.Key_Comma, Qt.Key.Key_Period) and self.is_video and self.frame.isEnabled():
+            self.frame.setValue(self.frame.value() + (1 if e.key() == Qt.Key.Key_Period else -1))
         else:
             super().keyPressEvent(e)
 
     # ---- quality: the same choices as the options, plus a value of your own
     IMAGE_CHOICES = (("Visually identical", "identical"), ("High", "high"), ("Good", "good"), ("Custom", "custom"))
-    VIDEO_CHOICES = (("Visually identical", "identical"), ("High", "high"), ("Balanced", "balanced"),
-                     ("Smallest", "small"), ("Custom", "custom"))
+    VIDEO_CHOICES = (
+        ("Visually identical", "identical"),
+        ("High", "high"),
+        ("Balanced", "balanced"),
+        ("Smallest", "small"),
+        ("Custom", "custom"),
+    )
 
     def _build_quality(self, bottom: QHBoxLayout, settings: Settings) -> None:
 
@@ -645,25 +673,32 @@ class PreviewDialog(QDialog):
             for label, key in self.VIDEO_CHOICES:
                 self.quality.addItem(label, key)
             measured = settings.video_quality == "identical" or (
-                settings.smart_quality and settings.smart_target == "identical" and settings.video_quality != "custom")
+                settings.smart_quality and settings.smart_target == "identical" and settings.video_quality != "custom"
+            )
             start = "identical" if measured else settings.video_quality
             self.value.setRange(1, 63)
             self.value.setValue(settings.video_crf)
             self.value.setToolTip(VIDEO_CRF_TIP)
-            self.quality.setToolTip("Visually identical compares short test clips with the original and picks the "
-                                    "smallest setting that still looks the same.\nHigh, Balanced and Smallest are "
-                                    "fixed settings.\nCustom lets you set the encoder's quality value yourself.")
+            self.quality.setToolTip(
+                "Visually identical compares short test clips with the original and picks the "
+                "smallest setting that still looks the same.\nHigh, Balanced and Smallest are "
+                "fixed settings.\nCustom lets you set the encoder's quality value yourself."
+            )
         else:
             for label, key in self.IMAGE_CHOICES:
                 self.quality.addItem(label, key)
             start = settings.smart_target if settings.smart_quality else "custom"
             self.value.setRange(1, 100)
             self.value.setValue(settings.image_quality)
-            self.value.setToolTip("Quality 1–100: higher means better quality and larger files. 85–90 is close to "
-                                  "the original for most photos.")
-            self.quality.setToolTip("With Visually identical, High or Good, Smart quality measures the result and "
-                                    "picks the smallest setting that meets that target.\nCustom lets you choose the "
-                                    "quality value yourself.")
+            self.value.setToolTip(
+                "Quality 1–100: higher means better quality and larger files. 85–90 is close to "
+                "the original for most photos."
+            )
+            self.quality.setToolTip(
+                "With Visually identical, High or Good, Smart quality measures the result and "
+                "picks the smallest setting that meets that target.\nCustom lets you choose the "
+                "quality value yourself."
+            )
         self.quality.setCurrentIndex(max(0, self.quality.findData(start)))
         self.quality.activated.connect(self._quality_picked)
         self.value.editingFinished.connect(self._value_changed)
@@ -673,7 +708,7 @@ class PreviewDialog(QDialog):
         self.quality_label = text("Quality", Type.BODY, secondary=True)
         for w in (self.quality_label, self.quality, self.value, self.rerun, self.lossless_note):
             bottom.addWidget(w)
-        self._smart_value: int | None = None     # what the measured choice settled on (to start Custom from)
+        self._smart_value: int | None = None  # what the measured choice settled on (to start Custom from)
         lossless = (not self.is_video) and plan_entry(self.entry, settings).lossless
         for w in (self.quality_label, self.quality, self.value, self.rerun):
             w.setEnabled(not lossless)
@@ -687,7 +722,7 @@ class PreviewDialog(QDialog):
 
     def _quality_picked(self, _i: int) -> None:
         if self.quality.currentData() == "custom" and self._smart_value is not None:
-            self.value.setValue(self._smart_value)      # start from what the measurement chose
+            self.value.setValue(self._smart_value)  # start from what the measurement chose
         self._show_value()
         self.run()
 
@@ -701,7 +736,7 @@ class PreviewDialog(QDialog):
         if self.is_video:
             s.video_quality = key
             s.video_crf = value
-            s.smart_quality = False        # the choice here is explicit ("Visually identical" measures)
+            s.smart_quality = False  # the choice here is explicit ("Visually identical" measures)
         elif key == "custom":
             s.smart_quality, s.image_quality = False, value
         else:
@@ -713,9 +748,10 @@ class PreviewDialog(QDialog):
         self.accept()
 
     def _compress_tip(self) -> str:
-        where = {"replace": f"the original goes to the {BIN_NAME} once the result is checked",
-                 "folder": f"the result is saved in {self.settings.output_dir}"}.get(
-            self.settings.output_mode, "the result is saved next to the original")
+        where = {
+            "replace": f"the original goes to the {BIN_NAME} once the result is checked",
+            "folder": f"the result is saved in {self.settings.output_dir}",
+        }.get(self.settings.output_mode, "the result is saved next to the original")
         return f"Compress this file now with these settings: {where}"
 
     def _chosen_settings(self) -> Settings:
@@ -728,12 +764,12 @@ class PreviewDialog(QDialog):
     def _save_as(self) -> None:
         from PySide6.QtWidgets import QFileDialog
 
-
         s = self._chosen_settings()
         ext = plan_entry(self.entry, s).target_ext or self.entry.path.suffix
         suggested = unique_path(self.entry.path.with_suffix(ext))
-        name, _ = QFileDialog.getSaveFileName(self, "Save the result as", str(suggested),
-                                              f"{format_name(ext)} (*{ext})")
+        name, _ = QFileDialog.getSaveFileName(
+            self, "Save the result as", str(suggested), f"{format_name(ext)} (*{ext})"
+        )
         if not name:
             return
         dest = Path(name)
@@ -794,24 +830,32 @@ class PreviewDialog(QDialog):
         if size >= orig:
             return "The result is larger than the original, so compressing would leave the file as it is."
         if s.require_savings and (pct < s.min_savings_pct or orig - size < s.min_savings_kb * 1024):
-            return (f"The result saves only {pct:.1f}%, less than the minimum set in Settings, so compressing "
-                    "would leave the file as it is.")
+            return (
+                f"The result saves only {pct:.1f}%, less than the minimum set in Settings, so compressing "
+                "would leave the file as it is."
+            )
         return ""
 
     def _describe(self, size: int, dims: tuple[int, int], desc: str) -> None:
         self._result_ready(True)
         why = self._kept(size)
         self.compress.setEnabled(not why)
-        self.compress.setToolTip(f"{why} Try other settings, or use Save As… to keep this result as a new file."
-                                 if why else self._compress_tip())
+        self.compress.setToolTip(
+            f"{why} Try other settings, or use Save As… to keep this result as a new file."
+            if why
+            else self._compress_tip()
+        )
         m = re.search(r"\b(?:CRF|CQ) (\d+)" if self.is_video else r"\bquality (\d+)", desc)
         if m and self.quality.currentData() != "custom":
             self._smart_value = int(m.group(1))
         orig = self.entry.size
         pct = 100 * (orig - size) / orig if orig else 0
         tk = tokens()
-        verdict = (f"<span style='color:{tk.success}'><b>{pct:.0f}% smaller</b></span>" if pct >= 0
-                   else f"<span style='color:{tk.danger}'><b>{-pct:.0f}% larger</b></span>")
+        verdict = (
+            f"<span style='color:{tk.success}'><b>{pct:.0f}% smaller</b></span>"
+            if pct >= 0
+            else f"<span style='color:{tk.danger}'><b>{-pct:.0f}% larger</b></span>"
+        )
         approx = "~" if self.is_video else ""
         self.info.setText(f"{human(orig)} → <b>{approx}{human(size)}</b> · {verdict}")
         self.details.setText(f"{dims[0]}×{dims[1]} · {desc}")
@@ -848,9 +892,13 @@ class PreviewDialog(QDialog):
         if worker is None:
             return
         worker.cancel.set()
-        for signal, slot in ((worker.ready, self._ready), (worker.video_ready, self._video_ready),
-                             (worker.failed, self._failed), (worker.step, self._preview_step),
-                             (worker.finished, self._preview_finished)):
+        for signal, slot in (
+            (worker.ready, self._ready),
+            (worker.video_ready, self._video_ready),
+            (worker.failed, self._failed),
+            (worker.step, self._preview_step),
+            (worker.finished, self._preview_finished),
+        ):
             try:
                 signal.disconnect(slot)
             except (RuntimeError, TypeError):
@@ -860,8 +908,8 @@ class PreviewDialog(QDialog):
             # a decoder that cannot be interrupted must never be waited on by the UI thread.
             worker.setParent(QApplication.instance())
             _background_previews.add(worker)
-            worker.finished.connect(lambda: _release_preview(worker), Qt.QueuedConnection)
-            if not worker.isRunning():    # finished between the check and connecting cleanup
+            worker.finished.connect(lambda: _release_preview(worker), Qt.ConnectionType.QueuedConnection)
+            if not worker.isRunning():  # finished between the check and connecting cleanup
                 _release_preview(worker)
         else:
             worker.discard_video()

@@ -523,7 +523,7 @@ class InstanceServer(QObject):
         buf = bytearray()
 
         def read():
-            buf.extend(bytes(sock.readAll()))
+            buf.extend(sock.readAll().data())
 
         def done():
             read()

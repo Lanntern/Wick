@@ -57,7 +57,7 @@ def fingerprint(path: Path) -> tuple[int, int, int] | None:
                 w, h = min(w, h), max(w, h)
             else:
                 w, h = max(w, h), min(w, h)
-            small = pic.convert("L").resize((9, 8), Image.LANCZOS)
+            small = pic.convert("L").resize((9, 8), Image.Resampling.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
         from wick.log import ignored
         ignored("cleanup.similar.fingerprint")
@@ -85,7 +85,7 @@ def inspect(path: Path, px: int = 256):
             gray = (ImageOps.exif_transpose(im) or im).convert("L")
             gray.thumbnail((512, 512))
             sharp = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0]
-            return sharp, gray.resize((px, px), Image.LANCZOS)
+            return sharp, gray.resize((px, px), Image.Resampling.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
         return 0.0, None
 

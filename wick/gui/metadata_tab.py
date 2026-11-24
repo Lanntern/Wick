@@ -157,14 +157,16 @@ class MetadataTab(FileJobPage):
     def selection_count(self) -> int:
         if self._count_dirty:
             self._count = len(self.selected())
-            self._eligible = sum(bool(row.flags() & Qt.ItemIsUserCheckable) and not row.isHidden()
+            self._eligible = sum(bool(row.flags() & Qt.ItemFlag.ItemIsUserCheckable) and not row.isHidden()
                                  for row in self.rows.values())
             self._count_dirty = False
         return self._count
 
     def _header_state(self):
         count = self.selection_count()
-        return Qt.Unchecked if not count else Qt.Checked if count == self._eligible else Qt.PartiallyChecked
+        if not count:
+            return Qt.CheckState.Unchecked
+        return Qt.CheckState.Checked if count == self._eligible else Qt.CheckState.PartiallyChecked
 
     def _item_changed(self, *_):
         self._count_dirty = True

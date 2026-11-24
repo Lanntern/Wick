@@ -33,11 +33,11 @@ class Header(QHeaderView):
     """Flat header drawn from tokens: alignment follows the model, the sort arrow sits beside the text."""
 
     def __init__(self, parent=None):
-        super().__init__(Qt.Horizontal, parent)
+        super().__init__(Qt.Orientation.Horizontal, parent)
         self.setAccessibleName("Column headings")
         self.setSectionsClickable(True)
         self.setHighlightSections(False)
-        self.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.setMinimumHeight(Size.ROW)
         self._check = None   # (column, state() -> Qt.CheckState, toggle())
         self._expander = None   # (column, state() -> bool | None (all open; None: nothing to open), toggle())
@@ -66,7 +66,11 @@ class Header(QHeaderView):
         if column is not None and hasattr(view, "sortByColumn"):
             try:
                 c = int(str(column))
-                order = Qt.DescendingOrder if int(str(qs.value(f"lists/{key}/sort_desc", 0))) else Qt.AscendingOrder
+                order = (
+                    Qt.SortOrder.DescendingOrder
+                    if int(str(qs.value(f"lists/{key}/sort_desc", 0)))
+                    else Qt.SortOrder.AscendingOrder
+                )
                 if -1 <= c < self.count():
                     view.sortByColumn(c, order)
             except (TypeError, ValueError):
@@ -88,7 +92,7 @@ class Header(QHeaderView):
 
         qs = open_qsettings()
         qs.setValue(f"lists/{self._remember_key}/sort_column", int(column))
-        qs.setValue(f"lists/{self._remember_key}/sort_desc", 1 if order == Qt.DescendingOrder else 0)
+        qs.setValue(f"lists/{self._remember_key}/sort_desc", 1 if order == Qt.SortOrder.DescendingOrder else 0)
 
     def save_widths(self) -> None:
         """Called when the person has dragged a column edge."""
@@ -115,21 +119,29 @@ class Header(QHeaderView):
         super().mouseDoubleClickEvent(e)
 
     # ---- choosing columns
-    def enable_column_menu(self, key: str, optional: list[int],
-                           hidden_by_default: set[int] | frozenset[int] = frozenset()) -> None:
+    def enable_column_menu(
+        self, key: str, optional: list[int], hidden_by_default: set[int] | frozenset[int] = frozenset()
+    ) -> None:
         """Right-click on the headings: tick the ``optional`` columns to show. Remembered under ``key``."""
         from .main_window import open_qsettings
 
         self._menu_key, self._optional = key, list(optional)
         saved = open_qsettings().value(f"columns/{key}/hidden", None)
-        hidden = {int(c) for c in saved} if isinstance(saved, (list, tuple)) else \
-            ({int(saved)} if isinstance(saved, (str, int)) and str(saved).lstrip("-").isdigit() else set(hidden_by_default))
+        hidden = (
+            {int(c) for c in saved}
+            if isinstance(saved, (list, tuple))
+            else (
+                {int(saved)}
+                if isinstance(saved, (str, int)) and str(saved).lstrip("-").isdigit()
+                else set(hidden_by_default)
+            )
+        )
         self.user_hidden = {c for c in hidden if c in self._optional}
         view = self.parentWidget()
         for c in self._optional:
             if hasattr(view, "setColumnHidden"):
                 view.setColumnHidden(c, c in self.user_hidden)
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._column_menu)
 
     def _column_menu(self, pos) -> None:
@@ -138,14 +150,18 @@ class Header(QHeaderView):
         model = self.model()
         menu = QMenu(self)
         for c in self._optional:
-            name = str(model.headerData(c, Qt.Horizontal, Qt.DisplayRole) or "") if model else str(c)
+            name = (
+                str(model.headerData(c, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole) or "")
+                if model
+                else str(c)
+            )
             act = menu.addAction(name)
             act.setCheckable(True)
             act.setChecked(c not in self.user_hidden)
             act.toggled.connect(lambda on, col=c: self.set_column_shown(col, on))
         menu.exec(self.mapToGlobal(pos))
 
-    column_choice_changed = None   # (set by the page: called after a column is shown or hidden)
+    column_choice_changed = None  # (set by the page: called after a column is shown or hidden)
 
     def set_column_shown(self, column: int, shown: bool) -> None:
         from .main_window import open_qsettings
@@ -171,8 +187,8 @@ class Header(QHeaderView):
         return QSize(s.width(), Size.ROW)
 
     # ---- per-column minimum widths
-    SHORT_VALUE = 160    # values up to this wide (sizes, counts, types, dates) are never cut short
-    MIN_TEXT = 96        # long text (names, paths, details) can be narrowed to this, then it's elided
+    SHORT_VALUE = 160  # values up to this wide (sizes, counts, types, dates) are never cut short
+    MIN_TEXT = 96  # long text (names, paths, details) can be narrowed to this, then it's elided
 
     def min_width(self, index: int) -> int:
         """The narrowest ``index`` may get: its heading always fits; short values always show in full."""
@@ -197,9 +213,13 @@ class Header(QHeaderView):
         return [self.logicalIndex(v) for v in range(self.count()) if not self.isSectionHidden(self.logicalIndex(v))]
 
     def _keep_min(self, index: int, _old: int, new: int) -> None:
-        if self._clamping or self.sectionResizeMode(index) != QHeaderView.Interactive or self.isSectionHidden(index) \
-                or new == 0:
-            return              # (hiding a column sets its width to 0, before it counts as hidden: not a drag)
+        if (
+            self._clamping
+            or self.sectionResizeMode(index) != QHeaderView.ResizeMode.Interactive
+            or self.isSectionHidden(index)
+            or new == 0
+        ):
+            return  # (hiding a column sets its width to 0, before it counts as hidden: not a drag)
         shown = self._shown()
         last = shown[-1] if shown else -1
         if index == last and (self.stretchLastSection() or self.keep_in_view):
@@ -244,11 +264,14 @@ class Header(QHeaderView):
     def showEvent(self, e) -> None:  # noqa: N802
         super().showEvent(e)
         view = self.parentWidget()
-        if getattr(self, "_cap", None) is None and isinstance(view, QAbstractScrollArea) \
-                and self.orientation() == Qt.Horizontal:
+        if (
+            getattr(self, "_cap", None) is None
+            and isinstance(view, QAbstractScrollArea)
+            and self.orientation() == Qt.Orientation.Horizontal
+        ):
             self._cap = _HeaderCap(self)
             self._cap.setFixedHeight(max(1, self.height()))
-            view.addScrollBarWidget(self._cap, Qt.AlignTop)
+            view.addScrollBarWidget(self._cap, Qt.AlignmentFlag.AlignTop)
 
     # ---- select-all checkbox
     def set_check(self, column: int, state, toggle) -> None:
@@ -286,14 +309,22 @@ class Header(QHeaderView):
         return 0 <= x < self._expander_width(self._expander[0])
 
     def mousePressEvent(self, e) -> None:
-        self._mins.clear()   # measured afresh for each drag (the rows may have changed)
-        self._dragging = e.button() == Qt.LeftButton
-        if e.button() == Qt.LeftButton and self._check is not None and self._check_hit(e.position().toPoint()):
+        self._mins.clear()  # measured afresh for each drag (the rows may have changed)
+        self._dragging = e.button() == Qt.MouseButton.LeftButton
+        if (
+            e.button() == Qt.MouseButton.LeftButton
+            and self._check is not None
+            and self._check_hit(e.position().toPoint())
+        ):
             self._check[2]()
             self.viewport().update()
             e.accept()
             return
-        if e.button() == Qt.LeftButton and self._expander is not None and self._expander_hit(e.position().toPoint()):
+        if (
+            e.button() == Qt.MouseButton.LeftButton
+            and self._expander is not None
+            and self._expander_hit(e.position().toPoint())
+        ):
             self._expander[2]()
             self.viewport().update()
             e.accept()
@@ -316,7 +347,7 @@ class Header(QHeaderView):
             self.setToolTip(tip)
         if hand != self._hand:  # only touch the cursor on change, so Qt's resize cursor still works
             self._hand = hand
-            self.setCursor(Qt.PointingHandCursor) if hand else self.unsetCursor()
+            self.setCursor(Qt.CursorShape.PointingHandCursor) if hand else self.unsetCursor()
         self._hover_x = pos.x()
         self.viewport().update()
         super().mouseMoveEvent(e)
@@ -332,23 +363,22 @@ class Header(QHeaderView):
     def _resizable(self, index: int) -> bool:
         shown = [self.logicalIndex(v) for v in range(self.count()) if not self.isSectionHidden(self.logicalIndex(v))]
         last = shown[-1] if shown else -1
-        return self.sectionResizeMode(index) == QHeaderView.Interactive and index != last
+        return self.sectionResizeMode(index) == QHeaderView.ResizeMode.Interactive and index != last
 
     def _divided(self, index: int) -> bool:
         """A separator follows every column but the checkbox column and the last one."""
         shown = [self.logicalIndex(v) for v in range(self.count()) if not self.isSectionHidden(self.logicalIndex(v))]
-        return self.sectionResizeMode(index) != QHeaderView.Fixed and bool(shown) and index != shown[-1]
+        return self.sectionResizeMode(index) != QHeaderView.ResizeMode.Fixed and bool(shown) and index != shown[-1]
 
     def _draw_check(self, p: QPainter, rect) -> int:
         """Paint the checkbox at the row checkboxes' position; returns the width it used."""
         from PySide6.QtCore import QByteArray
         from PySide6.QtSvg import QSvgRenderer
 
-
         if self._check is None:
             return 0
         state = self._check[1]()
-        key = {Qt.Checked: "box_checked", Qt.PartiallyChecked: "box_mixed"}.get(state, "box")
+        key = {Qt.CheckState.Checked: "box_checked", Qt.CheckState.PartiallyChecked: "box_mixed"}.get(state, "box")
         with open(assets(tokens())[key], "rb") as f:
             renderer = QSvgRenderer(QByteArray(f.read()))
         size = Size.INDICATOR
@@ -362,8 +392,8 @@ class Header(QHeaderView):
             return
         t = tokens()
         p.save()
-        p.setRenderHint(QPainter.Antialiasing, True)
-        p.setPen(QPen(QColor(t.text2), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        p.setPen(QPen(QColor(t.text2), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         cx, cy, half = rect.center().x() + 0.5, rect.center().y() + 0.5, Space.XS + 0.5
         path = QPainterPath()
         if self._expander[1]():
@@ -388,12 +418,13 @@ class Header(QHeaderView):
             opt = QStyleOptionViewItem()
             opt.initFrom(view)
             opt.rect = QRect(0, 0, Size.ROW * 4, Size.ROW)
-            opt.features |= QStyleOptionViewItem.HasCheckIndicator
-            r = view.style().subElementRect(QStyle.SE_ItemViewItemCheckIndicator, opt, view)
+            opt.features |= QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+            r = view.style().subElementRect(QStyle.SubElement.SE_ItemViewItemCheckIndicator, opt, view)
             if r.isValid() and 0 <= r.left() < Size.ROW:
                 return r.left()
         except Exception:  # noqa: BLE001
             from wick.log import ignored
+
             ignored("gui.header._row_check_x")
         return Space.S
 
@@ -407,15 +438,25 @@ class Header(QHeaderView):
         p.drawLine(rect.bottomLeft(), rect.bottomRight())
         if self._divided(index):
             # Column separator, always visible; the one under the pointer turns accent (drag to resize).
-            on_it = self._resizable(index) and self._hover_x is not None and abs(self._hover_x - rect.right()) <= Space.XS + 1
+            on_it = (
+                self._resizable(index)
+                and self._hover_x is not None
+                and abs(self._hover_x - rect.right()) <= Space.XS + 1
+            )
             p.setPen(QPen(QColor(t.accent if on_it else t.separator), 2 if on_it else 1))
             x = rect.right() - (1 if on_it else 0)
             p.drawLine(x, rect.top() + Space.S, x, rect.bottom() - Space.S)
         model = self.model()
-        label = str(model.headerData(index, Qt.Horizontal, Qt.DisplayRole) or "") if model else ""
-        align = model.headerData(index, Qt.Horizontal, Qt.TextAlignmentRole) if model else None
-        align = Qt.AlignmentFlag(int(align)) if align is not None else (Qt.AlignLeft | Qt.AlignVCenter)
-        p.setFont(ui_font(Type.FOOTNOTE, QFont.DemiBold))
+        label = (
+            str(model.headerData(index, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole) or "") if model else ""
+        )
+        align = model.headerData(index, Qt.Orientation.Horizontal, Qt.ItemDataRole.TextAlignmentRole) if model else None
+        align = (
+            Qt.AlignmentFlag(int(align))
+            if align is not None
+            else (Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        )
+        p.setFont(ui_font(Type.FOOTNOTE, QFont.Weight.DemiBold))
         p.setPen(QColor(t.text2))
         fm = p.fontMetrics()
         inner = rect.adjusted(Space.S, 0, -Space.S, 0)
@@ -428,20 +469,26 @@ class Header(QHeaderView):
         sorted_here = self.isSortIndicatorShown() and self.sortIndicatorSection() == index and label
         arrow_w = Space.M if sorted_here else 0
         text_w = min(fm.horizontalAdvance(label), max(0, inner.width() - arrow_w - Space.XS))
-        right = bool(align & Qt.AlignRight)
+        right = bool(align & Qt.AlignmentFlag.AlignRight)
         if right:
             text_rect = QRectF(inner.right() - text_w, inner.top(), text_w, inner.height())
             arrow_x = text_rect.left() - Space.XS - arrow_w
         else:
             text_rect = QRectF(inner.left(), inner.top(), text_w, inner.height())
             arrow_x = text_rect.right() + Space.XS
-        p.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, fm.elidedText(label, Qt.ElideRight, int(text_w) + 1))
+        p.drawText(
+            text_rect,
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            fm.elidedText(label, Qt.TextElideMode.ElideRight, int(text_w) + 1),
+        )
         if sorted_here:
             # Drawn as a vector at the screen's resolution (a scaled bitmap looked blurry).
-            p.setRenderHint(QPainter.Antialiasing, True)
-            p.setPen(QPen(QColor(t.text2), 1.6, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            p.setPen(
+                QPen(QColor(t.text2), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            )
             cx, cy, half = arrow_x + arrow_w / 2, rect.center().y() + 0.5, arrow_w * 0.28
-            dy = -half / 2 if self.sortIndicatorOrder() == Qt.AscendingOrder else half / 2
+            dy = -half / 2 if self.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder else half / 2
             path = QPainterPath()
             path.moveTo(cx - half, cy - dy)
             path.lineTo(cx, cy + dy)

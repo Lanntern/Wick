@@ -56,7 +56,7 @@ def setting_row(title: str, description: str, control: QWidget, help_text: str =
         # (only hide: showing a widget that has no parent yet opens it as a window of its own, briefly)
         row.description.hide()
     h.addLayout(left, 1)
-    h.addWidget(control, 0, Qt.AlignVCenter)
+    h.addWidget(control, 0, Qt.AlignmentFlag.AlignVCenter)
     control.setAccessibleName(title)
     if description:
         control.setAccessibleDescription(description)
@@ -65,7 +65,7 @@ def setting_row(title: str, description: str, control: QWidget, help_text: str =
 
 def separator() -> QFrame:
     line = QFrame()
-    line.setFrameShape(QFrame.HLine)
+    line.setFrameShape(QFrame.Shape.HLine)
     line.setObjectName("separator")
     line.setFixedHeight(1)
     return line
@@ -496,7 +496,7 @@ class AppSettingsTab(Page):
                                "Runs Homebrew: brew install " + " ".join(missing))
         self.brew_btn.clicked.connect(lambda: self._install_with_brew(missing))
         self.brew_state = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        self.brew_state.setTextFormat(Qt.PlainText)
+        self.brew_state.setTextFormat(Qt.TextFormat.PlainText)
         card.lay.addWidget(setting_row("Install the missing encoders",
                                        "With Homebrew (" + ", ".join(missing) + "). Takes a few minutes.",
                                        self.brew_btn))

@@ -287,7 +287,7 @@ def _appcompress_options(sec: ToolSection):
         layout.addWidget(own_group)
         layout.addWidget(fields)
         layout.addLayout(dialog_buttons(dialog, ('Save Settings', dialog.accept)))
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             stored = preferences()
             stored[os.path.normcase(os.path.abspath(candidate.path))] = {
                 'algorithm': combo.currentData(), 'skip_extensions': fields.values()}
@@ -300,10 +300,10 @@ def _appcompress_options(sec: ToolSection):
     def show_results():
         from .game_results import GameResultsDialog
 
-        if not hasattr(sec, '_game_results'):
-            sec._game_results = GameResultsDialog(sec)
-        sec._game_results.show()
-        sec._game_results.raise_()
+        if sec.game_results is None:
+            sec.game_results = GameResultsDialog(sec)
+        sec.game_results.show()
+        sec.game_results.raise_()
 
     community.clicked.connect(show_results)
     if sys.platform == "darwin":
@@ -403,9 +403,10 @@ def _kinds_button(sec: ToolSection):
         if names:
             menu.addSeparator()
             for name in names:
-                menu.addAction(f"Suggest {name} Folders Again",
-                               lambda n=name: _set_dev_off(sec, "names", [x for x in _dev_off(sec, "names")
-                                                                          if x != n]))
+                def suggest_again(n: str = name) -> None:
+                    _set_dev_off(sec, "names", [x for x in _dev_off(sec, "names") if x != n])
+
+                menu.addAction(f"Suggest {name} Folders Again", suggest_again)
         menu.addSeparator()
         a = menu.addAction("Changes apply to the next scan.")
         a.setEnabled(False)
@@ -435,8 +436,10 @@ def _dev_options(sec: ToolSection):
             a.setEnabled(False)
             return
         for pid in ids:
-            menu.addAction(f"Stop Protecting {_protected_name(pid)}",
-                           lambda p=pid: _set_protected(sec, [x for x in _protected(sec) if x != p]))
+            def unprotect(p: str = pid) -> None:
+                _set_protected(sec, [x for x in _protected(sec) if x != p])
+
+            menu.addAction(f"Stop Protecting {_protected_name(pid)}", unprotect)
 
     menu.aboutToShow.connect(fill)
     btn.setMenu(menu)
@@ -634,7 +637,7 @@ def tools() -> list[Tool]:
              lambda s, p, c: appcompress.find_compressible(
                  appcompress.expand_sources(s.folders) + (appcompress.old_folders(
                      existing_folders("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
-                 p, c, **s._app_scan_options),
+                 p, c, **s.app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
              available=lambda: "" if appcompress.supported() else

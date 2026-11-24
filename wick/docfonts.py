@@ -172,8 +172,8 @@ def _walk(pdf):
         fonts = resources_fonts(res)
         xobjects = res.get("/XObject") if isinstance(res, pikepdf.Dictionary) else None
         current = None
-        for operands, op in pikepdf.parse_content_stream(content):
-            op = str(op)
+        for instruction in pikepdf.parse_content_stream(content):
+            operands, op = instruction.operands, str(instruction.operator)
             if op == "Tf" and operands:
                 current = fonts.get(str(operands[0]))
             elif op in ("Tj", "'", '"') and operands and current is not None:

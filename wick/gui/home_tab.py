@@ -108,7 +108,7 @@ class HomeTab(Page):
 
         # folders
         fcard = Card(padding=Space.M)
-        self.folder_label = ElidedLabel("", Type.BODY, secondary=True, mode=Qt.ElideRight)      # one line
+        self.folder_label = ElidedLabel("", Type.BODY, secondary=True, mode=Qt.TextElideMode.ElideRight)      # one line
         add = button("Manage Folders…", "", "folder", "View, add or remove scanned folders")
         add.clicked.connect(self._manage_folders)
         reset = button("Reset", "", None, "Back to your whole user folder")
@@ -167,10 +167,10 @@ class HomeTab(Page):
         self.tree.setAccessibleName("Top savings, ranked by expected saving and confidence")
         self.tree.setHeaderLabels(["File", "Type", "Details", "Size", "Saves", "Confidence", "Created", "Modified", "Why"])
         self.tree.setRootIsDecorated(False)
-        self.tree.setFrameShape(QFrame.NoFrame)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
-        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
         self.tree.setItemDelegateForColumn(C_CONF, StatusDelegate(self.tree))
         self.tree.header().setStretchLastSection(True)
@@ -185,10 +185,10 @@ class HomeTab(Page):
                                               {C_CREATED, C_MODIFIED})
         self.tree.header().column_choice_changed = self._fill_created
         self.tree._fitter.last_min = Space.XXL * 7
-        self.tree.sortByColumn(-1, Qt.AscendingOrder)  # ranked order until a column is clicked
+        self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # ranked order until a column is clicked
         add_header_checkbox(self.tree, C_FILE, self._update_send)
         click_to_check(self.tree, C_FILE)
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         keyboard_list(self.tree, self._menu)
         self.placeholder = ListPlaceholder(self.tree)
@@ -202,7 +202,7 @@ class HomeTab(Page):
         side.lay.addWidget(text("Already efficient", Type.HEADLINE, bold=True))
         self.eff_box = text("Files that are already as small as they sensibly get show here after an analysis.",
                             Type.BODY, secondary=True, wrap=True)
-        self.eff_box.setTextFormat(Qt.RichText)
+        self.eff_box.setTextFormat(Qt.TextFormat.RichText)
         side.lay.addWidget(self.eff_box)
         side.lay.addSpacing(Space.S)
         side.lay.addWidget(text("More space", Type.HEADLINE, bold=True))
@@ -210,7 +210,7 @@ class HomeTab(Page):
                                 "on the Clean Up page.", Type.BODY, secondary=True, wrap=True))
         open_clean = button("Open Clean Up", "", "broom")
         open_clean.clicked.connect(lambda: self.win.go_to(self.win.cleanup))
-        side.lay.addWidget(open_clean, 0, Qt.AlignLeft)
+        side.lay.addWidget(open_clean, 0, Qt.AlignmentFlag.AlignLeft)
         side.lay.addStretch(1)
         row.addWidget(side, 1)
         self.body.addLayout(row, 1)
@@ -247,7 +247,7 @@ class HomeTab(Page):
     def eventFilter(self, obj, ev):  # noqa: N802
         from PySide6.QtCore import QEvent
 
-        if obj is self._head_card and ev.type() == QEvent.Resize:
+        if obj is self._head_card and ev.type() == QEvent.Type.Resize:
             self._fit_head()
         return super().eventFilter(obj, ev)
 
@@ -294,7 +294,7 @@ class HomeTab(Page):
         from .folders import FolderManager
 
         dialog = FolderManager(self, self.roots, default_roots, self.qs, read_only=self.busy())
-        if dialog.exec() == QDialog.Accepted and not self.busy():
+        if dialog.exec() == QDialog.DialogCode.Accepted and not self.busy():
             self.roots = dialog.paths()
             self.qs.setValue("home/folders", [str(p) for p in self.roots])
             self._show_folders()
@@ -385,7 +385,7 @@ class HomeTab(Page):
         if ov.space is not None:
             self.space_card.show_breakdown(ov.space)
         self.analyzed.emit(ov)
-        self.tree.sortByColumn(-1, Qt.AscendingOrder)
+        self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         with filling(self.tree):
             self._fill(ov)
         self.tree.header().viewport().update()
@@ -416,16 +416,16 @@ class HomeTab(Page):
                            o.confidence, "", "", o.why])
             it.setText(C_MODIFIED, format_date(e.mtime))
             set_sort_keys(it, {C_SIZE: e.size, C_SAVE: o.saving, C_CONF: rank.get(o.confidence, 0), C_MODIFIED: e.mtime})
-            it.setData(C_FILE, Qt.UserRole, e)
+            it.setData(C_FILE, Qt.ItemDataRole.UserRole, e)
             it.setData(C_CONF, STATUS_ROLE, o.confidence.lower())
             it.setToolTip(C_FILE, str(e.path))
             it.setToolTip(C_WHY, o.why)
             note = cadence_note(e.video) if e.video is not None else ""
             it.setToolTip(C_INFO, describe(e) + (f"\n{note}" if note else ""))
             for c in (C_SIZE, C_SAVE):
-                it.setTextAlignment(c, Qt.AlignRight | Qt.AlignVCenter)
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(C_FILE, Qt.Checked if o.confidence == overview.HIGH else Qt.Unchecked)
+                it.setTextAlignment(c, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(C_FILE, Qt.CheckState.Checked if o.confidence == overview.HIGH else Qt.CheckState.Unchecked)
             self.tree.addTopLevelItem(it)
         self._fill_created()
 
@@ -435,7 +435,9 @@ class HomeTab(Page):
             return
         for i in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(i)
-            e = it.data(C_FILE, Qt.UserRole)
+            if it is None:
+                continue
+            e = it.data(C_FILE, Qt.ItemDataRole.UserRole)
             ts = created_time(e.path) if e is not None else None
             it.setText(C_CREATED, format_date(ts))
             set_sort_keys(it, {C_CREATED: ts or 0.0})
@@ -445,7 +447,7 @@ class HomeTab(Page):
         items = selected_or_clicked(self.tree, pos)
         if not items:
             return
-        paths = [it.data(C_FILE, Qt.UserRole).path for it in items]
+        paths = [it.data(C_FILE, Qt.ItemDataRole.UserRole).path for it in items]
 
         def check(state):
             for it in items:
@@ -459,14 +461,14 @@ class HomeTab(Page):
             self.win.go_to(c)
 
         n = "" if len(items) == 1 else f" {len(items)}"
-        clicked = items[0].data(C_FILE, Qt.UserRole)
+        clicked = items[0].data(C_FILE, Qt.ItemDataRole.UserRole)
         label = type_label(clicked.path, clicked.kind)
 
         def by_type(state):
             self.tree.blockSignals(True)
             for i in range(self.tree.topLevelItemCount()):
                 it = self.tree.topLevelItem(i)
-                e = it.data(C_FILE, Qt.UserRole)
+                e = it.data(C_FILE, Qt.ItemDataRole.UserRole)
                 if e is not None and type_label(e.path, e.kind) == label:
                     it.setCheckState(C_FILE, state)
             self.tree.blockSignals(False)
@@ -475,11 +477,11 @@ class HomeTab(Page):
             self._update_send()
 
         file_menu(self, paths, [
-            (f"Select{n}", lambda: check(Qt.Checked)),
-            (f"Deselect{n}", lambda: check(Qt.Unchecked)),
+            (f"Select{n}", lambda: check(Qt.CheckState.Checked)),
+            (f"Deselect{n}", lambda: check(Qt.CheckState.Unchecked)),
             None,
-            (f"Select All {label} Files", lambda: by_type(Qt.Checked)),
-            (f"Deselect All {label} Files", lambda: by_type(Qt.Unchecked)),
+            (f"Select All {label} Files", lambda: by_type(Qt.CheckState.Checked)),
+            (f"Deselect All {label} Files", lambda: by_type(Qt.CheckState.Unchecked)),
             None,
             ("Compress This…" if len(items) == 1 else f"Compress These {len(items)}…", compress_these),
         ]).exec(self.tree.viewport().mapToGlobal(pos))
@@ -489,15 +491,15 @@ class HomeTab(Page):
         out = []
         for i in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(i)
-            if it.checkState(C_FILE) == Qt.Checked:
-                out.append(it.data(C_FILE, Qt.UserRole).path)
+            if it.checkState(C_FILE) == Qt.CheckState.Checked:
+                out.append(it.data(C_FILE, Qt.ItemDataRole.UserRole).path)
         return out
 
     def _select(self, pred) -> None:
         self.tree.blockSignals(True)
         for i in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(i)
-            it.setCheckState(C_FILE, Qt.Checked if pred(it.text(C_CONF)) else Qt.Unchecked)
+            it.setCheckState(C_FILE, Qt.CheckState.Checked if pred(it.text(C_CONF)) else Qt.CheckState.Unchecked)
         self.tree.blockSignals(False)
         self.tree.header().viewport().update()
         self._update_send()
@@ -521,7 +523,7 @@ class HomeTab(Page):
 
     def _hover_info(self, index):
         it = self.tree.itemFromIndex(index)
-        e = it.data(C_FILE, Qt.UserRole) if it else None
+        e = it.data(C_FILE, Qt.ItemDataRole.UserRole) if it else None
         if e is None or not e.path.exists():
             return None
         return e.path, e.kind, e.path.name, f"{KIND_LABEL.get(e.kind, e.kind)} · {human(e.size)}"

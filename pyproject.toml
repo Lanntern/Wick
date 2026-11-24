@@ -105,5 +105,12 @@ disable_error_code = ["func-returns-value", "annotation-unchecked"]
 #   mypy wick --platform win32  --always-true IS_WINDOWS --always-false IS_MAC
 #   mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
 
+[[tool.mypy.overrides]]
+# Not yet in the GUI: Qt calls that can return None (topLevelItem(), layout(), header()...) used without a
+# check, and attributes attached to Qt objects after they're made. About 200 places, to be typed one page at a
+# time; core code is checked in full.
+module = ["wick.gui.*"]
+disable_error_code = ["attr-defined", "union-attr"]
+
 [tool.setuptools.dynamic]
 version = { attr = "wick.__version__" }

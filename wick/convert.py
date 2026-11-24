@@ -363,7 +363,7 @@ def convert_image(src: Path, kind: str, info, target: str, opts: ConvertOptions,
             if plan.resize:
                 from PIL import Image
 
-                frames = [f.resize(plan.resize, Image.LANCZOS) for f in frames]
+                frames = [f.resize(plan.resize, Image.Resampling.LANCZOS) for f in frames]
             frames = [_turn_picture(f, opts) for f in frames]
             with open_image(ctx.staged) as im:
                 meta = filtered_meta(ctx, im)
@@ -660,10 +660,10 @@ def _draw_svg(ctx: Ctx, size: int) -> None:
         scale = size / max(w, h)
         w, h = max(1, round(w * scale)), max(1, round(h * scale))
         ctx.plan.resize = None                       # (drawn at that size already)
-    image = QImage(w, h, QImage.Format_ARGB32)
-    image.fill(Qt.transparent)
+    image = QImage(w, h, QImage.Format.Format_ARGB32)
+    image.fill(Qt.GlobalColor.transparent)
     painter = QPainter(image)
-    painter.setRenderHints(QPainter.Antialiasing | QPainter.SmoothPixmapTransform)
+    painter.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.SmoothPixmapTransform)
     r.render(painter, QRectF(0, 0, w, h))
     painter.end()
     dec = ctx.tmp(".png", "-svg")
@@ -961,7 +961,7 @@ def animation_to_video(src: Path, info, opts: ConvertOptions, s: Settings,
         bg = Image.new("RGBA", f.size, (255, 255, 255, 255))
         bg.alpha_composite(f)
         img = bg.convert("RGB")
-        flat.append(img.resize((w, h), Image.LANCZOS) if img.size != (w, h) else img)
+        flat.append(img.resize((w, h), Image.Resampling.LANCZOS) if img.size != (w, h) else img)
     apng = temp_name(src.parent, ".png", "-anim")
     out = temp_name(src.parent, ".mp4")
     try:

@@ -78,7 +78,7 @@ class HiddenSpaceDialog(QDialog):
                 act = button(h.action_label, "")
                 act.clicked.connect(lambda _=False, item=h: self._act(item))
                 card.lay.addLayout(hbox(act, None))
-            card.setFrameShape(QFrame.NoFrame)
+            card.setFrameShape(QFrame.Shape.NoFrame)
             self.list.addWidget(card)
 
     def _act(self, h: systemspace.Hidden) -> None:

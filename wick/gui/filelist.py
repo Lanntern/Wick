@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QMenu, QTreeWidget, QTreeWidgetItem,
 from .header import Header
 from .style import Space, Type, safe_filter, tokens, ui_font
 
-SORT_ROLE = Qt.UserRole + 50   # optional per-cell sort key (numbers, timestamps); otherwise the text sorts
+SORT_ROLE = Qt.ItemDataRole.UserRole + 50   # optional per-cell sort key (numbers, timestamps); otherwise the text sorts
 
 SHOW_IN_FOLDER = ("Show in Explorer" if sys.platform == "win32" else
                   "Show in Finder" if sys.platform == "darwin" else "Show in Folder")
@@ -47,7 +47,7 @@ def set_sort_keys(item: QTreeWidgetItem, keys: dict[int, object]) -> None:
     item._keys = {**getattr(item, "_keys", {}), **keys}   # (read by SortItem.__lt__)
 
 
-def make_sortable(tree: QTreeWidget, column: int = 0, order: Qt.SortOrder = Qt.AscendingOrder):
+def make_sortable(tree: QTreeWidget, column: int = 0, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder):
     """Clickable, sortable headers drawn in the app style. Returns the header."""
 
     old = tree.header()
@@ -98,7 +98,7 @@ class ColumnFitter(QObject):
         self._timer = QTimer(self, singleShot=True, interval=0)
         self._timer.timeout.connect(self.fit)
         tree.viewport().installEventFilter(self)
-        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # columns are fitted to the width instead
+        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # columns are fitted to the width instead
         # Cells filled in later (metadata read in the background) refit once updates pause: each change
         # restarts the timer, so a running job's status updates cost nothing (a fit is ~30 ms at 3,000 rows).
         self._later = QTimer(self, singleShot=True, interval=500)
@@ -113,17 +113,17 @@ class ColumnFitter(QObject):
         taking that for a choice froze every column at its empty-list width."""
         header = self.tree.header()
         dragging = getattr(header, "_dragging", None)
-        by_hand = dragging if dragging is not None else bool(QApplication.mouseButtons() & Qt.LeftButton)
+        by_hand = dragging if dragging is not None else bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
         shown = [c for c in range(self.tree.columnCount()) if not self.tree.isColumnHidden(c)]
         if not self._fitting and by_hand and shown and index != shown[-1]:
             self.user_sized = True
-            self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             if hasattr(header, "save_widths"):
                 header.save_widths()
 
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
-        if ev.type() == QEvent.Resize:
+        if ev.type() == QEvent.Type.Resize:
             self.fit_soon()
         return False
 
@@ -165,7 +165,8 @@ class ColumnFitter(QObject):
                 tree.setColumnHidden(c, c in drop)
         self._dropped = set(drop)
         cols = [c for c in cols if c not in drop]
-        tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded if too_wide else Qt.ScrollBarAlwaysOff)
+        policy = Qt.ScrollBarPolicy
+        tree.setHorizontalScrollBarPolicy(policy.ScrollBarAsNeeded if too_wide else policy.ScrollBarAlwaysOff)
         self._fitting = True
         try:
             for c in cols[:-1]:  # the last column stretches into what's left
@@ -192,10 +193,13 @@ class ColumnFitter(QObject):
             # The name column keeps its full width if the others can make room (down to MIN each);
             # otherwise everything shares the space fairly.
             room = available - want[first]
-            fitted = {first: want[first], **self._share({c: want[c] for c in others}, room)} \
-                if room >= self.MIN * len(others) else self._share(want, available)
+            fitted = (
+                {first: want[first], **self._share({c: want[c] for c in others}, room)}
+                if room >= self.MIN * len(others)
+                else self._share(want, available)
+            )
         mins = getattr(header, "min_width", None)
-        if mins is not None:   # never below a column's minimum (short values are never cut short)
+        if mins is not None:  # never below a column's minimum (short values are never cut short)
             header.forget_min_widths()
             fitted = {c: max(w, mins(c)) for c, w in fitted.items()}
         last_min = max(self.MIN, mins(cols[-1])) if mins is not None else self.MIN
@@ -204,8 +208,8 @@ class ColumnFitter(QObject):
         return fitted, sum(fitted[c] for c in cols[:-1]) + last_min > available
 
 
-_CHECKABLE = Qt.ItemIsUserCheckable.value | Qt.ItemIsEnabled.value
-_TRISTATE = Qt.ItemIsAutoTristate.value
+_CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable.value | Qt.ItemFlag.ItemIsEnabled.value
+_TRISTATE = Qt.ItemFlag.ItemIsAutoTristate.value
 
 
 def checkable_items(tree: QTreeWidget, column: int = 0) -> list[QTreeWidgetItem]:
@@ -232,13 +236,19 @@ def add_header_checkbox(tree: QTreeWidget, column: int = 0, on_change: Callable[
     def state() -> Qt.CheckState:
         items = checkable_items(tree, column)
         if not items:
-            return Qt.Unchecked
-        checked = Qt.Checked
+            return Qt.CheckState.Unchecked
+        checked = Qt.CheckState.Checked
         n = sum(1 for it in items if it.checkState(column) == checked)
-        return Qt.Checked if n == len(items) else Qt.Unchecked if n == 0 else Qt.PartiallyChecked
+        return (
+            Qt.CheckState.Checked
+            if n == len(items)
+            else Qt.CheckState.Unchecked
+            if n == 0
+            else Qt.CheckState.PartiallyChecked
+        )
 
     def toggle() -> None:
-        target = Qt.Unchecked if state() == Qt.Checked else Qt.Checked
+        target = Qt.CheckState.Unchecked if state() == Qt.CheckState.Checked else Qt.CheckState.Checked
         tree.blockSignals(True)
         for it in checkable_items(tree, column):
             it.setCheckState(column, target)
@@ -262,12 +272,12 @@ class ListPlaceholder(QWidget):
         self.loading = False
         from PySide6.QtCore import QElapsedTimer
 
-        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         # Driven by the clock, not by counting ticks: when the app is briefly busy the ring keeps its pace
         # instead of slowing down and catching up in jumps.
         self.clock = QElapsedTimer()
         self.clock.start()
-        self.timer = QTimer(self, interval=16, timerType=Qt.PreciseTimer)
+        self.timer = QTimer(self, interval=16, timerType=Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self._spin)
         view.viewport().installEventFilter(self)
         self.hide()
@@ -296,17 +306,16 @@ class ListPlaceholder(QWidget):
     def _ring_rect(self):
         from PySide6.QtCore import QRect
 
-
         r = Space.L + 3
         cx, cy = self.width() // 2, self.height() // 2 - Space.L
         return QRect(cx - r, cy - r, 2 * r, 2 * r)
 
     def _spin(self) -> None:
-        self.update(self._ring_rect())          # only the ring: the message doesn't change 60 times a second
+        self.update(self._ring_rect())  # only the ring: the message doesn't change 60 times a second
 
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
-        if ev.type() == QEvent.Resize and not self.isHidden():   # also while its page isn't shown yet
+        if ev.type() == QEvent.Type.Resize and not self.isHidden():  # also while its page isn't shown yet
             self.setGeometry(self.view.viewport().rect())
         return False
 
@@ -314,33 +323,35 @@ class ListPlaceholder(QWidget):
         from PySide6.QtCore import QRectF
         from PySide6.QtGui import QColor, QPainter, QPen
 
-
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         cx, cy = self.width() / 2, self.height() / 2 - Space.L
         if self.loading:
             import math
 
             r = Space.L
             ms = self.clock.elapsed()
-            angle = (ms * 0.36) % 360                       # one turn a second
-            sweep = 70 + 110 * (0.5 - 0.5 * math.cos(ms / 1300 * 2 * math.pi))   # the arc grows and shrinks
+            angle = (ms * 0.36) % 360  # one turn a second
+            sweep = 70 + 110 * (0.5 - 0.5 * math.cos(ms / 1300 * 2 * math.pi))  # the arc grows and shrinks
             p.setPen(QPen(QColor(t.separator), 3))
             p.drawEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
-            p.setPen(QPen(QColor(t.accent), 3, Qt.SolidLine, Qt.RoundCap))
+            p.setPen(QPen(QColor(t.accent), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.drawArc(QRectF(cx - r, cy - r, 2 * r, 2 * r), int(-angle * 16), int(sweep * 16))
             cy += r + Space.L
         p.setPen(QColor(t.text2))
         p.setFont(ui_font(Type.BODY))
-        p.drawText(QRectF(Space.L, cy - Space.S, self.width() - 2 * Space.L, Space.XXL * 2),
-                   Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, self.message)
+        p.drawText(
+            QRectF(Space.L, cy - Space.S, self.width() - 2 * Space.L, Space.XXL * 2),
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
+            self.message,
+        )
 
 
 def set_all_checked(tree: QTreeWidget, on: bool, column: int = 0, on_change: Callable[[], None] | None = None) -> None:
     tree.blockSignals(True)
     for it in checkable_items(tree, column):
-        it.setCheckState(column, Qt.Checked if on else Qt.Unchecked)
+        it.setCheckState(column, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
     tree.blockSignals(False)
     tree.viewport().update()
     tree.header().viewport().update()
@@ -357,9 +368,9 @@ class _KeyboardList(QObject):
         self.view, self.open_menu = view, open_menu
         view.viewport().installEventFilter(self)
         view.installEventFilter(self)
-        for seq in ("Shift+F10", QKeySequence(Qt.Key_Menu)):
+        for seq in ("Shift+F10", QKeySequence(Qt.Key.Key_Menu)):
             sc = QShortcut(QKeySequence(seq), view)
-            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             sc.activated.connect(self.menu_for_current)
 
     def menu_for_current(self) -> None:
@@ -378,25 +389,34 @@ class _KeyboardList(QObject):
         col = checks.column
         if isinstance(self.view, QTreeWidget):
             for it in self.view.selectedItems():
-                if it.flags() & Qt.ItemIsUserCheckable and it.flags() & Qt.ItemIsEnabled:
-                    it.setCheckState(col, Qt.Unchecked)
+                if it.flags() & Qt.ItemFlag.ItemIsUserCheckable and it.flags() & Qt.ItemFlag.ItemIsEnabled:
+                    it.setCheckState(col, Qt.CheckState.Unchecked)
             return True
         model, sel = self.view.model(), self.view.selectionModel()
-        for idx in (sel.selectedRows(col) if sel is not None else []):
-            if idx.flags() & Qt.ItemIsUserCheckable:
-                model.setData(idx, Qt.Unchecked, Qt.CheckStateRole)
+        for idx in sel.selectedRows(col) if sel is not None else []:
+            if idx.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                model.setData(idx, Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole)
         return True
 
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
-        if obj is self.view and ev.type() == QEvent.KeyPress and ev.key() == Qt.Key_Delete \
-                and not ev.modifiers() and self._untick_selected():
+        if (
+            obj is self.view
+            and ev.type() == QEvent.Type.KeyPress
+            and ev.key() == Qt.Key.Key_Delete
+            and not ev.modifiers()
+            and self._untick_selected()
+        ):
             return True
-        if ev.type() == QEvent.ContextMenu and ev.reason() == ev.Reason.Keyboard:
+        if ev.type() == QEvent.Type.ContextMenu and ev.reason() == ev.Reason.Keyboard:
             self.menu_for_current()
             return True
-        if obj is self.view and ev.type() == QEvent.FocusIn and ev.reason() in (
-                Qt.TabFocusReason, Qt.BacktabFocusReason, Qt.ShortcutFocusReason):
+        if (
+            obj is self.view
+            and ev.type() == QEvent.Type.FocusIn
+            and ev.reason()
+            in (Qt.FocusReason.TabFocusReason, Qt.FocusReason.BacktabFocusReason, Qt.FocusReason.ShortcutFocusReason)
+        ):
             model, sel = self.view.model(), self.view.selectionModel()
             if model is not None and model.rowCount() and sel is not None and not sel.hasSelection():
                 idx = self.view.currentIndex()
@@ -436,7 +456,7 @@ class _ClickToCheck(QObject):
         super().__init__(view)
         self.view, self.column = view, column
         self._before: tuple | None = None
-        self._anchor = None          # the last row clicked without Shift (item, or row number)
+        self._anchor = None  # the last row clicked without Shift (item, or row number)
         if isinstance(view, QTreeWidget):
             view.itemPressed.connect(self._tree_pressed)
             view.itemClicked.connect(self._tree_clicked)
@@ -450,16 +470,21 @@ class _ClickToCheck(QObject):
     def _tree_clicked(self, item, _col) -> None:
         before, self._before = self._before, None
         mods = QApplication.keyboardModifiers()
-        if mods & Qt.ShiftModifier:
+        if mods & Qt.KeyboardModifier.ShiftModifier:
             self._tree_range(item)
             return
-        if before is None or before[0] is not item or mods & Qt.ControlModifier:
+        if before is None or before[0] is not item or mods & Qt.KeyboardModifier.ControlModifier:
             return
         self._anchor = item
         flags = item.flags()
-        if not (flags & Qt.ItemIsUserCheckable and flags & Qt.ItemIsEnabled) or item.checkState(self.column) != before[1]:
+        if (
+            not (flags & Qt.ItemFlag.ItemIsUserCheckable and flags & Qt.ItemFlag.ItemIsEnabled)
+            or item.checkState(self.column) != before[1]
+        ):
             return
-        item.setCheckState(self.column, Qt.Unchecked if before[1] == Qt.Checked else Qt.Checked)
+        item.setCheckState(
+            self.column, Qt.CheckState.Unchecked if before[1] == Qt.CheckState.Checked else Qt.CheckState.Checked
+        )
 
     def _tree_range(self, item) -> None:
         anchor = self._anchor
@@ -467,7 +492,7 @@ class _ClickToCheck(QObject):
             state = anchor.checkState(self.column) if anchor is not None else None
             if state is None or anchor.treeWidget() is not self.view:
                 return
-        except RuntimeError:          # (the list was rebuilt since)
+        except RuntimeError:  # (the list was rebuilt since)
             return
         tree = self.view
         down = tree.visualItemRect(anchor).top() <= tree.visualItemRect(item).top()
@@ -481,13 +506,13 @@ class _ClickToCheck(QObject):
 
     def _pressed(self, index) -> None:
         cell = index.siblingAtColumn(self.column)
-        self._before = (index.row(), cell.data(Qt.CheckStateRole))
+        self._before = (index.row(), cell.data(Qt.ItemDataRole.CheckStateRole))
 
     def _clicked(self, index) -> None:
         before, self._before = self._before, None
         mods = QApplication.keyboardModifiers()
         model = self.view.model()
-        if mods & Qt.ShiftModifier:
+        if mods & Qt.KeyboardModifier.ShiftModifier:
             if self._anchor is not None and self._anchor < model.rowCount():
                 state = model.index(self._anchor, self.column).data(Qt.CheckStateRole)
                 lo, hi = sorted((self._anchor, index.row()))
@@ -496,15 +521,21 @@ class _ClickToCheck(QObject):
                     if state is not None and cell.flags() & Qt.ItemIsUserCheckable:
                         model.setData(cell, state, Qt.CheckStateRole)
             return
-        if before is None or before[0] != index.row() or mods & Qt.ControlModifier:
+        if before is None or before[0] != index.row() or mods & Qt.KeyboardModifier.ControlModifier:
             return
         self._anchor = index.row()
         cell = index.siblingAtColumn(self.column)
-        state = cell.data(Qt.CheckStateRole)
-        if state is None or not (cell.flags() & Qt.ItemIsUserCheckable) or state != before[1]:
+        state = cell.data(Qt.ItemDataRole.CheckStateRole)
+        if state is None or not (cell.flags() & Qt.ItemFlag.ItemIsUserCheckable) or state != before[1]:
             return
-        checked = Qt.CheckState(state) == Qt.Checked if not isinstance(state, Qt.CheckState) else state == Qt.Checked
-        self.view.model().setData(cell, Qt.Unchecked if checked else Qt.Checked, Qt.CheckStateRole)
+        checked = (
+            Qt.CheckState(state) == Qt.CheckState.Checked
+            if not isinstance(state, Qt.CheckState)
+            else state == Qt.CheckState.Checked
+        )
+        self.view.model().setData(
+            cell, Qt.CheckState.Unchecked if checked else Qt.CheckState.Checked, Qt.ItemDataRole.CheckStateRole
+        )
 
 
 def click_to_check(view, column: int = 0) -> None:
@@ -517,6 +548,7 @@ def keyboard_list(view, open_menu: Callable) -> None:
 
 # ---------------------------------------------------------------- context menu
 
+
 def open_file(path: Path) -> None:
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -525,8 +557,9 @@ def copy_paths(paths: Iterable[Path]) -> None:
     QGuiApplication.clipboard().setText("\n".join(str(p) for p in paths))
 
 
-def file_menu(parent: QWidget, paths: list[Path],
-              extra: Iterable[tuple[str, Callable[[], None] | list] | None] = ()) -> QMenu:
+def file_menu(
+    parent: QWidget, paths: list[Path], extra: Iterable[tuple[str, Callable[[], None] | list] | None] = ()
+) -> QMenu:
     """Open · Show in Explorer · Copy Path, then page-specific actions (None = separator)."""
     from .file_model import open_in_file_manager_many
 
@@ -535,7 +568,7 @@ def file_menu(parent: QWidget, paths: list[Path],
     if len(paths) == 1:
         a = m.addAction("Open", lambda: open_file(paths[0]))
         a.setEnabled(bool(existing))
-    if paths:   # none: rows that aren't files (Docker images...) get only the page's own actions
+    if paths:  # none: rows that aren't files (Docker images...) get only the page's own actions
         a = m.addAction(SHOW_IN_FOLDER, lambda: open_in_file_manager_many(existing))
         a.setEnabled(bool(existing))
         m.addAction("Copy Path" if len(paths) == 1 else f"Copy {len(paths)} Paths", lambda: copy_paths(paths))
@@ -548,7 +581,7 @@ def file_menu(parent: QWidget, paths: list[Path],
         for e in extra:
             if e is None:
                 m.addSeparator()
-            elif isinstance(e[1], list):            # a submenu: (title, [(label, action) or None...])
+            elif isinstance(e[1], list):  # a submenu: (title, [(label, action) or None...])
                 sub = m.addMenu(e[0])
                 for x in e[1]:
                     if x is None:
@@ -570,6 +603,21 @@ def selected_or_clicked(tree: QTreeWidget, pos) -> list[QTreeWidgetItem]:
     return tree.selectedItems() or [it]
 
 
-__all__ = ["ListPlaceholder", "keyboard_list", "set_all_checked", "ColumnFitter", "SORT_ROLE", "SortItem",
-           "set_sort_keys", "make_sortable", "filling", "add_header_checkbox", "checkable_items", "file_menu",
-           "open_file", "copy_paths", "selected_or_clicked", "SHOW_IN_FOLDER"]
+__all__ = [
+    "ListPlaceholder",
+    "keyboard_list",
+    "set_all_checked",
+    "ColumnFitter",
+    "SORT_ROLE",
+    "SortItem",
+    "set_sort_keys",
+    "make_sortable",
+    "filling",
+    "add_header_checkbox",
+    "checkable_items",
+    "file_menu",
+    "open_file",
+    "copy_paths",
+    "selected_or_clicked",
+    "SHOW_IN_FOLDER",
+]

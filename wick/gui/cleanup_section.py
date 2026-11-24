@@ -16,9 +16,11 @@ from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QPushButton,
+    QSpinBox,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -49,11 +51,14 @@ from .thumbs import HoverPreviewer
 from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, dialog_buttons, dialog_layout, hbox, text
 
 if TYPE_CHECKING:
+    from .app_controls import FileTypePicker
     from .cleanup_tab import CleanupTab
+    from .game_results import GameResultsDialog
+    from .widgets import SizeInput
 
 C_NAME, C_WHERE, C_SIZE, C_DETAIL = range(4)
 OPEN_ROWS = 30_000     # groups open by themselves up to this many rows (opening 1,000 groups takes ~0.3 s)
-ROLE_ITEM = Qt.UserRole + 20
+ROLE_ITEM = Qt.ItemDataRole.UserRole + 20
 
 
 @dataclass
@@ -179,6 +184,25 @@ class _Purge(QThread):
 
 
 class ToolSection(QWidget):
+    # Each tool's own options, attached by the function that builds them (cleanup_tools.py); only the tool
+    # that built one reads it.
+    extra_keep: QComboBox
+    extra_min: SizeInput
+    extra_how: QComboBox
+    extra_thorough: QCheckBox
+    extra_days: QSpinBox
+    app_algorithm: QComboBox
+    app_skip: FileTypePicker
+    app_old: QCheckBox
+    app_options: Callable[[Path], dict]
+    app_snapshot: Callable[..., dict]
+    app_scan_options: dict
+    takeout_albums: QComboBox
+    takeout_edited: QComboBox
+    kinds_btn: QPushButton
+    protected_btn: QPushButton
+    game_results: GameResultsDialog | None = None
+
     def __init__(self, tool: Tool, page: CleanupTab):
         super().__init__()
         self.tool, self.page = tool, page
@@ -202,7 +226,7 @@ class ToolSection(QWidget):
                 if legacy:
                     saved = [str(p) for p in appcompress.migrate_sources([Path(p) for p in legacy])]
             self.folders = [Path(p) for p in saved] if saved is not None else tool.default_folders()
-            self.folder_label = ElidedLabel("", Type.FOOTNOTE, secondary=True, mode=Qt.ElideRight)   # one line
+            self.folder_label = ElidedLabel("", Type.FOOTNOTE, secondary=True, mode=Qt.TextElideMode.ElideRight)   # one line
             add = button("Manage Folders…", "", "folder", "View, add or remove scan sources")
             add.clicked.connect(self._manage_folders)
             reset = button("Reset", "", None, "Go back to the suggested folders")
@@ -235,7 +259,7 @@ class ToolSection(QWidget):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addLayout(options, 1)
-        row.addWidget(self.scan_btn, 0, Qt.AlignBottom)
+        row.addWidget(self.scan_btn, 0, Qt.AlignmentFlag.AlignBottom)
         setup.lay.addLayout(row)
         if tool.note:
             setup.lay.addWidget(text(tool.note, Type.FOOTNOTE, secondary=True, wrap=True))
@@ -269,21 +293,21 @@ class ToolSection(QWidget):
         summary_row = QHBoxLayout()
         summary_row.setContentsMargins(0, 0, Space.L, 0)
         summary_row.addWidget(self.summary, 1)
-        summary_row.addWidget(self.hide_unsuggested, 0, Qt.AlignVCenter)
+        summary_row.addWidget(self.hide_unsuggested, 0, Qt.AlignmentFlag.AlignVCenter)
         results.lay.addLayout(summary_row)
         self.tree = QTreeWidget()
         self.tree.setAccessibleName(f"{tool.tab} results")
         self.tree.setHeaderLabels(["Name", "Location", "Current size", "Before compression", "Est. saving",
                                    "Estimate", "Algorithm", "Status", "Notes"] if tool.key == "appcompress" else
                                   ["Name", "Location", "Size", "Details"])
-        self.tree.setFrameShape(QFrame.NoFrame)
+        self.tree.setFrameShape(QFrame.Shape.NoFrame)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
-        self.tree.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
         h = self.tree.header()
         h.setStretchLastSection(True)
-        h.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.tree.setColumnWidth(C_NAME, 280)
         self.tree.setColumnWidth(C_WHERE, 240)
         self.tree.setColumnWidth(C_SIZE, 120 if tool.key == "appcompress" else 96)
@@ -295,13 +319,13 @@ class ToolSection(QWidget):
         self.tree.itemDoubleClicked.connect(self._open_item)
         self.tree.itemExpanded.connect(self._expand)
         make_sortable(self.tree)
-        self.tree.sortByColumn(-1, Qt.AscendingOrder)
+        self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
         self.tree.header().remember(f"cleanup-{tool.key}")
         add_header_checkbox(self.tree, C_NAME, self._update_summary)
         self.tree.header().set_expander(C_NAME, self._all_open, lambda: self.open_all(not self._all_open()))
         self.tree.itemExpanded.connect(lambda *_: self.tree.header().viewport().update())
         self.tree.itemCollapsed.connect(lambda *_: self.tree.header().viewport().update())
-        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         keyboard_list(self.tree, self._menu)
         click_to_check(self.tree, C_NAME)
@@ -402,7 +426,7 @@ class ToolSection(QWidget):
                                label=appcompress.source_label if is_apps else str,
                                note=("Steam, Epic and GOG library sources expand to individual games during a scan. "
                                      "Other selected folders are treated as individual apps/games." if is_apps else ""))
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self.folders = dialog.paths()
             self.save_folders()
             self._show_folders()
@@ -429,7 +453,7 @@ class ToolSection(QWidget):
             layout.addWidget(box)
             choices.append((drive, box))
         layout.addLayout(dialog_buttons(dialog, ("Add Drives", dialog.accept)))
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self.folders += [p for p, box in choices if box.isChecked() and p not in self.folders]
             self.save_folders()
             self._show_folders()
@@ -442,7 +466,7 @@ class ToolSection(QWidget):
         if self.busy():
             return
         if self.tool.key == "appcompress":
-            self._app_scan_options = self.app_snapshot()
+            self.app_scan_options = self.app_snapshot()
         if self.tool.default_folders is not None and not self.folders and self.tool.key != "caches":
             inform(self, "Add a folder to look in first.")
             return
@@ -490,7 +514,7 @@ class ToolSection(QWidget):
         with filling(self.tree):
             for candidate in items:
                 row = self._row(candidate)
-                row.setFlags(row.flags() & ~Qt.ItemIsUserCheckable)
+                row.setFlags(row.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
                 self.tree.addTopLevelItem(row)
             self._apply_hidden()
         self.placeholder.clear()
@@ -518,9 +542,9 @@ class ToolSection(QWidget):
                 any_warned |= warned
                 gone = hide and warned
                 it.setHidden(gone)
-                if gone and it.flags() & Qt.ItemIsUserCheckable:
-                    it.setCheckState(C_NAME, Qt.Unchecked)
-                shown += not gone and bool(it.flags() & Qt.ItemIsUserCheckable)
+                if gone and it.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    it.setCheckState(C_NAME, Qt.CheckState.Unchecked)
+                shown += not gone and bool(it.flags() & Qt.ItemFlag.ItemIsUserCheckable)
             if top.childCount():
                 top.setHidden(hide and shown == 0)
         self.tree.blockSignals(False)
@@ -544,7 +568,7 @@ class ToolSection(QWidget):
         groups: dict[str, list[Candidate]] = {}
         for c in result.items:
             groups.setdefault(c.group or "", []).append(c)
-        bold = ui_font(Type.BODY, QFont.DemiBold)
+        bold = ui_font(Type.BODY, QFont.Weight.DemiBold)
         parents: list[QTreeWidgetItem] = []
         for g, items in groups.items():
             parent = self.tree.invisibleRootItem()
@@ -565,8 +589,8 @@ class ToolSection(QWidget):
                 # The group's box ticks its removable rows (see _sync_groups). Duplicates: the copy that stays
                 # has no box and is never ticked along. (Qt's own tri-state shows no box at all when one row
                 # inside has none, so it's kept here.)
-                parent.setFlags((parent.flags() | Qt.ItemIsUserCheckable) & ~Qt.ItemIsAutoTristate)
-                parent.setCheckState(C_NAME, Qt.Unchecked)
+                parent.setFlags((parent.flags() | Qt.ItemFlag.ItemIsUserCheckable) & ~Qt.ItemFlag.ItemIsAutoTristate)
+                parent.setCheckState(C_NAME, Qt.CheckState.Unchecked)
                 if items[0].keeper is not None:   # duplicates: show the copy that stays
                     try:
                         keep_size = items[0].keeper.stat().st_size   # similar photos differ in size
@@ -574,7 +598,7 @@ class ToolSection(QWidget):
                         keep_size = items[0].size
                     keep = SortItem(parent, [f"Keep: {items[0].keeper.name}", self._where(items[0].keeper.parent),
                                              human(keep_size), "This copy stays"])
-                    keep.setFlags(Qt.ItemIsEnabled)
+                    keep.setFlags(Qt.ItemFlag.ItemIsEnabled)
                     keep.setToolTip(C_WHERE, str(items[0].keeper))
                     keep.setForeground(C_DETAIL, QColor(t.success))
                     keep.setData(C_NAME, ROLE_ITEM, Candidate(items[0].keeper, items[0].size, selected=False))
@@ -622,24 +646,24 @@ class ToolSection(QWidget):
             last = c.extra.get("last_algorithm", "")
             it.setToolTip(6, "Selected for the next compression" + (f"; last used: {last.upper()}" if last else ""))
             for column in (3, 4):
-                it.setTextAlignment(column, Qt.AlignRight | Qt.AlignVCenter)
+                it.setTextAlignment(column, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             detail_column = 8
         else:
             it = SortItem([c.title, where, human(c.size) if c.size else "–", detail])
             set_sort_keys(it, {C_SIZE: c.size})
         if c.extra.get("locked"):
-            it.setFlags(it.flags() & ~Qt.ItemIsUserCheckable)
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsUserCheckable)
         else:
-            it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
-            it.setCheckState(C_NAME, Qt.Checked if c.extra.get("checked", c.selected) else Qt.Unchecked)
+            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setCheckState(C_NAME, Qt.CheckState.Checked if c.extra.get("checked", c.selected) else Qt.CheckState.Unchecked)
         it.setData(C_NAME, ROLE_ITEM, c)
         it.setToolTip(C_WHERE, str(c.path))
         it.setToolTip(detail_column, detail + (" Right-click to keep this copy instead." if c.keeper else ""))
-        it.setTextAlignment(C_SIZE, Qt.AlignRight | Qt.AlignVCenter)
+        it.setTextAlignment(C_SIZE, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if c.warning:
             it.setForeground(detail_column, QColor(tokens().warning))
         if c.extra.get("children"):
-            it.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)    # (its rows are made when it opens)
+            it.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)    # (its rows are made when it opens)
         return it
 
     def _groups(self) -> list[QTreeWidgetItem]:
@@ -672,7 +696,7 @@ class ToolSection(QWidget):
             for k in c.extra["children"]():
                 it.addChild(self._row(k))
         if not it.childCount():
-            it.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
+            it.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.DontShowIndicator)
 
     def _menu(self, pos) -> None:
         clicked = selected_or_clicked(self.tree, pos)
@@ -680,12 +704,12 @@ class ToolSection(QWidget):
         for it in clicked:            # a group row stands for its removable rows
             kids = [it.child(i) for i in range(it.childCount())]
             rows = [it] if isinstance(it.data(C_NAME, ROLE_ITEM), Candidate) else \
-                [k for k in kids if k is not None and k.flags() & Qt.ItemIsUserCheckable]
+                [k for k in kids if k is not None and k.flags() & Qt.ItemFlag.ItemIsUserCheckable]
             items += [r for r in rows if r not in items and isinstance(r.data(C_NAME, ROLE_ITEM), Candidate)]
         if not items:
             return
         paths = [it.data(C_NAME, ROLE_ITEM).path for it in items if not it.data(C_NAME, ROLE_ITEM).extra.get("docker")]
-        checkable = [it for it in items if it.flags() & Qt.ItemIsUserCheckable]
+        checkable = [it for it in items if it.flags() & Qt.ItemFlag.ItemIsUserCheckable]
         extra: list = []
         if checkable and not self.busy():
             def check(state):
@@ -693,7 +717,7 @@ class ToolSection(QWidget):
                     it.setCheckState(C_NAME, state)
                 self._update_summary()
             n = "" if len(checkable) == 1 else f" {len(checkable)}"
-            extra = [(f"Select{n}", lambda: check(Qt.Checked)), (f"Deselect{n}", lambda: check(Qt.Unchecked))]  # noqa: E501
+            extra = [(f"Select{n}", lambda: check(Qt.CheckState.Checked)), (f"Deselect{n}", lambda: check(Qt.CheckState.Unchecked))]  # noqa: E501
         tool_entries = self.tool.menu(self, [it.data(C_NAME, ROLE_ITEM) for it in items]) if not self.busy() else []
         if tool_entries:
             extra += [None, *tool_entries]
@@ -748,8 +772,8 @@ class ToolSection(QWidget):
             if it is None:
                 continue
             c = it.data(C_NAME, ROLE_ITEM)
-            checked = bool(it.flags() & Qt.ItemIsUserCheckable) and it.checkState(C_NAME) == Qt.Checked
-            if isinstance(c, Candidate) and it.flags() & Qt.ItemIsUserCheckable and not it.isHidden():
+            checked = bool(it.flags() & Qt.ItemFlag.ItemIsUserCheckable) and it.checkState(C_NAME) == Qt.CheckState.Checked
+            if isinstance(c, Candidate) and it.flags() & Qt.ItemFlag.ItemIsUserCheckable and not it.isHidden():
                 if not only_checked or checked:
                     out.append((it, c))
             if checked and isinstance(c, Candidate) and c.is_dir:
@@ -761,19 +785,19 @@ class ToolSection(QWidget):
         self.tree.blockSignals(True)
         for it, c in self._items():
             on = c.selected if value is None else value
-            it.setCheckState(C_NAME, Qt.Checked if on else Qt.Unchecked)
+            it.setCheckState(C_NAME, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
         self.tree.blockSignals(False)
         self._update_summary()
 
     def _item_changed(self, it: QTreeWidgetItem | None = None, column: int = C_NAME):
-        if it is not None and column == C_NAME and it.childCount() and it.flags() & Qt.ItemIsUserCheckable \
+        if it is not None and column == C_NAME and it.childCount() and it.flags() & Qt.ItemFlag.ItemIsUserCheckable \
                 and not isinstance(it.data(C_NAME, ROLE_ITEM), Candidate):
             state = it.checkState(C_NAME)       # a group's box: its removable rows follow
-            if state != Qt.PartiallyChecked:
+            if state != Qt.CheckState.PartiallyChecked:
                 self.tree.blockSignals(True)
                 for i in range(it.childCount()):
                     child = it.child(i)
-                    if child.flags() & Qt.ItemIsUserCheckable and not child.isHidden():
+                    if child.flags() & Qt.ItemFlag.ItemIsUserCheckable and not child.isHidden():
                         child.setCheckState(C_NAME, state)
                 self.tree.blockSignals(False)
         self._update_summary()
@@ -784,12 +808,12 @@ class ToolSection(QWidget):
         for i in range(self.tree.topLevelItemCount()):
             g = self.tree.topLevelItem(i)
             if g is None or not g.childCount() or isinstance(g.data(C_NAME, ROLE_ITEM), Candidate) \
-                    or not g.flags() & Qt.ItemIsUserCheckable:
+                    or not g.flags() & Qt.ItemFlag.ItemIsUserCheckable:
                 continue
             states = [g.child(k).checkState(C_NAME) for k in range(g.childCount())
-                      if g.child(k).flags() & Qt.ItemIsUserCheckable and not g.child(k).isHidden()]
-            want = (Qt.Unchecked if not states or all(x == Qt.Unchecked for x in states) else
-                    Qt.Checked if all(x == Qt.Checked for x in states) else Qt.PartiallyChecked)
+                      if g.child(k).flags() & Qt.ItemFlag.ItemIsUserCheckable and not g.child(k).isHidden()]
+            want = (Qt.CheckState.Unchecked if not states or all(x == Qt.CheckState.Unchecked for x in states) else
+                    Qt.CheckState.Checked if all(x == Qt.CheckState.Checked for x in states) else Qt.CheckState.PartiallyChecked)
             if g.checkState(C_NAME) != want:
                 g.setCheckState(C_NAME, want)
         self.tree.blockSignals(False)
@@ -820,7 +844,7 @@ class ToolSection(QWidget):
                    f"<b>{len(chosen):,} selected · {human(size)}</b>"
                    + (f" · {hidden:,} not suggested, hidden" if hidden else "")
                    + (f" · {' · '.join(self.result.notes)}" if self.result.notes else ""))
-        self.summary.setTextFormat(Qt.RichText)
+        self.summary.setTextFormat(Qt.TextFormat.RichText)
         self.summary.setText(msg)
         self.summary.show()
         self._update_buttons()
@@ -990,7 +1014,7 @@ class ToolSection(QWidget):
     def _remember_checks(self) -> None:
         """Keep the user's ticks when the list is rebuilt (after an action, or a change of kept copy)."""
         for it, c in self._items():
-            c.extra["checked"] = it.checkState(C_NAME) == Qt.Checked
+            c.extra["checked"] = it.checkState(C_NAME) == Qt.CheckState.Checked
 
     def _applied(self, outcomes, run_id) -> None:
         ok = [o for o in outcomes if o.ok]

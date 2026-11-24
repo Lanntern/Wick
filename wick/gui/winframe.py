@@ -56,9 +56,9 @@ class CaptionButton(QAbstractButton):
         self.kind = kind
         self.nc_hover = False      # hovered as HTMAXBUTTON: Windows, not Qt, has the pointer then
         self.nc_down = False
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedSize(CAPTION_W, Size.TITLE_BAR)
-        self.setAttribute(Qt.WA_Hover)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         names = {"min": "Minimize", "max": "Maximize", "close": "Close"}
         self.setAccessibleName(names[kind])
         self.setToolTip(names[kind])
@@ -92,11 +92,11 @@ class CaptionButton(QAbstractButton):
             fg = QColor(t.text if win.isActiveWindow() else t.text3)
             if down:
                 fg.setAlphaF(0.75)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen = QPen(fg, 1.0)
         pen.setCosmetic(False)
         p.setPen(pen)
-        p.setBrush(Qt.NoBrush)
+        p.setBrush(Qt.BrushStyle.NoBrush)
         # A 10 px glyph centered on whole pixels, like Segoe Fluent Icons at 100 %.
         cx = round(self.width() / 2)
         cy = round(self.height() / 2)
@@ -109,7 +109,7 @@ class CaptionButton(QAbstractButton):
             if dpr == int(dpr):
                 # Whole-number scaling: one solid pixel per row, as Windows draws it. Antialiasing a 1 px
                 # diagonal spreads it over two pixels at partial strength (faint, and pink on red).
-                p.setRenderHint(QPainter.Antialiasing, False)
+                p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
                 a, b = int(x0), int(x0 + g - 1)
                 c, d = int(y0), int(y0 + g - 1)
                 p.drawLine(a, c, b, d)
@@ -143,20 +143,20 @@ class CaptionButtons(QWidget):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        self.min = CaptionButton("min", self)
-        self.max = CaptionButton("max", self)
-        self.close = CaptionButton("close", self)
-        for b in (self.min, self.max, self.close):
+        self.min_btn = CaptionButton("min", self)
+        self.max_btn = CaptionButton("max", self)
+        self.close_btn = CaptionButton("close", self)
+        for b in (self.min_btn, self.max_btn, self.close_btn):
             lay.addWidget(b)
-        self.min.clicked.connect(lambda: _syscommand(window, _SC_MINIMIZE, window.showMinimized))
-        self.max.clicked.connect(lambda: toggle_maximized(window))
-        self.close.clicked.connect(window.close)
+        self.min_btn.clicked.connect(lambda: _syscommand(window, _SC_MINIMIZE, window.showMinimized))
+        self.max_btn.clicked.connect(lambda: toggle_maximized(window))
+        self.close_btn.clicked.connect(window.close)
         self.adjustSize()
 
     def refresh(self) -> None:
-        self.max.setAccessibleName("Restore" if self.win.isMaximized() else "Maximize")
-        self.max.setToolTip(self.max.accessibleName())
-        for b in (self.min, self.max, self.close):
+        self.max_btn.setAccessibleName("Restore" if self.win.isMaximized() else "Maximize")
+        self.max_btn.setToolTip(self.max_btn.accessibleName())
+        for b in (self.min_btn, self.max_btn, self.close_btn):
             b.update()
 
 
@@ -205,7 +205,7 @@ class WindowFrame:
     def __init__(self, window):
         self.win = window
         self.native = sys.platform == "win32" and QGuiApplication.platformName() == "windows"
-        window.setWindowFlag(Qt.FramelessWindowHint, True)
+        window.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.buttons = CaptionButtons(window)
         self._leave = QTimer(window, interval=120)
         self._leave.timeout.connect(self._check_leave)
@@ -276,7 +276,7 @@ class WindowFrame:
 
     def changed(self, event) -> None:
         """From the window's changeEvent: restore/maximize glyph, inactive colors."""
-        if event.type() in (QEvent.WindowStateChange, QEvent.ActivationChange):
+        if event.type() in (QEvent.Type.WindowStateChange, QEvent.Type.ActivationChange):
             self.buttons.refresh()
 
     # ---- Windows messages
@@ -291,32 +291,32 @@ class WindowFrame:
             return self._calc_size(msg)
         if m == _WM_NCHITTEST:
             ht = self.hit_test(_signed(msg.lParam & 0xFFFF), _signed((msg.lParam >> 16) & 0xFFFF))
-            self.buttons.max.set_nc(hover=ht == HTMAXBUTTON)
+            self.buttons.max_btn.set_nc(hover=ht == HTMAXBUTTON)
             if ht == HTMAXBUTTON:
                 self._leave.start()
             return True, ht
         is_max = msg.wParam == HTMAXBUTTON
         if m == _WM_NCMOUSEMOVE:
-            self.buttons.max.set_nc(hover=is_max)
+            self.buttons.max_btn.set_nc(hover=is_max)
             return False, 0
         if m == _WM_NCMOUSELEAVE:
-            self.buttons.max.set_nc(hover=False, down=False)
+            self.buttons.max_btn.set_nc(hover=False, down=False)
             return False, 0
         if m in (_WM_NCLBUTTONDOWN, _WM_NCLBUTTONDBLCLK) and is_max:
-            self.buttons.max.set_nc(down=True)
+            self.buttons.max_btn.set_nc(down=True)
             return True, 0
         if m == _WM_NCLBUTTONUP and is_max:
-            was_down = self.buttons.max.nc_down
-            self.buttons.max.set_nc(down=False)
+            was_down = self.buttons.max_btn.nc_down
+            self.buttons.max_btn.set_nc(down=False)
             if was_down:
                 toggle_maximized(self.win)
             return True, 0
         if m == _WM_NCLBUTTONUP:
-            self.buttons.max.set_nc(down=False)
+            self.buttons.max_btn.set_nc(down=False)
         return False, 0
 
     def _check_leave(self) -> None:
-        b = self.buttons.max
+        b = self.buttons.max_btn
         if not b.rect().contains(b.mapFromGlobal(QCursor.pos())):
             b.set_nc(hover=False, down=False)
             self._leave.stop()
@@ -389,7 +389,7 @@ class WindowFrame:
                 return HTBOTTOM
         bx = x - self.buttons.x()
         if 0 <= y < self.buttons.height() and 0 <= bx < self.buttons.width():
-            return HTMAXBUTTON if self.buttons.max.geometry().contains(int(bx), int(y)) else HTCLIENT
+            return HTMAXBUTTON if self.buttons.max_btn.geometry().contains(int(bx), int(y)) else HTCLIENT
         if y < Size.TITLE_BAR:
             target = self.win.childAt(int(x), int(y))
             if target is None or not _interactive(target, self.win):

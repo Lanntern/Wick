@@ -93,9 +93,9 @@ def _list(name: str) -> QListWidget:
     lw = QListWidget()
     lw.setObjectName("plainList")
     lw.setAccessibleName(name)
-    lw.setFrameShape(QFrame.NoFrame)
+    lw.setFrameShape(QFrame.Shape.NoFrame)
     lw.setIconSize(QSize(Size.ICON_M, Size.ICON_M))
-    lw.setSelectionMode(QAbstractItemView.ExtendedSelection)
+    lw.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
     lw.setAlternatingRowColors(True)
     return lw
 
@@ -139,7 +139,7 @@ class WatchTab(Page):
         self.remove_btn = button("Remove", "", "minus", "Stop watching the selected folders", "Delete")
         self.remove_btn.clicked.connect(self.remove_folder)
         self.preset = QComboBox()
-        self.preset.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)   # long preset names
+        self.preset.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)   # long preset names
         self.preset.setMinimumContentsLength(14)                                          # don't widen the page
         self.preset.setAccessibleName("Options for the selected folder")
         self.preset.setToolTip("Which options new files in the selected folder are compressed with")
@@ -152,7 +152,7 @@ class WatchTab(Page):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         row.addLayout(options, 1)
-        row.addWidget(self.remove_btn, 0, Qt.AlignBottom)
+        row.addWidget(self.remove_btn, 0, Qt.AlignmentFlag.AlignBottom)
         folders_card.lay.addLayout(row)
         # Screenshots and recordings fill up fast and shrink well: offer them with one click.
         self.suggest_row = QHBoxLayout()
@@ -171,7 +171,7 @@ class WatchTab(Page):
         self.status = text("Not watching", Type.FOOTNOTE, secondary=True)
         activity.lay.addLayout(hbox(text("Activity", Type.HEADLINE, bold=True), None, self.status))
         self.logw = _list("Activity log")
-        self.logw.setSelectionMode(QAbstractItemView.NoSelection)
+        self.logw.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         activity.lay.addWidget(self.logw, 1)
         self.log_empty = ListPlaceholder(self.logw)
         self.log_empty.show_message("Nothing listed yet. Files compressed while watching appear here.")
@@ -193,12 +193,12 @@ class WatchTab(Page):
     # ---- folders
     def _add_item(self, path: str) -> None:
         it = QListWidgetItem(icon("folder", None, Size.ICON_M), path)
-        it.setData(Qt.UserRole, path)
+        it.setData(Qt.ItemDataRole.UserRole, path)
         self.folders.addItem(it)
         self._label_item(it)
 
     def _label_item(self, it: QListWidgetItem) -> None:
-        path = it.data(Qt.UserRole)
+        path = it.data(Qt.ItemDataRole.UserRole)
         name = self.folder_presets.get(path, "")
         it.setText(f"{path}   ·   {name}" if name else path)
         it.setToolTip(f"{path}\nOptions: {name or 'Compress page'}")
@@ -213,7 +213,7 @@ class WatchTab(Page):
         self._selection_changed()
 
     def folder_paths(self) -> list[Path]:
-        return [Path(self.folders.item(i).data(Qt.UserRole)) for i in range(self.folders.count())]
+        return [Path(self.folders.item(i).data(Qt.ItemDataRole.UserRole)) for i in range(self.folders.count())]
 
     def _save(self) -> None:
         self.qs.setValue("watch_folders", [str(p) for p in self.folder_paths()])
@@ -230,7 +230,7 @@ class WatchTab(Page):
         self.preset.addItem("Compress page options", "")
         for name in presets.names():
             self.preset.addItem(name, name)
-            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ToolTipRole)
+            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ItemDataRole.ToolTipRole)
         self.preset.blockSignals(False)
         self.folder_presets = {k: v for k, v in self.folder_presets.items() if presets.get(v) is not None}
         for i in range(self.folders.count()):
@@ -241,7 +241,7 @@ class WatchTab(Page):
         sel = self.folders.selectedItems()
         self.preset.setEnabled(bool(sel))
         self.preset_label.setEnabled(bool(sel))
-        names = {self.folder_presets.get(it.data(Qt.UserRole), "") for it in sel}
+        names = {self.folder_presets.get(it.data(Qt.ItemDataRole.UserRole), "") for it in sel}
         self.preset.blockSignals(True)
         self.preset.setCurrentIndex(max(0, self.preset.findData(names.pop())) if len(names) == 1 else 0)
         self.preset.blockSignals(False)
@@ -249,7 +249,7 @@ class WatchTab(Page):
     def _preset_chosen(self, _index: int) -> None:
         name = self.preset.currentData() or ""
         for it in self.folders.selectedItems():
-            self.folder_presets[it.data(Qt.UserRole)] = name
+            self.folder_presets[it.data(Qt.ItemDataRole.UserRole)] = name
             self._label_item(it)
         self._save()
 

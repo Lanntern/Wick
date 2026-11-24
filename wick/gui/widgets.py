@@ -45,9 +45,11 @@ class WrapLabel(QLabel):
     def __init__(self, content: str = "", parent=None):
         super().__init__(content, parent)
         self.setWordWrap(True)
-        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)   # extra height (if any) goes below, never above
+        self.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )  # extra height (if any) goes below, never above
         policy = self.sizePolicy()
-        policy.setVerticalPolicy(QSizePolicy.Fixed)     # exactly its lines' height: spare room goes elsewhere
+        policy.setVerticalPolicy(QSizePolicy.Policy.Fixed)  # exactly its lines' height: spare room goes elsewhere
         policy.setHeightForWidth(True)
         self.setSizePolicy(policy)
 
@@ -61,8 +63,14 @@ class WrapLabel(QLabel):
         hit = cache.get(key)
         if hit is not None:
             return hit
-        rect = self.fontMetrics().boundingRect(0, 0, max(1, width - m.left() - m.right()), 100_000,
-                                               int(self.alignment()) | Qt.TextWordWrap, self._plain())
+        rect = self.fontMetrics().boundingRect(
+            0,
+            0,
+            max(1, width - m.left() - m.right()),
+            100_000,
+            int(self.alignment()) | Qt.TextFlag.TextWordWrap,
+            self._plain(),
+        )
         height = rect.height() + m.top() + m.bottom() + 2 * self.margin()
         if len(cache) > 64:
             cache.clear()
@@ -70,7 +78,7 @@ class WrapLabel(QLabel):
         return height
 
     def _plain(self) -> str:
-        if self.textFormat() == Qt.PlainText or not _might_be_rich(self.text()):
+        if self.textFormat() == Qt.TextFormat.PlainText or not _might_be_rich(self.text()):
             return self.text()
         from PySide6.QtGui import QTextDocument
 
@@ -79,20 +87,20 @@ class WrapLabel(QLabel):
         return doc.toPlainText()
 
     def heightForWidth(self, width: int) -> int:  # noqa: N802
-        if self.textFormat() == Qt.RichText or _might_be_rich(self.text()):
-            return super().heightForWidth(width)          # (styled text: Qt measures it; it isn't ratcheted
-        return self._lines_height(width)                  #  here as the minimum is reset before measuring)
+        if self.textFormat() == Qt.TextFormat.RichText or _might_be_rich(self.text()):
+            return super().heightForWidth(width)  # (styled text: Qt measures it; it isn't ratcheted
+        return self._lines_height(width)  #  here as the minimum is reset before measuring)
 
     def sizeHint(self) -> QSize:  # noqa: N802
         hint = super().sizeHint()
-        if self.width() > 0:                  # its height at the width it really has, not a guessed one
+        if self.width() > 0:  # its height at the width it really has, not a guessed one
             return QSize(hint.width(), self.heightForWidth(self.width()))
         return hint
 
     def _keep_lines(self) -> None:
         if self.width() > 0:
             old = self.minimumHeight()
-            self.setMinimumHeight(0)              # measure the text itself, not the last minimum
+            self.setMinimumHeight(0)  # measure the text itself, not the last minimum
             need = self.heightForWidth(self.width())
             if need > 0 and need != old:
                 self.setMinimumHeight(need)
@@ -109,16 +117,24 @@ class WrapLabel(QLabel):
         self._keep_lines()
 
 
-def text(content: str = "", role: float = Type.BODY, bold: bool = False, secondary: bool = False,
-         wrap: bool = False, name: str | None = None) -> QLabel:
+def text(
+    content: str = "",
+    role: float = Type.BODY,
+    bold: bool = False,
+    secondary: bool = False,
+    wrap: bool = False,
+    name: str | None = None,
+) -> QLabel:
     lab = WrapLabel(content) if wrap else QLabel(content)
-    lab.setFont(ui_font(role, QFont.DemiBold if bold else QFont.Normal))
+    lab.setFont(ui_font(role, QFont.Weight.DemiBold if bold else QFont.Weight.Normal))
     if secondary:
         lab.setObjectName("secondary")
     if name:
         lab.setObjectName(name)
     lab.setWordWrap(wrap)
-    lab.setTextInteractionFlags(Qt.TextSelectableByMouse if wrap else Qt.NoTextInteraction)
+    lab.setTextInteractionFlags(
+        Qt.TextInteractionFlag.TextSelectableByMouse if wrap else Qt.TextInteractionFlag.NoTextInteraction
+    )
     return lab
 
 
@@ -126,15 +142,22 @@ class ElidedLabel(QLabel):
     """One line of text that may be long (a file name, a path): shortened to fit, never widening its window;
     the full text is in the tooltip when it doesn't fit."""
 
-    def __init__(self, content: str = "", role: float = Type.BODY, bold: bool = False, secondary: bool = False,
-                 mode=Qt.ElideMiddle, parent=None):
+    def __init__(
+        self,
+        content: str = "",
+        role: float = Type.BODY,
+        bold: bool = False,
+        secondary: bool = False,
+        mode=Qt.TextElideMode.ElideMiddle,
+        parent=None,
+    ):
         super().__init__(parent)
-        self.setFont(ui_font(role, QFont.DemiBold if bold else QFont.Normal))
+        self.setFont(ui_font(role, QFont.Weight.DemiBold if bold else QFont.Weight.Normal))
         if secondary:
             self.setObjectName("secondary")
         self._full, self._mode, self._tip = "", mode, ""
-        self.setTextFormat(Qt.PlainText)
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setTextFormat(Qt.TextFormat.PlainText)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.setText(content)
 
     def setText(self, value: str) -> None:  # noqa: N802
@@ -166,17 +189,27 @@ class ElidedLabel(QLabel):
         super().setToolTip(self._tip or (self._full if shown != self._full else ""))
 
 
-_KEY_COMBO = re.compile(r"\b(?:(?:Ctrl|Shift|Alt|Meta)\+)+(?:Return|Enter|Tab|Space|Esc|Delete|Insert|Backspace|"
-                        r"F\d{1,2}|[A-Za-z0-9,/=.\-])(?![A-Za-z])")
+_KEY_COMBO = re.compile(
+    r"\b(?:(?:Ctrl|Shift|Alt|Meta)\+)+(?:Return|Enter|Tab|Space|Esc|Delete|Insert|Backspace|"
+    r"F\d{1,2}|[A-Za-z0-9,/=.\-])(?![A-Za-z])"
+)
 
 
-_MAC_MODIFIERS = (("Meta", "⌃"), ("Alt", "⌥"), ("Shift", "⇧"), ("Ctrl", "⌘"))     # (Apple's order)
-_MAC_KEYS = {"Return": "↩", "Enter": "⌤", "Tab": "⇥", "Space": "Space", "Esc": "⎋", "Delete": "⌦",
-             "Backspace": "⌫", "Insert": "Insert"}
+_MAC_MODIFIERS = (("Meta", "⌃"), ("Alt", "⌥"), ("Shift", "⇧"), ("Ctrl", "⌘"))  # (Apple's order)
+_MAC_KEYS = {
+    "Return": "↩",
+    "Enter": "⌤",
+    "Tab": "⇥",
+    "Space": "Space",
+    "Esc": "⎋",
+    "Delete": "⌦",
+    "Backspace": "⌫",
+    "Insert": "Insert",
+}
 
 
 def mac_keys(combo: str) -> str:
-    """"Ctrl+Shift+O" as a Mac writes it: "⇧⌘O" (Qt's Ctrl is the Command key there)."""
+    """ "Ctrl+Shift+O" as a Mac writes it: "⇧⌘O" (Qt's Ctrl is the Command key there)."""
     parts = combo.split("+")
     key = parts[-1] or "+"
     mods = set(parts[:-1])
@@ -191,8 +224,9 @@ def keys(text: str) -> str:
     return _KEY_COMBO.sub(lambda m: mac_keys(m.group(0)), text)
 
 
-def button(label: str, kind: str = "", icon_name: str | None = None, tip: str = "",
-           shortcut_hint: str = "") -> QPushButton:
+def button(
+    label: str, kind: str = "", icon_name: str | None = None, tip: str = "", shortcut_hint: str = ""
+) -> QPushButton:
     b = QPushButton(label)
     if kind:
         b.setObjectName(kind)
@@ -207,7 +241,7 @@ def button(label: str, kind: str = "", icon_name: str | None = None, tip: str = 
     b.setAccessibleName(label.replace("…", "").replace("&", "") or tip)
     if tip:
         b.setAccessibleDescription(tip)
-    b.setCursor(Qt.PointingHandCursor)
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
     return b
 
 
@@ -247,7 +281,7 @@ class FlowLayout(QLayout):
         self.setContentsMargins(0, 0, 0, 0)
 
     def _measuring(self, fn, *args):
-        if self._cache is not None:          # (already inside a call: share its measurements)
+        if self._cache is not None:  # (already inside a call: share its measurements)
             return fn(*args)
         self._cache = {}
         try:
@@ -371,7 +405,7 @@ def hbox(*items, spacing: int = Space.S, margins: tuple = (0, 0, 0, 0)) -> QHBox
 
 # ---------------------------------------------------------------- page structure
 
-CARD_INSET = Space.XS   # 4 px: clears a 12 px rounded corner (12 * 0.29 = 3.5)
+CARD_INSET = Space.XS  # 4 px: clears a 12 px rounded corner (12 * 0.29 = 3.5)
 
 
 class _StatusLine(QLabel):
@@ -398,7 +432,7 @@ class Page(QWidget):
         while the body reaches the page edges; put the content padding inside that body."""
         super().__init__(parent)
         self.setObjectName("page")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         outer = QVBoxLayout(self)
         side = 0 if edge_to_edge else Space.XXL
         outer.setContentsMargins(side, page_top(), side, 0 if scrolls else Space.XL)
@@ -411,7 +445,7 @@ class Page(QWidget):
         self.title.setAccessibleName(title)
         # (as tall as a header button: a page with none, like Settings, has its title in the same place)
         self.title.setMinimumHeight(Size.CONTROL)
-        head.addWidget(self.title, 1, Qt.AlignVCenter)
+        head.addWidget(self.title, 1, Qt.AlignmentFlag.AlignVCenter)
         self.action_bar = QHBoxLayout()
         self.action_bar.setSpacing(Space.S)
         head.addLayout(self.action_bar)
@@ -419,7 +453,7 @@ class Page(QWidget):
         self.subtitle = _StatusLine()
         self.subtitle.setObjectName("pageSubtitle")
         self.subtitle.setFont(ui_font(Type.BODY))
-        self.subtitle.setTextFormat(Qt.RichText)
+        self.subtitle.setTextFormat(Qt.TextFormat.RichText)
         self.subtitle.setWordWrap(True)
         if edge_to_edge:
             self.subtitle.setContentsMargins(Space.XXL, 0, Space.XXL, 0)
@@ -427,7 +461,7 @@ class Page(QWidget):
         outer.addWidget(self.subtitle)
         self.body = QVBoxLayout()
         self.body.setSpacing(Space.L)
-        if scrolls:                    # the page brings its own scroll area
+        if scrolls:  # the page brings its own scroll area
             outer.addLayout(self.body, 1)
         else:
             self.body.setContentsMargins(0, 0, 0, 0)
@@ -454,18 +488,19 @@ class BodyScroll(QScrollArea):
     def __init__(self, body: QLayout):
         super().__init__()
         holder = QWidget()
-        holder.setObjectName("inspectorBody")      # transparent, like the other scrolling panes
+        holder.setObjectName("inspectorBody")  # transparent, like the other scrolling panes
         holder.setLayout(body)
         self.setObjectName("inspectorScroll")
         self.setWidget(holder)
         self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.NoFrame)
+        self.setFrameShape(QFrame.Shape.NoFrame)
         # The content adapts to the width it's given (rows wrap, toolbars compact); sideways scrolling is only
         # a last resort, never clipping.
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         # A little room between the content and the scroll bar, only while it shows.
         self.verticalScrollBar().rangeChanged.connect(
-            lambda _lo, hi: body.setContentsMargins(0, 0, Space.M if hi > 0 else 0, 0))
+            lambda _lo, hi: body.setContentsMargins(0, 0, Space.M if hi > 0 else 0, 0)
+        )
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802
         # Never forces the page wider or taller than the window: the content adapts to the real width (code
@@ -499,12 +534,12 @@ class Section(QWidget):
         self.toggle = QToolButton()
         self.toggle.setObjectName("sectionToggle")
         self.toggle.setText(title)
-        self.toggle.setFont(ui_font(Type.HEADLINE, QFont.DemiBold))
+        self.toggle.setFont(ui_font(Type.HEADLINE, QFont.Weight.DemiBold))
         self.toggle.setCheckable(True)
         self.toggle.setChecked(expanded)
-        self.toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.toggle.setIconSize(QSize(Size.ICON_S - 4, Size.ICON_S - 4))
-        self.toggle.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.toggle.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.toggle.setAccessibleName(f"{title} section")
         self.toggle.toggled.connect(self._set)
         self.content = content
@@ -534,7 +569,7 @@ class StatTile(QFrame):
         self.detail = text("", Type.FOOTNOTE, secondary=True)
         for w in (self.label, self.value, self.detail):
             lay.addWidget(w)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setAccessibleName(label)
 
     def set(self, value: str, detail: str = "") -> None:
@@ -544,6 +579,7 @@ class StatTile(QFrame):
 
 
 # ---------------------------------------------------------------- drop zone
+
 
 class DropZone(QFrame):
     """The empty state: a large dashed target with the two ways to add files."""
@@ -557,13 +593,17 @@ class DropZone(QFrame):
         lay.setSpacing(Space.M)
         lay.addStretch(1)
         self.icon = QLabel()
-        self.icon.setAlignment(Qt.AlignCenter)
+        self.icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self.icon)
         self.title = text("Drop photos, videos, music, documents or folders here", Type.TITLE2, bold=True, wrap=True)
-        self.title.setAlignment(Qt.AlignCenter)
-        self.sub = text("JPEG, PNG, HEIC, AVIF and other pictures, common video and audio formats, PDFs and Office files.",
-                        Type.BODY, secondary=True, wrap=True)
-        self.sub.setAlignment(Qt.AlignCenter)
+        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sub = text(
+            "JPEG, PNG, HEIC, AVIF and other pictures, common video and audio formats, PDFs and Office files.",
+            Type.BODY,
+            secondary=True,
+            wrap=True,
+        )
+        self.sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(self.title)
         lay.addWidget(self.sub)
         self.add_folder = button("Choose Folder…", "primary", "folder", "", "Ctrl+Shift+O")
@@ -584,10 +624,10 @@ class DropZone(QFrame):
     def paintEvent(self, e) -> None:
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect()).adjusted(1.5, 1.5, -1.5, -1.5)
         p.setBrush(QColor(t.accent_soft if self.hover else t.card))
-        pen = QPen(QColor(t.accent if self.hover else t.control_border), 1.5, Qt.DashLine)
+        pen = QPen(QColor(t.accent if self.hover else t.control_border), 1.5, Qt.PenStyle.DashLine)
         pen.setDashPattern([4, 4])
         p.setPen(pen)
         p.drawRoundedRect(r, Radius.LARGE, Radius.LARGE)
@@ -595,34 +635,37 @@ class DropZone(QFrame):
 
 # ---------------------------------------------------------------- info button
 
+
 class InfoPopover(QWidget):
     """A small card that points at what it explains (Fluent's info popover). Opened by a click or the keyboard
     it stays until you click elsewhere or press Esc; opened by hovering (``sticky=False``) it takes no focus and
     its owner closes it when the pointer leaves. Text wraps at a comfortable reading width."""
 
-    BEAK = 7        # the arrow's height
-    SHADOW = 10     # room around the card for its shadow
+    BEAK = 7  # the arrow's height
+    SHADOW = 10  # room around the card for its shadow
 
     def __init__(self, body: str, title: str = "", parent=None, sticky: bool = True):
-        kind = Qt.Popup if sticky else Qt.ToolTip
-        super().__init__(parent, kind | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        kind = Qt.WindowType.Popup if sticky else Qt.WindowType.ToolTip
+        super().__init__(parent, kind | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
         self.sticky = sticky
         if not sticky:
-            self.setAttribute(Qt.WA_ShowWithoutActivating)   # hovering mustn't take the keyboard focus
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_NoMouseReplay)      # clicking the "?" again closes it, rather than reopening it
-        self.setAttribute(Qt.WA_DeleteOnClose)
+            self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)  # hovering mustn't take the keyboard focus
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(
+            Qt.WidgetAttribute.WA_NoMouseReplay
+        )  # clicking the "?" again closes it, rather than reopening it
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setAccessibleName(title or "More information")
-        self.below = True                           # the card is below its anchor (arrow at the top)
+        self.below = True  # the card is below its anchor (arrow at the top)
         self._beak_x = 0.0
         lay = QVBoxLayout(self)
         lay.setSpacing(Space.XS)
         if title:
             lay.addWidget(text(title, Type.BODY, bold=True))
         self.body = text(body, Type.FOOTNOTE, wrap=True)
-        self.body.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         lay.addWidget(self.body)
-        self._width = int(Space.XXL * 10 * text_scale())          # ~ 50-60 characters a line
+        self._width = int(Space.XXL * 10 * text_scale())  # ~ 50-60 characters a line
 
     def _margins(self) -> None:
         pad, sh = Space.M, self.SHADOW
@@ -655,8 +698,11 @@ class InfoPopover(QWidget):
             self.setFixedWidth(self._width)
             self.layout().activate()
             h = self.layout().totalHeightForWidth(self._width)
-            y = a_top.y() + anchor.height() + Space.XXS - self.SHADOW if below \
+            y = (
+                a_top.y() + anchor.height() + Space.XXS - self.SHADOW
+                if below
                 else a_top.y() - h - Space.XXS + self.SHADOW
+            )
             if (below and y + h <= screen.bottom()) or (not below and y >= screen.top()):
                 break
         self.setFixedHeight(h)
@@ -666,7 +712,7 @@ class InfoPopover(QWidget):
         self.move(x, int(y))
         self._fade_in()
         if self.sticky:
-            self.setFocus(Qt.PopupFocusReason)
+            self.setFocus(Qt.FocusReason.PopupFocusReason)
 
     def _shape(self) -> QPainterPath:
         sh, b = self.SHADOW, self.BEAK
@@ -689,9 +735,9 @@ class InfoPopover(QWidget):
     def paintEvent(self, _e) -> None:  # noqa: N802
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         shape = self._shape()
-        for i in range(self.SHADOW, 0, -2):      # a soft shadow: widening, fading outlines
+        for i in range(self.SHADOW, 0, -2):  # a soft shadow: widening, fading outlines
             c = QColor(0, 0, 0, int((0.18 if t.dark else 0.06) * 255 * (1 - i / (self.SHADOW + 1)) / 2))
             p.setPen(QPen(c, i * 2))
             p.drawPath(shape.translated(0, 2))
@@ -704,7 +750,7 @@ class HelpTip(QAbstractButton):
     """A small "?" beside a setting. Hover over it for the explanation in a popover; click it (or press Enter or
     Space) to keep the popover open."""
 
-    HOVER_DELAY_MS = 250      # long enough that passing over the "?" doesn't flash a card
+    HOVER_DELAY_MS = 250  # long enough that passing over the "?" doesn't flash a card
 
     SIZE = 18
 
@@ -712,11 +758,11 @@ class HelpTip(QAbstractButton):
         super().__init__(parent)
         self.help_text, self.title = help_text, title
         self.setFixedSize(self.SIZE, self.SIZE)
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAccessibleName(f"More information: {title}" if title else "More information")
         self.setAccessibleDescription(help_text)
-        self.clicked.connect(lambda: self.open(sticky=True))   # (clicked passes a bool)
+        self.clicked.connect(lambda: self.open(sticky=True))  # (clicked passes a bool)
         self._popover: InfoPopover | None = None
         from PySide6.QtCore import QTimer
 
@@ -729,7 +775,7 @@ class HelpTip(QAbstractButton):
         if self._popover is not None and self.is_open():
             if not sticky or self._popover.sticky:
                 return
-            self._popover.close()           # a click on a hovered "?" keeps the card: reopen it as sticky
+            self._popover.close()  # a click on a hovered "?" keeps the card: reopen it as sticky
         hide_tip()
         pop = InfoPopover(self.help_text, self.title, self.window(), sticky=sticky)
         pop.destroyed.connect(lambda *_: self.update())
@@ -751,11 +797,11 @@ class HelpTip(QAbstractButton):
     def is_open(self) -> bool:
         try:
             return self._popover is not None and self._popover.isVisible()
-        except RuntimeError:          # (deleted on close)
+        except RuntimeError:  # (deleted on close)
             return False
 
     def keyPressEvent(self, e) -> None:  # noqa: N802
-        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.click()
             return
         super().keyPressEvent(e)
@@ -766,7 +812,7 @@ class HelpTip(QAbstractButton):
     def paintEvent(self, _e) -> None:  # noqa: N802
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         active = self.underMouse() or keyboard_focus(self) or self.is_open()
         color = QColor(t.accent if active else t.text2)
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
@@ -775,15 +821,16 @@ class HelpTip(QAbstractButton):
             fill.setAlphaF(0.12)
             p.setBrush(fill)
         else:
-            p.setBrush(Qt.NoBrush)
+            p.setBrush(Qt.BrushStyle.NoBrush)
         p.setPen(QPen(QColor(t.accent) if active else QColor(t.separator), 2 if keyboard_focus(self) else 1))
         p.drawEllipse(r)
         p.setPen(color)
-        p.setFont(ui_font(Type.FOOTNOTE, QFont.DemiBold))
-        p.drawText(self.rect(), Qt.AlignCenter, "?")
+        p.setFont(ui_font(Type.FOOTNOTE, QFont.Weight.DemiBold))
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "?")
 
 
 # ---------------------------------------------------------------- toggle switch
+
 
 class ToggleSwitch(QAbstractButton):
     """An on/off switch. A real checkable button: Space toggles, screen readers see its state."""
@@ -791,8 +838,8 @@ class ToggleSwitch(QAbstractButton):
     def __init__(self, accessible_name: str, parent=None):
         super().__init__(parent)
         self.setCheckable(True)
-        self.setFocusPolicy(Qt.StrongFocus)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAccessibleName(accessible_name)
         self.setToolTip(accessible_name)
 
@@ -802,7 +849,7 @@ class ToggleSwitch(QAbstractButton):
     def paintEvent(self, e) -> None:
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
         th = Space.XL - 2
         track = QRectF(2, (h - th) / 2, min(w - 4, th * 1.75), th)
@@ -810,7 +857,7 @@ class ToggleSwitch(QAbstractButton):
         color = QColor(t.accent if on else t.control_border)
         if not self.isEnabled():
             color = QColor(t.neutral_soft)
-        p.setPen(Qt.NoPen)
+        p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(color)
         p.drawRoundedRect(track, th / 2, th / 2)
         knob = th - 4
@@ -818,22 +865,31 @@ class ToggleSwitch(QAbstractButton):
         p.setBrush(QColor("#FFFFFF"))
         p.drawEllipse(QRectF(x, track.top() + 2, knob, knob))
         if keyboard_focus(self):
-            p.setBrush(Qt.NoBrush)
+            p.setBrush(Qt.BrushStyle.NoBrush)
             p.setPen(QPen(QColor(t.accent), 2))
             p.drawRoundedRect(track.adjusted(-2, -2, 2, 2), th / 2 + 2, th / 2 + 2)
 
 
 # ---------------------------------------------------------------- status pill
 
-STATUS_ROLE = Qt.UserRole + 10      # "done" | "failed" | "skipped" | "running" | "ready" | "excluded"
-PROGRESS_ROLE = Qt.UserRole + 11    # 0..1 while running
+STATUS_ROLE = Qt.ItemDataRole.UserRole + 10  # "done" | "failed" | "skipped" | "running" | "ready" | "excluded"
+PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 11  # 0..1 while running
 
 
 class StatusDelegate(QStyledItemDelegate):
     """Draws the Status column as a colored pill with a symbol (color is never the only cue)."""
 
-    _SYMBOL = {"done": "check", "failed": "xmark", "skipped": "minus", "running": "bolt",
-               "ready": None, "excluded": "minus", "high": None, "medium": None, "low": None}
+    _SYMBOL = {
+        "done": "check",
+        "failed": "xmark",
+        "skipped": "minus",
+        "running": "bolt",
+        "ready": None,
+        "excluded": "minus",
+        "high": None,
+        "medium": None,
+        "low": None,
+    }
 
     def paint(self, p: QPainter, option: QStyleOptionViewItem, index) -> None:
         kind = index.data(STATUS_ROLE)
@@ -846,25 +902,31 @@ class StatusDelegate(QStyledItemDelegate):
         txt = opt.text
         opt.text = ""
         if style:
-            style.drawControl(QStyle.CE_ItemViewItem, opt, p, opt.widget)  # selection background
+            style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, p, opt.widget)  # selection background
         fg, bg = {
-            "done": (t.success, t.success_soft), "failed": (t.danger, t.danger_soft),
-            "running": (t.accent_text, t.accent_soft), "skipped": (t.text2, t.neutral_soft),
-            "excluded": (t.text2, t.neutral_soft), "ready": (t.text2, t.neutral_soft),
-            "high": (t.success, t.success_soft), "medium": (t.accent_text, t.accent_soft),
+            "done": (t.success, t.success_soft),
+            "failed": (t.danger, t.danger_soft),
+            "running": (t.accent_text, t.accent_soft),
+            "skipped": (t.text2, t.neutral_soft),
+            "excluded": (t.text2, t.neutral_soft),
+            "ready": (t.text2, t.neutral_soft),
+            "high": (t.success, t.success_soft),
+            "medium": (t.accent_text, t.accent_soft),
             "low": (t.text2, t.neutral_soft),
-        }.get(kind, (t.text2, t.neutral_soft))     # an unknown kind must not break painting the list
+        }.get(kind, (t.text2, t.neutral_soft))  # an unknown kind must not break painting the list
         p.save()
-        p.setRenderHint(QPainter.Antialiasing)
-        font = ui_font(Type.FOOTNOTE, QFont.DemiBold if kind in ("done", "failed", "running", "high")
-                       else QFont.Normal)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        font = ui_font(
+            Type.FOOTNOTE,
+            QFont.Weight.DemiBold if kind in ("done", "failed", "running", "high") else QFont.Weight.Normal,
+        )
         p.setFont(font)
         fm = p.fontMetrics()
         rect = option.rect.adjusted(Space.S, Space.XS + 2, -Space.S, -(Space.XS + 2))
         symbol = self._SYMBOL[kind]
         icon_w = Size.ICON_S - 4 if symbol else -Space.XS
         max_text = rect.width() - icon_w - Space.S * 2 - Space.XS
-        shown = fm.elidedText(txt, Qt.ElideRight, max(0, max_text))
+        shown = fm.elidedText(txt, Qt.TextElideMode.ElideRight, max(0, max_text))
         pill_w = min(rect.width(), fm.horizontalAdvance(shown) + icon_w + Space.S * 2 + Space.XS)
         pill = QRectF(rect.left(), rect.top(), pill_w, rect.height())
         path = QPainterPath()
@@ -874,15 +936,20 @@ class StatusDelegate(QStyledItemDelegate):
         if kind == "running" and frac:
             p.save()
             p.setClipPath(path)
-            p.fillRect(QRectF(pill.left(), pill.top(), pill.width() * float(frac), pill.height()),
-                       QColor(t.accent if not t.dark else t.accent_soft).lighter(170 if not t.dark else 130))
+            p.fillRect(
+                QRectF(pill.left(), pill.top(), pill.width() * float(frac), pill.height()),
+                QColor(t.accent if not t.dark else t.accent_soft).lighter(170 if not t.dark else 130),
+            )
             p.restore()
         if symbol:
             pm = icon_pixmap(symbol, fg, icon_w, stroke=2.4)
             p.drawPixmap(int(pill.left() + Space.S), int(pill.center().y() - icon_w / 2), pm)
         p.setPen(QColor(fg))
-        p.drawText(QRectF(pill.left() + Space.S + icon_w + Space.XS, pill.top(), max_text + 2, pill.height()),
-                   Qt.AlignVCenter | Qt.AlignLeft, shown)
+        p.drawText(
+            QRectF(pill.left() + Space.S + icon_w + Space.XS, pill.top(), max_text + 2, pill.height()),
+            Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+            shown,
+        )
         p.restore()
 
     def sizeHint(self, option, index) -> QSize:
@@ -894,6 +961,7 @@ class StatusDelegate(QStyledItemDelegate):
 
 
 # ---------------------------------------------------------------- progress
+
 
 class ProgressBar(QProgressBar):
     """A thin bar drawn here rather than by the style: the fill is clipped to the rounded track, so its ends stay
@@ -910,7 +978,7 @@ class ProgressBar(QProgressBar):
         self._clock.start()
         self._paused_at: int | None = None
         self._paused_ms = 0
-        self._tick = QTimer(self, interval=16, timerType=Qt.PreciseTimer)
+        self._tick = QTimer(self, interval=16, timerType=Qt.TimerType.PreciseTimer)
         self._tick.timeout.connect(self.update)
 
     def _busy(self) -> bool:
@@ -950,7 +1018,7 @@ class ProgressBar(QProgressBar):
     def paintEvent(self, _e) -> None:  # noqa: N802
         t = tokens()
         p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect())
         radius = r.height() / 2
         track = QPainterPath()
@@ -960,14 +1028,14 @@ class ProgressBar(QProgressBar):
         if self._busy():
             span = r.width() * 0.3
             elapsed = self._clock.elapsed() if self._paused_at is None else self._paused_at
-            phase = ((elapsed - self._paused_ms) % 1400) / 1400      # one pass every 1.4 s
+            phase = ((elapsed - self._paused_ms) % 1400) / 1400  # one pass every 1.4 s
             x = -span + (r.width() + span) * phase
             fill = QRectF(x, 0, span, r.height())
         else:
             total = self.maximum() - self.minimum()
             frac = (self.value() - self.minimum()) / total if total > 0 else 0.0
             w = r.width() * max(0.0, min(1.0, frac))
-            fill = QRectF(0, 0, max(w, r.height()) if w > 0 else 0, r.height())   # (at least a round dot)
+            fill = QRectF(0, 0, max(w, r.height()) if w > 0 else 0, r.height())  # (at least a round dot)
         if fill.width() > 0:
             pill = QPainterPath()
             pill.addRoundedRect(fill, radius, radius)
@@ -979,7 +1047,7 @@ class SizeInput(QWidget):
     gives the size in bytes."""
 
     changed = Signal(int)
-    UNITS = (("KB", 1024), ("MB", 1024 ** 2), ("GB", 1024 ** 3))
+    UNITS = (("KB", 1024), ("MB", 1024**2), ("GB", 1024**3))
 
     def __init__(self, size: int = 0, presets: tuple[float, ...] = (0, 1, 10, 50, 100, 250, 500), parent=None):
         super().__init__(parent)
@@ -988,11 +1056,11 @@ class SizeInput(QWidget):
         lay.setSpacing(Space.S)
         self.number = QComboBox()
         self.number.setEditable(True)
-        self.number.setInsertPolicy(QComboBox.NoInsert)
+        self.number.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         for v in presets:
             self.number.addItem(f"{v:g}")
         validator = QDoubleValidator(0, 1_000_000, 2, self.number)
-        validator.setNotation(QDoubleValidator.StandardNotation)
+        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
         self.number.lineEdit().setValidator(validator)
         self.number.setMinimumContentsLength(5)
         self.unit = QComboBox()
@@ -1038,8 +1106,8 @@ class SizeInput(QWidget):
         self.unit.setToolTip(tip)
 
 
-
 # ---------------------------------------------------------------- dialogs
+
 
 def dialog_layout(dialog: QWidget, heading: str, intro: str = "") -> QVBoxLayout:
     """Every dialog's frame: the standard margins and spacing, a heading, and an optional line saying what the
@@ -1053,8 +1121,9 @@ def dialog_layout(dialog: QWidget, heading: str, intro: str = "") -> QVBoxLayout
     return lay
 
 
-def dialog_buttons(dialog, primary: tuple[str, object] | None = None, cancel: str | None = "Cancel",
-                   left: tuple = ()) -> QHBoxLayout:
+def dialog_buttons(
+    dialog, primary: tuple[str, object] | None = None, cancel: str | None = "Cancel", left: tuple = ()
+) -> QHBoxLayout:
     """Every dialog's button row: extra actions on the left; then, on the right, the main action (styled as the
     primary button, Enter) and Cancel (Esc), in Windows' order. ``primary``: (label, slot); a label naming the
     action ("Save Folders"), not "OK"."""

@@ -87,7 +87,7 @@ def reduce_picture(data: bytes, ext: str, long_edge: int) -> bytes:
                 return data
             im.load()
             scale = long_edge / max(w, h)
-            small = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+            small = im.resize((max(1, round(w * scale)), max(1, round(h * scale))), Image.Resampling.LANCZOS)
             buf = io.BytesIO()
             if ext in (".jpg", ".jpeg"):
                 if small.mode not in ("RGB", "L", "CMYK"):
@@ -382,8 +382,9 @@ def optimize_pdf(src: Path, reduce: bool = False, long_edge: int = REDUCE_LONG_E
                 raise VerificationFailed("Pages went missing")
             if [tuple(float(x) for x in p.mediabox) for p in check.pages] != boxes:
                 raise VerificationFailed("Page sizes changed")
-            checker = getattr(check, "check_pdf_syntax", None) or check.check   # renamed in pikepdf 9
-            problems = [p for p in checker() if "error" in str(p).lower()]
+            # (renamed in pikepdf 9: older versions call it check)
+            checker = getattr(check, "check_pdf_syntax", None) or getattr(check, "check", None)
+            problems = [p for p in checker() if "error" in str(p).lower()] if checker is not None else []
             if problems:
                 raise VerificationFailed(f"The rebuilt PDF has problems: {problems[0]}")
         return _pdf_structure(out, pages, fonts)

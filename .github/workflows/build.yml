@@ -80,9 +80,9 @@ jobs:
       - name: Lint and type check (settings in pyproject.toml)
         run: |
           ruff check .
-          mypy wick --platform linux  --always-false IS_WINDOWS --always-false IS_MAC
-          mypy wick --platform win32  --always-true IS_WINDOWS --always-false IS_MAC
-          mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
+          python -m mypy wick --platform linux  --always-false IS_WINDOWS --always-false IS_MAC
+          python -m mypy wick --platform win32  --always-true IS_WINDOWS --always-false IS_MAC
+          python -m mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
           vulture
 
   linux:

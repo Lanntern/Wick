@@ -46,7 +46,7 @@ class FolderManager(QDialog):
                                                                 "effect when you save them.")
         self.list = QListWidget()
         self.list.setAccessibleName("Folders included in scans")
-        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         layout.addWidget(self.list)
         add = button("Add Folder…", "", "folder")
         add.clicked.connect(self.add)
@@ -62,13 +62,13 @@ class FolderManager(QDialog):
         self.fill(paths)
 
     def paths(self):
-        return [Path(self.list.item(i).data(Qt.UserRole)) for i in range(self.list.count())]
+        return [Path(self.list.item(i).data(Qt.ItemDataRole.UserRole)) for i in range(self.list.count())]
 
     def fill(self, paths):
         self.list.clear()
         for path in dict.fromkeys(paths):
             item = QListWidgetItem(self.label(path))
-            item.setData(Qt.UserRole, str(path))
+            item.setData(Qt.ItemDataRole.UserRole, str(path))
             item.setToolTip(str(path))
             self.list.addItem(item)
 

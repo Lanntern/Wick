@@ -213,9 +213,9 @@ def test_title_bar_areas():
     assert b.geometry().right() == w.width() - 1 and b.y() == 0
     mid = Size.TITLE_BAR // 2
     assert frame.area_at(400, mid) == wf.HTCAPTION                 # empty title strip: drag, Snap, menu
-    assert frame.area_at(b.x() + b.max.x() + 20, mid) == wf.HTMAXBUTTON   # Snap Layouts flyout
-    assert frame.area_at(b.x() + b.close.x() + 20, mid) == wf.HTCLIENT    # our close button gets the click
-    assert frame.area_at(b.x() + b.min.x() + 20, mid) == wf.HTCLIENT
+    assert frame.area_at(b.x() + b.max_btn.x() + 20, mid) == wf.HTMAXBUTTON   # Snap Layouts flyout
+    assert frame.area_at(b.x() + b.close_btn.x() + 20, mid) == wf.HTCLIENT    # our close button gets the click
+    assert frame.area_at(b.x() + b.min_btn.x() + 20, mid) == wf.HTCLIENT
     assert frame.area_at(320, mid) == wf.HTCLIENT                  # a control in the strip stays clickable
     assert frame.area_at(400, Size.TITLE_BAR + 10) == wf.HTCLIENT  # page content
     assert frame.area_at(1, 1) == wf.HTTOPLEFT
@@ -282,8 +282,8 @@ def test_title_bar_on_windows(win):
     b = win.frame.buttons
     mid = Size.TITLE_BAR // 2
     assert hit(win.width() // 2, mid) == wf.HTCAPTION
-    assert hit(b.x() + b.max.x() + 20, mid) == wf.HTMAXBUTTON
-    assert hit(b.x() + b.close.x() + 20, mid) == wf.HTCLIENT
+    assert hit(b.x() + b.max_btn.x() + 20, mid) == wf.HTMAXBUTTON
+    assert hit(b.x() + b.close_btn.x() + 20, mid) == wf.HTCLIENT
     assert hit(1, 1) == wf.HTTOPLEFT
     assert hit(win.width() // 2, win.height() // 2) == wf.HTCLIENT
     shot("window-light")

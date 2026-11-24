@@ -45,7 +45,7 @@ NAME_TIP = ("Text is added to the end of the name, like _compressed. You can als
 def _combo(items: Sequence[tuple[str, object]], tip: str = "") -> QComboBox:
     c = QComboBox()
     # Don't let long option texts widen the panel; the popup still shows them in full.
-    c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+    c.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
     c.setMinimumContentsLength(8)
     for label, value in items:
         c.addItem(label, value)
@@ -60,7 +60,7 @@ def _described(combo: QComboBox, help_by_value: dict[str, str]) -> QLabel:
     for i in range(combo.count()):
         tip = help_by_value.get(combo.itemData(i), "")
         if tip:
-            combo.setItemData(i, tip, Qt.ToolTipRole)
+            combo.setItemData(i, tip, Qt.ItemDataRole.ToolTipRole)
     label = text("", Type.FOOTNOTE, secondary=True, wrap=True)
 
     def show(_i: int = 0) -> None:
@@ -117,9 +117,9 @@ def _form(parent: QWidget) -> QFormLayout:
     f.setContentsMargins(Space.XS, 0, 0, Space.S)
     f.setHorizontalSpacing(Space.M)
     f.setVerticalSpacing(Space.S)
-    f.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-    f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-    f.setRowWrapPolicy(QFormLayout.DontWrapRows)
+    f.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    f.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    f.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
     return f
 
 
@@ -144,7 +144,7 @@ class SettingsPanel(QWidget):
         self.preset = QComboBox()
         self.preset.setAccessibleName("Preset")
         self.preset.setMinimumContentsLength(8)
-        self.preset.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.preset.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.preset_more = button("", "", "ellipsis", "Save or delete presets")
         self.preset_more.setAccessibleName("Preset actions")
         self.preset_more.setFixedWidth(Size.CONTROL)
@@ -673,9 +673,10 @@ class SettingsPanel(QWidget):
 
         videos = self.video_codec.currentData() != "none"
         show(self.video_effort, videos and self.video_encoder.currentData() != "gpu")
-        for w in (self.video_encoder, self.video_quality, self.video_height, self.video_fps, self.audio,
-                  self.video_cadence, self.gpu_label, self.video_tracks):
-            show(w, videos)
+        video_rows: tuple[QWidget, ...] = (self.video_encoder, self.video_quality, self.video_height, self.video_fps,
+                                           self.audio, self.video_cadence, self.gpu_label, self.video_tracks)
+        for row in video_rows:
+            show(row, videos)
         show(self.languages_btn, videos and self.video_tracks.currentData() == "mine")
         show(self.video_crf, videos and self.video_quality.currentData() == "custom")
         sec["Videos"].setVisible(has("video"))
@@ -835,7 +836,7 @@ class SettingsPanel(QWidget):
         self.preset.addItem("Custom", "")
         for name in presets.names():
             self.preset.addItem(name, name)
-            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ToolTipRole)
+            self.preset.setItemData(self.preset.count() - 1, presets.description(name), Qt.ItemDataRole.ToolTipRole)
         self.preset.setCurrentIndex(max(0, self.preset.findData(current or "")))
         self.preset.blockSignals(False)
         deletable = bool(current) and not presets.is_builtin(current or "")

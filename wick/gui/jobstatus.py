@@ -79,14 +79,14 @@ class CompareStrip(QWidget):
             col.setSpacing(2)
             pic = QLabel()
             pic.setFixedSize(COMPARE_PX, COMPARE_PX)
-            pic.setAlignment(Qt.AlignCenter)
+            pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
             cap = text("", Type.FOOTNOTE, secondary=True)
             col.addWidget(pic)
             col.addWidget(cap)
             lay.addLayout(col)
             self.pics[which], self.captions[which] = pic, cap
         self.note = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        lay.addWidget(self.note, 1, Qt.AlignBottom)
+        lay.addWidget(self.note, 1, Qt.AlignmentFlag.AlignBottom)
         self.signals = _ThumbSignals()
         self.signals.done.connect(self._got)
         self.token = 0
@@ -162,7 +162,7 @@ class JobStatus(Card):
         self.setAccessibleName("Progress")
         self.title = ElidedLabel("", Type.BODY, bold=True)      # file names can be long
         self.detail = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        self.detail.setTextFormat(Qt.PlainText)
+        self.detail.setTextFormat(Qt.TextFormat.PlainText)
         self.detail.setAccessibleName("Details")
         self.stop_btn = button("Stop", "", "stop", "Stop after the current file, keeping its original", "Esc")
         self.stop_btn.clicked.connect(self.stop_requested)
@@ -198,7 +198,7 @@ class JobStatus(Card):
         self.lay.addWidget(self.compare)
         # What to do about failures (fixes.py): a line of advice with the button that usually fixes it.
         self.fix_text = text("", Type.FOOTNOTE, wrap=True)
-        self.fix_text.setTextFormat(Qt.PlainText)
+        self.fix_text.setTextFormat(Qt.TextFormat.PlainText)
         self.fix_text.setAccessibleName("How to fix it")
         self.fix_row = FlowLayout(spacing=Space.S)
         self.lay.addWidget(self.fix_text)

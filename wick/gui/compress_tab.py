@@ -83,7 +83,7 @@ HIDE_ORDER = (C_CREATED, C_MODIFIED, C_TYPE, C_FOLDER, C_EST, C_INFO)   # first 
 class _ElideRight(QStyledItemDelegate):
     def initStyleOption(self, option, index) -> None:  # noqa: N802
         super().initStyleOption(option, index)
-        option.textElideMode = Qt.ElideRight
+        option.textElideMode = Qt.TextElideMode.ElideRight
 
 
 class CompressTab(QWidget):
@@ -133,15 +133,17 @@ class CompressTab(QWidget):
         rl.addLayout(tiles)
         # Where the saving comes from, by kind (each part shows only those files), and what the options will do.
         self.breakdown = text("", Type.FOOTNOTE, wrap=True)
-        self.breakdown.setTextFormat(Qt.RichText)
+        self.breakdown.setTextFormat(Qt.TextFormat.RichText)
         self.breakdown.setAccessibleName("Where the space comes from")
         self.breakdown.linkActivated.connect(self._show_group)
         # Tab reaches each part, Enter opens it (links in a label are mouse-only by default).
-        self.breakdown.setTextInteractionFlags(Qt.LinksAccessibleByMouse | Qt.LinksAccessibleByKeyboard)
-        self.breakdown.setFocusPolicy(Qt.TabFocus)
+        self.breakdown.setTextInteractionFlags(
+            Qt.TextInteractionFlag.LinksAccessibleByMouse | Qt.TextInteractionFlag.LinksAccessibleByKeyboard
+        )
+        self.breakdown.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.breakdown.hide()
         self.settings_line = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        self.settings_line.setTextFormat(Qt.PlainText)
+        self.settings_line.setTextFormat(Qt.TextFormat.PlainText)
         self.settings_line.setAccessibleName("What will be done")
         self.settings_line.setToolTip(keys("Change this in Options (Ctrl+I)"))
         summary_box = QVBoxLayout()
@@ -153,8 +155,9 @@ class CompressTab(QWidget):
         # progress while working; afterwards, what happened and where the result is
         self.job_status = JobStatus("Compressing", "compressed")
         self.job_status.stop_requested.connect(self.cancel)
-        self.job_status.fix_requested.connect(lambda key: self.win.apply_fix(key, retry=self.retry_failed,
-                                                                             rescan=self.start_scan))
+        self.job_status.fix_requested.connect(
+            lambda key: self.win.apply_fix(key, retry=self.retry_failed, rescan=self.start_scan)
+        )
         self.pauser = PauseControl(self.job_status, window)
         rl.addWidget(self.job_status)
 
@@ -164,8 +167,9 @@ class CompressTab(QWidget):
         bar.setSpacing(Space.S)
         self.select_all = button("Select All", "", None, "Select every file that can be compressed", "Ctrl+A")
         self.select_none = button("Select None", "", None, "", "Ctrl+Shift+A")
-        self.preview_btn = button("Preview", "", "eye", "Compare the selected file before and after. Videos show a "
-                                                        "short sample.", "Space")
+        self.preview_btn = button(
+            "Preview", "", "eye", "Compare the selected file before and after. Videos show a short sample.", "Space"
+        )
         self.retry_btn = button("Retry Failed", "", "retry", "Run the failed files again", "Ctrl+Shift+R")
         self.retry_btn.setVisible(False)
         self.rescan_btn = button("Rescan", "", "refresh", "Scan the added folders again", "Ctrl+R")
@@ -188,48 +192,49 @@ class CompressTab(QWidget):
         self.table.setAccessibleName("Files")
         self.table.setAccessibleDescription("Files found. Space previews, Delete excludes, Enter compresses.")
         self.table.setModel(self.proxy)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.setWordWrap(False)
-        self.table.setFrameShape(QFrame.NoFrame)
+        self.table.setFrameShape(QFrame.Shape.NoFrame)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(Size.ROW)
         self.table.setItemDelegateForColumn(C_STATUS, StatusDelegate(self.table))
         self.table.setItemDelegateForColumn(C_INFO, _ElideRight(self.table))  # keep "1920×1080 · 30 fps" readable
         self.table.setHorizontalHeader(Header(self.table))
         self.table.setSortingEnabled(True)  # after the header swap, so the new header shows the indicator
-        self.table.sortByColumn(C_SIZE, Qt.DescendingOrder)
+        self.table.sortByColumn(C_SIZE, Qt.SortOrder.DescendingOrder)
         self.table.horizontalHeader().remember("compress")
         h = self.table.horizontalHeader()
 
         def toggle_all():
-            self.model.set_all_checked(self.model.check_state() != Qt.Checked)
+            self.model.set_all_checked(self.model.check_state() != Qt.CheckState.Checked)
             self.update_summary()
 
         h.set_check(C_CHECK, self.model.check_state, toggle_all)
         self.model.dataChanged.connect(lambda *_: h.viewport().update())
         self.model.modelReset.connect(lambda: h.viewport().update())
         h.setHighlightSections(False)
-        h.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        h.setSectionResizeMode(C_CHECK, QHeaderView.Fixed)
+        h.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        h.setSectionResizeMode(C_CHECK, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(C_CHECK, Space.XXL + Space.S)
         # Every column can be dragged; the last one (Status) fills the rest. (A stretching Name column
         # made dragging another column's edge move the columns beside it instead of the edge.)
-        h.setSectionResizeMode(C_NAME, QHeaderView.Interactive)
-        for col, w in COLUMN_WIDTHS.items():
-            h.setSectionResizeMode(col, QHeaderView.Interactive)
-            self.table.setColumnWidth(col, w)
+        h.setSectionResizeMode(C_NAME, QHeaderView.ResizeMode.Interactive)
+        for col, width in COLUMN_WIDTHS.items():
+            h.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+            self.table.setColumnWidth(col, width)
         h.keep_in_view = True
         # Right-click a heading to choose columns (dates are off until wanted).
-        h.enable_column_menu("compress", [C_FOLDER, C_TYPE, C_INFO, C_EST, C_CREATED, C_MODIFIED],
-                             {C_CREATED, C_MODIFIED})
+        h.enable_column_menu(
+            "compress", [C_FOLDER, C_TYPE, C_INFO, C_EST, C_CREATED, C_MODIFIED], {C_CREATED, C_MODIFIED}
+        )
         h.column_choice_changed = self._fit_columns
-        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.table.setTextElideMode(Qt.ElideMiddle)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         h.setMinimumSectionSize(Space.XXL)
-        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._table_menu)
         keyboard_list(self.table, self._table_menu)
         click_to_check(self.table, C_CHECK)
@@ -244,7 +249,7 @@ class CompressTab(QWidget):
         self.resume_banner.resume.connect(self._resume_pending)
         self.resume_banner.discard.connect(self._discard_pending)
         self.page.body.addWidget(self.resume_banner)
-        self.off_banner = Card(padding=Space.M, spacing=Space.S)      # "12 videos skipped: ... [Turn On]"
+        self.off_banner = Card(padding=Space.M, spacing=Space.S)  # "12 videos skipped: ... [Turn On]"
         self.off_banner.setAccessibleName("Skipped files")
         self.off_text = text("", Type.BODY, wrap=True)
         self.off_buttons = QHBoxLayout()
@@ -277,8 +282,8 @@ class CompressTab(QWidget):
         scroll.setObjectName("inspectorScroll")
         scroll.setWidget(self.panel)
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         il.addWidget(scroll, 1)
         root.addWidget(self.inspector)
         self.options_btn.setChecked(True)
@@ -334,7 +339,9 @@ class CompressTab(QWidget):
             self.table.setColumnHidden(col, col not in shown)
         # Name takes the room the window gives (columns keep the widths they were dragged to).
         h = self.table.horizontalHeader()
-        middle = sum(self.table.columnWidth(c) for c in COLUMN_WIDTHS if c != C_STATUS and not self.table.isColumnHidden(c))
+        middle = sum(
+            self.table.columnWidth(c) for c in COLUMN_WIDTHS if c != C_STATUS and not self.table.isColumnHidden(c)
+        )
         name = available - self.table.columnWidth(C_CHECK) - middle - COLUMN_WIDTHS[C_STATUS]
         h._clamping = True
         try:
@@ -347,8 +354,12 @@ class CompressTab(QWidget):
         buttons = (self.add_files_btn, self.add_folder_btn, self.options_btn)
         for b in buttons:
             set_compact(b, False)
-        needed = (self.page.title.sizeHint().width() + Space.XXL * 3 + Space.S * 4
-                  + sum(b.sizeHint().width() for b in (*buttons, self.compress_btn)))
+        needed = (
+            self.page.title.sizeHint().width()
+            + Space.XXL * 3
+            + Space.S * 4
+            + sum(b.sizeHint().width() for b in (*buttons, self.compress_btn))
+        )
         compact = self.page.width() < needed
         for b in buttons:
             set_compact(b, compact)
@@ -360,7 +371,7 @@ class CompressTab(QWidget):
         selects = (self.select_all, self.select_none)
         iconic = (self.preview_btn, self.retry_btn, self.rescan_btn, self.clear_btn)
 
-        def need() -> int:      # the row's real minimum (its margins, spacing and every shown control)
+        def need() -> int:  # the row's real minimum (its margins, spacing and every shown control)
             self._list_bar.invalidate()
             return self._list_bar.minimumSize().width()
 
@@ -379,7 +390,7 @@ class CompressTab(QWidget):
     def eventFilter(self, obj, ev):  # noqa: N802
         from PySide6.QtCore import QEvent
 
-        if obj is self.table.viewport() and ev.type() == QEvent.Resize:
+        if obj is self.table.viewport() and ev.type() == QEvent.Type.Resize:
             self._fit_columns()
         return super().eventFilter(obj, ev)
 
@@ -424,10 +435,13 @@ class CompressTab(QWidget):
         remember_browse_dir(self.win.qsettings if hasattr(self, "win") else None, picked)
 
     def browse_files(self) -> None:
-        exts = "*.jpg *.jpeg *.jfif *.png *.apng *.gif *.webp *.tif *.tiff *.bmp *.heic *.heif *.avif " \
-               "*.mp4 *.m4v *.mov *.mkv *.webm *.avi *.wmv *.flv *.mpg *.mpeg *.ts *.m2ts *.mts *.3gp"
-        files, _ = QFileDialog.getOpenFileNames(self, "Add files", self._last_dir(),
-                                                f"Images and videos ({exts});;All files (*)")
+        exts = (
+            "*.jpg *.jpeg *.jfif *.png *.apng *.gif *.webp *.tif *.tiff *.bmp *.heic *.heif *.avif "
+            "*.mp4 *.m4v *.mov *.mkv *.webm *.avi *.wmv *.flv *.mpg *.mpeg *.ts *.m2ts *.mts *.3gp"
+        )
+        files, _ = QFileDialog.getOpenFileNames(
+            self, "Add files", self._last_dir(), f"Images and videos ({exts});;All files (*)"
+        )
         if files:
             self._remember_dir(files[0])
             self.add_paths(files)
@@ -445,7 +459,7 @@ class CompressTab(QWidget):
         self.scan_roots = []
         self.model.set_entries([], self.panel.settings())
         self.panel.set_file_kinds(None)
-        self.job_status.hide()          # the last job's outcome goes with its list
+        self.job_status.hide()  # the last job's outcome goes with its list
         self.update_summary()
 
     # ------------------------------------------------------------------ scan
@@ -466,8 +480,12 @@ class CompressTab(QWidget):
                 return
             paths = self.paths
         drives = [p for p in paths if p.is_dir() and p.anchor and Path(p.anchor) == p]
-        if drives and not ask(self, f"Scan the whole drive {drives[0]}?",
-                              "This can take a while. System, program and game folders are skipped.", "Scan"):
+        if drives and not ask(
+            self,
+            f"Scan the whole drive {drives[0]}?",
+            "This can take a while. System, program and game folders are skipped.",
+            "Scan",
+        ):
             return
         self.win.save_settings()
         self.scan_roots = paths
@@ -487,8 +505,9 @@ class CompressTab(QWidget):
     def _scan_progress(self, msg: str, done: int, total: int) -> None:
         self.job_status.busy(msg, done, total)
         if self.placeholder.loading and not self.model.rows:
-            self.placeholder.show_loading(f"Reading file details… {done:,} of {total:,}" if total else
-                                          "Looking for images, videos and audio…")
+            self.placeholder.show_loading(
+                f"Reading file details… {done:,} of {total:,}" if total else "Looking for images, videos and audio…"
+            )
 
     def _quick_start(self) -> None:
         """Compress what the context menu sent, with the current options and no questions; the window opens only
@@ -503,8 +522,10 @@ class CompressTab(QWidget):
         if not self.start_job(confirm=False):
             self.win.show_window()
             return
-        self.win.tray_message(f"Compressing {plural(len(items), 'file')} ({human(size)}) in "
-                              "the background…", actions=[("Show Progress", "compress")])
+        self.win.tray_message(
+            f"Compressing {plural(len(items), 'file')} ({human(size)}) in the background…",
+            actions=[("Show Progress", "compress")],
+        )
         self._quick_running = True
 
     def _scan_listed(self, entries) -> None:
@@ -522,19 +543,31 @@ class CompressTab(QWidget):
         self.update_summary()
 
     def _scan_done(self, result) -> None:
-        kinds = {"video" if e.kind == VIDEO else "audio" if e.kind == AUDIO else
-                 "document" if e.kind == DOCUMENT else "image" for e in result.entries}
+        kinds = {
+            "video"
+            if e.kind == VIDEO
+            else "audio"
+            if e.kind == AUDIO
+            else "document"
+            if e.kind == DOCUMENT
+            else "image"
+            for e in result.entries
+        }
         self.panel.set_file_kinds(kinds or None)  # only the options that matter for these files
         self.skipped_dirs = result.skipped_program_dirs
         self.skipped_libraries = result.skipped_libraries
         self.cloud_only = result.cloud_only_files
         entries = [e for e in result.entries if os.path.normcase(str(e.path)) not in self.removed]
-        if not entries and result.skipped_libraries:     # (only an app's library was given: say why nothing's here)
+        if not entries and result.skipped_libraries:  # (only an app's library was given: say why nothing's here)
             from ..protected import describe
             from .dialogs import inform
 
-            inform(self, "Wick leaves app libraries alone", "\n".join(describe(p) for p in result.skipped_libraries[:5])
-                   + ".\n\nChanging files inside one behind the app's back can break the library.")
+            inform(
+                self,
+                "Wick leaves app libraries alone",
+                "\n".join(describe(p) for p in result.skipped_libraries[:5])
+                + ".\n\nChanging files inside one behind the app's back can break the library.",
+            )
         self.model.finish_listed(entries, self.panel.settings())
         self._scan_settings = None
         self.update_summary()
@@ -547,17 +580,18 @@ class CompressTab(QWidget):
 
     def _update_breakdown(self) -> None:
 
-
-        rows = [r for r in self.model.rows if r.checked and r.plan.convert
-                and not (r.result and r.result.status == DONE)]
+        rows = [
+            r for r in self.model.rows if r.checked and r.plan.convert and not (r.result and r.result.status == DONE)
+        ]
         parts = summary.savings_breakdown([(r.entry, r.plan) for r in rows])
         kinds = {summary.group_of(r.entry.kind) for r in self.model.rows} or None
-        self.settings_line.setText(summary.describe_settings(self.panel.settings(), kinds, BIN_NAME)
-                                   if self.model.rows else "")
+        self.settings_line.setText(
+            summary.describe_settings(self.panel.settings(), kinds, BIN_NAME) if self.model.rows else ""
+        )
         if self.proxy.group and self.proxy.group not in {g for g, _n, _b in parts}:
-            self.proxy.set_group("")             # (nothing of that kind selected any more)
+            self.proxy.set_group("")  # (nothing of that kind selected any more)
         if len(parts) < 2 and not self.proxy.group:
-            self.breakdown.setText("")           # (one kind: the tiles already say it)
+            self.breakdown.setText("")  # (one kind: the tiles already say it)
             self.breakdown.hide()
             return
         links = []
@@ -580,7 +614,7 @@ class CompressTab(QWidget):
     def _undo_job(self, run_id: str) -> bool:
         started = self.win.history.undo_run(run_id)
         if started:
-            self.clear()                   # (the list described results that are being removed)
+            self.clear()  # (the list described results that are being removed)
         return started
 
     def _update_off_banner(self) -> None:
@@ -604,8 +638,10 @@ class CompressTab(QWidget):
         words = {"Image": "picture", "Video": "video", "Audio": "audio file"}
         parts = [f"{n:,} {words[k]}{'s' if n != 1 else ''}" for k, n in sorted(counts.items())]
         many = sum(counts.values()) != 1
-        self.off_text.setText(f"{' and '.join(parts)} {'are' if many else 'is'} skipped because "
-                              f"{'their' if many else 'its'} compression is turned off.")
+        self.off_text.setText(
+            f"{' and '.join(parts)} {'are' if many else 'is'} skipped because "
+            f"{'their' if many else 'its'} compression is turned off."
+        )
         for kind in sorted(counts):
             label = {"Image": "Pictures", "Video": "Videos", "Audio": "Audio"}[kind]
             b = button(f"Turn On {label}", "", None, f"Compress {label.lower()} too")
@@ -621,7 +657,7 @@ class CompressTab(QWidget):
         n, size, est = self.model.totals()
         failed = self.model.failed_count()
         self.retry_btn.setVisible(failed > 0 and not self.busy())
-        self.retry_btn.setProperty("fullText", None)        # (a compact toolbar keeps the new label)
+        self.retry_btn.setProperty("fullText", None)  # (a compact toolbar keeps the new label)
         self.retry_btn.setText(f"Retry Failed ({failed})")
         self._fit_toolbar()
         self.rescan_btn.setEnabled(bool(self.paths) and not self.busy())
@@ -629,8 +665,9 @@ class CompressTab(QWidget):
         self.compress_btn.setEnabled(n > 0 and not self.busy())
         self.compress_btn.setText(f"Compress {plural(n, 'File')}" if n else "Compress")
 
-        names = ", ".join(p.name or str(p) for p in self.paths[:3]) + (f" and {len(self.paths) - 3} more"
-                                                                          if len(self.paths) > 3 else "")
+        names = ", ".join(p.name or str(p) for p in self.paths[:3]) + (
+            f" and {len(self.paths) - 3} more" if len(self.paths) > 3 else ""
+        )
         if not self.paths:
             self.page.subtitle.setText("")
         elif self.busy() and not has_rows:
@@ -653,7 +690,8 @@ class CompressTab(QWidget):
             self.page.subtitle.setText(
                 f"{names} · {plural(len(self.model.rows), 'file')} found, "
                 + (f"reading details of {pending:,}…" if pending else f"{convertible} can be compressed")
-                + (f" · {', '.join(extra)}" if extra else ""))
+                + (f" · {', '.join(extra)}" if extra else "")
+            )
 
         done = [r.result for r in self.model.rows if r.result and r.result.status == DONE]
         saved = sum(r.saved for r in done)
@@ -704,8 +742,11 @@ class CompressTab(QWidget):
         if video:
             s.video_quality, s.video_crf = chosen.video_quality, chosen.video_crf
         else:
-            s.smart_quality, s.smart_target, s.image_quality = (chosen.smart_quality, chosen.smart_target,
-                                                                chosen.image_quality)
+            s.smart_quality, s.smart_target, s.image_quality = (
+                chosen.smart_quality,
+                chosen.smart_target,
+                chosen.image_quality,
+            )
         self.panel.load(s)
 
     def compress_one(self, entry, s, dest: Path | None = None) -> bool:
@@ -744,7 +785,9 @@ class CompressTab(QWidget):
             return
         for idx in self.table.selectionModel().selectedRows(C_CHECK):
             src = self.model.index(self.proxy.mapToSource(idx).row(), C_CHECK)
-            self.model.setData(src, Qt.Checked if include else Qt.Unchecked, Qt.CheckStateRole)
+            self.model.setData(
+                src, Qt.CheckState.Checked if include else Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole
+            )
         self.update_summary()
 
     def include_selected(self) -> None:
@@ -754,7 +797,7 @@ class CompressTab(QWidget):
     def start_job(self, confirm: bool = True, items=None, settings=None) -> bool:
         """Compress the selected files (or ``items`` with ``settings``, e.g. one file from the preview)."""
         if self._replan_timer.isActive() and not self.busy():
-            self._replan_timer.stop()       # options changed a moment ago: plan with them now, not after the job
+            self._replan_timer.stop()  # options changed a moment ago: plan with them now, not after the job
             self._replan()
         items = self.model.selected_items() if items is None else items
         if not items or self.busy():
@@ -765,13 +808,17 @@ class CompressTab(QWidget):
             needed |= {"cjxl", "djxl"}
         missing = sorted(t for t in needed if not tools.find_tool(t))
         if missing:
-            warn(self, "Missing tools: " + ", ".join(missing),
-                 "Put them in the tools folder next to Wick. The README explains how.")
+            warn(
+                self,
+                "Missing tools: " + ", ".join(missing),
+                "Put them in the tools folder next to Wick. The README explains how.",
+            )
             return False
         size = sum(e.size for e, _ in items)
-        where = {"replace": f"only then is the original moved to the {BIN_NAME}",
-                 "folder": f"the result is saved in {s.output_dir} (originals untouched)",
-                 }.get(s.output_mode, "the result is saved next to the original, which isn't changed")
+        where = {
+            "replace": f"only then is the original moved to the {BIN_NAME}",
+            "folder": f"the result is saved in {s.output_dir} (originals untouched)",
+        }.get(s.output_mode, "the result is saved next to the original, which isn't changed")
         if confirm:
             info = f"Each file is checked after conversion; {where}. You can undo this later."
             jxl = sum(1 for _, p in items if p.target_ext == ".jxl")
@@ -779,14 +826,17 @@ class CompressTab(QWidget):
                 from ..compat import jxl_note
 
                 info += f"\n\n{plural(jxl, 'file')} become{'s' if jxl == 1 else ''} JPEG XL. " + jxl_note()
-            if not ask(self, f"Compress {plural(len(items), 'file')} ({human(size)})?",
-                       info, "Compress"):
+            if not ask(self, f"Compress {plural(len(items), 'file')} ({human(size)})?", info, "Compress"):
                 return False
         self.win.save_settings()
         self.model.locked = True
         self._job_settings = s
-        pending.start("compress", s.to_dict(), str(self.scan_roots[0] if self.scan_roots else Path.cwd()),
-                      [str(e.path) for e, _ in items])
+        pending.start(
+            "compress",
+            s.to_dict(),
+            str(self.scan_roots[0] if self.scan_roots else Path.cwd()),
+            [str(e.path) for e, _ in items],
+        )
         self.resume_banner.hide()
         self.job_thread = JobThread(items, s, self.scan_roots[0] if self.scan_roots else Path.cwd(), self)
         self.job_thread.file_started.connect(self._file_started)
@@ -844,7 +894,7 @@ class CompressTab(QWidget):
             return
 
         self.resume_banner.hide()
-        self.panel.load(Settings.from_dict(p.settings))     # the options the job was started with
+        self.panel.load(Settings.from_dict(p.settings))  # the options the job was started with
         self.clear()
         self._resuming = True
         self.add_paths(p.remaining)
@@ -854,23 +904,33 @@ class CompressTab(QWidget):
         self.resume_banner.hide()
 
     def _job_done(self, results, run_id) -> None:
-        pending.finish("compress")          # it ended normally (finished, or stopped by the user)
+        pending.finish("compress")  # it ended normally (finished, or stopped by the user)
         done = [r for r in results if r.status == DONE]
         self.win.history.refresh()
         self.win.notify_outputs([r.output for r in done if r.output])
         note = ""
         if done:
             many = len(results) > 1
-            note = (f"The original{'s are' if many else ' is'} in the {BIN_NAME}: empty it to free the space, or "
-                    "undo it later." if self._job_settings.output_mode == "replace"
-                    else f"The original{'s were' if many else ' was'} kept.")
-        self.job_status.finish(results, note, replaced=self._job_settings.output_mode == "replace",
-                               on_undo=(lambda: self._undo_job(run_id)) if run_id else None)
+            note = (
+                f"The original{'s are' if many else ' is'} in the {BIN_NAME}: empty it to free the space, or "
+                "undo it later."
+                if self._job_settings.output_mode == "replace"
+                else f"The original{'s were' if many else ' was'} kept."
+            )
+        self.job_status.finish(
+            results,
+            note,
+            replaced=self._job_settings.output_mode == "replace",
+            on_undo=(lambda: self._undo_job(run_id)) if run_id else None,
+        )
         self.win.remember_finished(run_id if done else None, [r.output for r in done])
         quick, self._quick_running = getattr(self, "_quick_running", False), False
-        if not self.window().isActiveWindow():      # finished in the background: say so
-            actions = ([("Show Files", "show-files")] if done else []) + \
-                ([("Undo", "undo-last")] if done and run_id else []) + [("Show in History", "history")]
+        if not self.window().isActiveWindow():  # finished in the background: say so
+            actions = (
+                ([("Show Files", "show-files")] if done else [])
+                + ([("Undo", "undo-last")] if done and run_id else [])
+                + [("Show in History", "history")]
+            )
             self.win.tray_message(self.job_status.title.text(), actions=actions, launch="compress")
             QApplication.alert(self.window())
         if quick:
@@ -893,8 +953,11 @@ class CompressTab(QWidget):
 
         rows = self.model.rows
         reasons = Counter(r.plan.reason for r in rows if not r.plan.convert)
-        hint = (" Change the minimum sizes in Options › Rules." if any(k.startswith("Smaller than") for k in reasons)
-                else "")
+        hint = (
+            " Change the minimum sizes in Options › Rules."
+            if any(k.startswith("Smaller than") for k in reasons)
+            else ""
+        )
         if len(rows) == 1:
             return f"{rows[0].entry.path.name} won't be compressed: {rows[0].plan.reason}.{hint}"
         top = "; ".join(f"{reason} ({n})" for reason, n in reasons.most_common(3))
@@ -916,7 +979,7 @@ class CompressTab(QWidget):
             self._rescan_after = False
             QTimer.singleShot(0, self.start_scan)
         elif self._resuming and not self.busy():
-            self._resuming = False          # the unfinished job's files are listed again: carry on with them
+            self._resuming = False  # the unfinished job's files are listed again: carry on with them
             if self.model.selected_items():
                 QTimer.singleShot(0, lambda: self.start_job(confirm=False))
 
@@ -924,9 +987,16 @@ class CompressTab(QWidget):
         if scanning:
             self.job_status.busy("Looking for images, videos and audio…")
         elif not busy and not self.job_status.stop_btn.isHidden():
-            self.job_status.hide()          # a scan ended (a job's outcome stays until dismissed)
-        for w in (self.panel, self.select_all, self.select_none, self.preview_btn, self.add_files_btn,
-                  self.add_folder_btn, self.drop):
+            self.job_status.hide()  # a scan ended (a job's outcome stays until dismissed)
+        for w in (
+            self.panel,
+            self.select_all,
+            self.select_none,
+            self.preview_btn,
+            self.add_files_btn,
+            self.add_folder_btn,
+            self.drop,
+        ):
             w.setEnabled(not busy)
         if self.win.built("history") is not None:
             self.win.history.setEnabled(not busy)
@@ -955,29 +1025,50 @@ class CompressTab(QWidget):
             extra.append(("Preview\tSpace", lambda: self.preview_row(idx)))
         outputs = [x.result.output for x in rows if x.result and x.result.status == DONE and x.result.output]
         if outputs:
-            extra.append(("Show Result" if len(outputs) == 1 else f"Show {len(outputs)} Results",
-                          lambda: open_in_file_manager_many(outputs)))
+            extra.append(
+                (
+                    "Show Result" if len(outputs) == 1 else f"Show {len(outputs)} Results",
+                    lambda: open_in_file_manager_many(outputs),
+                )
+            )
         pickable = [x for x in rows if x.plan.convert and not (x.result and x.result.status == DONE)]
         if pickable and not self.busy():
+
             def check(on: bool):
                 for x in pickable:
                     src = self.model.index(self.model.rows.index(x), C_CHECK)
-                    self.model.setData(src, Qt.Checked if on else Qt.Unchecked, Qt.CheckStateRole)
+                    self.model.setData(
+                        src, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked, Qt.ItemDataRole.CheckStateRole
+                    )
                 self.update_summary()
+
             n = "" if len(pickable) == 1 else f" {len(pickable)}"
             extra += [None, (f"Select{n}", lambda: check(True)), (f"Deselect{n}\tDelete", lambda: check(False))]
         if not self.busy():
             label = type_label(r.entry.path, r.entry.kind)
-            same = [x for x in self.model.rows if x.plan.convert and not (x.result and x.result.status == DONE)
-                    and type_label(x.entry.path, x.entry.kind) == label]
+            same = [
+                x
+                for x in self.model.rows
+                if x.plan.convert
+                and not (x.result and x.result.status == DONE)
+                and type_label(x.entry.path, x.entry.kind) == label
+            ]
             if len(same) > 1:
+
                 def by_type(on: bool):
                     for x in same:
-                        self.model.setData(self.model.index(self.model.rows.index(x), C_CHECK),
-                                           Qt.Checked if on else Qt.Unchecked, Qt.CheckStateRole)
+                        self.model.setData(
+                            self.model.index(self.model.rows.index(x), C_CHECK),
+                            Qt.CheckState.Checked if on else Qt.CheckState.Unchecked,
+                            Qt.ItemDataRole.CheckStateRole,
+                        )
                     self.update_summary()
-                extra += [None, (f"Select All {label} Files", lambda: by_type(True)),
-                          (f"Deselect All {label} Files", lambda: by_type(False))]
+
+                extra += [
+                    None,
+                    (f"Select All {label} Files", lambda: by_type(True)),
+                    (f"Deselect All {label} Files", lambda: by_type(False)),
+                ]
         off = {x.plan.reason for x in rows if not x.plan.convert and x.plan.reason.endswith("conversion is off")}
         if off and not self.busy():
             extra.append(None)
@@ -992,8 +1083,11 @@ class CompressTab(QWidget):
     def _turn_on(self, kind: str) -> None:
         """A kind of file was skipped because its compression is off: switch it on (the list is planned again)."""
         p = self.panel
-        combo, value = {"Image": (p.image_format, "jxl"), "Video": (p.video_codec, "auto"),
-                        "Audio": (p.audio_lossless, "flac")}[kind]
+        combo, value = {
+            "Image": (p.image_format, "jxl"),
+            "Video": (p.video_codec, "auto"),
+            "Audio": (p.audio_lossless, "flac"),
+        }[kind]
         i = combo.findData(value)
         if i >= 0:
             combo.setCurrentIndex(i)
@@ -1004,7 +1098,6 @@ class CompressTab(QWidget):
             return
         names = {os.path.normcase(str(x.entry.path)) for x in rows}
         self.paths = [p for p in self.paths if os.path.normcase(str(p)) not in names]
-        self.removed |= names             # (a file inside a listed folder: left out of later scans too)
+        self.removed |= names  # (a file inside a listed folder: left out of later scans too)
         self.model.remove_rows(rows)
         self.update_summary()
-

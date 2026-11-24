@@ -114,7 +114,7 @@ def _accept_finder_files(app, win) -> None:
 
     class FinderFiles(QObject):
         def eventFilter(self, obj, event):  # noqa: N802
-            if event.type() == QEvent.FileOpen:
+            if event.type() == QEvent.Type.FileOpen:
                 path = event.file() or event.url().toLocalFile()
                 if path:
                     pending.append(path)
@@ -132,7 +132,7 @@ def quick_compress_on() -> bool:
 
 
     path = os.environ.get("WICK_SETTINGS_FILE")
-    qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
+    qs = QSettings(path, QSettings.Format.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
     return bool(qs.value("explorer/quick", False, bool))
 
 
