@@ -303,7 +303,7 @@ def test_title_bar_on_windows(win):
     _wait(lambda: rects()[1] == work, 3)
     assert rects()[1] == work, f"maximized client {rects()[1]} should be the work area {work}"
     assert hit(1, 1) == wf.HTCAPTION                # no resize edges when maximized
-    assert b.max.accessibleName() == "Restore"
+    assert b.max_btn.accessibleName() == "Restore"
     shot("window-maximized")
 
     user32.SendMessageW(hwnd, 0x0112, 0xF120, 0)   # SC_RESTORE
