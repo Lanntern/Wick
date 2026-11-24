@@ -41,18 +41,18 @@ def set_process_app_id() -> None:
 
 # ---------------------------------------------------------------------------------------------- COM plumbing
 
-class _GUID(ctypes.Structure):
+class GUID(ctypes.Structure):
     _fields_ = [("data", ctypes.c_ubyte * 16)]
 
     @classmethod
-    def of(cls, text: str) -> _GUID:
+    def of(cls, text: str) -> GUID:
         g = cls()
         ctypes.memmove(g.data, uuid.UUID(text).bytes_le, 16)
         return g
 
 
 class _PROPERTYKEY(ctypes.Structure):
-    _fields_ = [("fmtid", _GUID), ("pid", ctypes.c_ulong)]
+    _fields_ = [("fmtid", GUID), ("pid", ctypes.c_ulong)]
 
 
 class _PROPVARIANT(ctypes.Structure):
@@ -74,7 +74,7 @@ VT_LPWSTR = 31
 CLSCTX_INPROC_SERVER = 1
 
 
-class _Com:
+class Com:
     """A COM interface pointer: call vtable slot ``i`` with ctypes argument types."""
 
     def __init__(self, ptr: ctypes.c_void_p):
@@ -88,11 +88,11 @@ class _Com:
             raise OSError(f"COM call {index} failed (HRESULT 0x{hr & 0xFFFFFFFF:08X})")
         return hr
 
-    def query(self, iid: str) -> _Com:
+    def query(self, iid: str) -> Com:
         out = ctypes.c_void_p()
-        self.call(0, (ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p)), ctypes.byref(_GUID.of(iid)),
+        self.call(0, (ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)), ctypes.byref(GUID.of(iid)),
                   ctypes.byref(out))
-        return _Com(out)
+        return Com(out)
 
     def release(self) -> None:
         if self.ptr:
@@ -104,13 +104,13 @@ class _Com:
 CO_E_NOTINITIALIZED = -0x7FFBFE10        # 0x800401F0: COM hasn't been started on this thread
 
 
-def _create(clsid: str, iid: str) -> _Com:
+def create_instance(clsid: str, iid: str) -> Com:
     ole32 = ctypes.windll.ole32  # type: ignore[attr-defined]
     out = ctypes.c_void_p()
 
     def attempt() -> int:
-        return ole32.CoCreateInstance(ctypes.byref(_GUID.of(clsid)), None, CLSCTX_INPROC_SERVER,
-                                      ctypes.byref(_GUID.of(iid)), ctypes.byref(out))
+        return ole32.CoCreateInstance(ctypes.byref(GUID.of(clsid)), None, CLSCTX_INPROC_SERVER,
+                                      ctypes.byref(GUID.of(iid)), ctypes.byref(out))
 
     hr = attempt()
     if hr == CO_E_NOTINITIALIZED:
@@ -120,12 +120,12 @@ def _create(clsid: str, iid: str) -> _Com:
         hr = attempt()
     if hr < 0:
         raise OSError(f"CoCreateInstance {clsid} failed (HRESULT 0x{hr & 0xFFFFFFFF:08X})")
-    return _Com(out)
+    return Com(out)
 
 
-def _task_link(exe: str, args: str, title: str, description: str) -> _Com:
+def _task_link(exe: str, args: str, title: str, description: str) -> Com:
     """An IShellLinkW for one task: runs ``exe args``, shown as ``title``."""
-    link = _create(CLSID_ShellLink, IID_IShellLinkW)
+    link = create_instance(CLSID_ShellLink, IID_IShellLinkW)
     w = ctypes.c_wchar_p
     link.call(20, (w,), exe)                      # SetPath
     link.call(11, (w,), args)                     # SetArguments
@@ -133,7 +133,7 @@ def _task_link(exe: str, args: str, title: str, description: str) -> _Com:
     link.call(17, (w, ctypes.c_int), exe, 0)      # SetIconLocation: the app's own icon
     store = link.query(IID_IPropertyStore)
     try:
-        key = _PROPERTYKEY(_GUID.of(PKEY_Title[0]), PKEY_Title[1])
+        key = _PROPERTYKEY(GUID.of(PKEY_Title[0]), PKEY_Title[1])
         value = _PROPVARIANT(vt=VT_LPWSTR, pwszVal=title)
         store.call(6, (ctypes.POINTER(_PROPERTYKEY), ctypes.POINTER(_PROPVARIANT)),
                    ctypes.byref(key), ctypes.byref(value))                             # SetValue (copies)
@@ -155,15 +155,15 @@ def update(exe: str | None = None, args_prefix: str = "") -> bool:
     ole32 = ctypes.windll.ole32  # type: ignore[attr-defined]
     hr_init = ole32.CoInitializeEx(None, 2)    # apartment-threaded; S_FALSE / changed mode: already initialized
     dest = tasks = None
-    links: list[_Com] = []
+    links: list[Com] = []
     try:
-        dest = _create(CLSID_DestinationList, IID_ICustomDestinationList)
+        dest = create_instance(CLSID_DestinationList, IID_ICustomDestinationList)
         dest.call(3, (ctypes.c_wchar_p,), APP_ID)                                       # SetAppID
         slots, removed = ctypes.c_uint(), ctypes.c_void_p()
-        dest.call(4, (ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p)),
-                  ctypes.byref(slots), ctypes.byref(_GUID.of(IID_IObjectArray)), ctypes.byref(removed))  # BeginList
-        _Com(removed).release()
-        tasks = _create(CLSID_EnumerableObjectCollection, IID_IObjectCollection)
+        dest.call(4, (ctypes.POINTER(ctypes.c_uint), ctypes.POINTER(GUID), ctypes.POINTER(ctypes.c_void_p)),
+                  ctypes.byref(slots), ctypes.byref(GUID.of(IID_IObjectArray)), ctypes.byref(removed))  # BeginList
+        Com(removed).release()
+        tasks = create_instance(CLSID_EnumerableObjectCollection, IID_IObjectCollection)
         for title, target, description in TASKS:
             link = _task_link(exe, f"{args_prefix}--open={target}".strip(), title, description)
             links.append(link)
@@ -201,7 +201,7 @@ def clear() -> bool:
     hr_init = ole32.CoInitializeEx(None, 2)
     dest = None
     try:
-        dest = _create(CLSID_DestinationList, IID_ICustomDestinationList)
+        dest = create_instance(CLSID_DestinationList, IID_ICustomDestinationList)
         dest.call(10, (ctypes.c_wchar_p,), APP_ID)                                     # DeleteList
         return True
     except OSError:

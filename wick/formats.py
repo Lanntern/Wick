@@ -40,7 +40,7 @@ IMAGE_KINDS = (JPEG, PNG, GIF, WEBP, TIFF, BMP, HEIC, AVIF)
 # Sources whose pixels are exact (lossless): can be converted losslessly.
 LOSSLESS_SOURCE_KINDS = (PNG, GIF, TIFF, BMP)
 
-_EXT_KIND = {
+EXT_KIND = {
     ".jpg": JPEG, ".jpeg": JPEG, ".jpe": JPEG, ".jfif": JPEG,
     ".png": PNG, ".apng": PNG,
     ".gif": GIF,
@@ -93,7 +93,7 @@ def classify(path: Path) -> str | None:
         return AUDIO
     if ext in DOCUMENT_EXTS:
         return DOCUMENT
-    return _EXT_KIND.get(ext)
+    return EXT_KIND.get(ext)
 
 
 def type_label(path: Path, kind: str) -> str:

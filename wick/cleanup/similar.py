@@ -25,7 +25,7 @@ _BANDS = 4
 _MAX_BUCKET = 5000                        # more photos sharing one band than this is noise (flat images)
 
 
-class _Ticker:
+class Ticker:
     """Thread-safe progress, at most ten updates a second and always the last one."""
 
     def __init__(self, progress: ProgressFn | None):
@@ -235,7 +235,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
 
         preload_codecs(heif=True)   # import on this thread before the workers use it
     workers = min(8, os.cpu_count() or 2)
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
 
     finished: list[int] = []
 
@@ -284,7 +284,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
     # tells a re-save from a different shot. Sets are done in batches so thumbnails don't pile up.
     components.sort(key=len)
     total = sum(len(g) for g in components)
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
     sets: list[tuple[int, list[int]]] = []   # (keeper, others)
     looks: dict[int, bool] = {}
     sharp: dict[int, float] = {}

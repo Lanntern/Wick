@@ -18,7 +18,7 @@ from pathlib import Path
 from .. import index, tools
 from ..formats import VIDEO_EXTS, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
-from .similar import _Ticker
+from .similar import Ticker
 
 POINTS = tuple(i / 10 for i in range(1, 10))
 STRICTNESS = {"very": (5, 3.0), "similar": (10, 6.0)}   # (most bits a frame may differ, average)
@@ -122,7 +122,7 @@ def find_similar_videos(roots: list[Path], *, strictness: str = "very", min_size
                 prints[i] = cached["fp"]
         else:
             todo.append(i)
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
     done: list[int] = []
 
     def work(i: int) -> None:

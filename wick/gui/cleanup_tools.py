@@ -35,7 +35,7 @@ from ..cleanup import (
 from ..cleanup import apps as apps_mod
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
-from .cleanup_section import Tool, ToolSection, _existing
+from .cleanup_section import Tool, ToolSection, existing_folders
 from .widgets import SizeInput, button, dialog_buttons, dialog_layout
 
 # ---------------------------------------------------------------- tool definitions
@@ -499,7 +499,7 @@ def tools() -> list[Tool]:
              "Finds files with exactly the same contents, whatever their names. Keep one copy and move the others "
              f"to the {BIN_NAME}, or replace them with hard links so every copy keeps working but the space is only "
              "used once.",
-             lambda: _existing("Pictures", "Videos", "Documents", "Downloads", "Desktop", "Music"),
+             lambda: existing_folders("Pictures", "Videos", "Documents", "Downloads", "Desktop", "Music"),
              _scan_duplicates,
              [(actions.HARDLINK, "Replace with Hard Links", ""), (actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_keep_options, group_title=_dup_group_title),
@@ -507,14 +507,14 @@ def tools() -> list[Tool]:
              "Finds photos that look alike even when the files are different, like re-saved, resized or edited "
              "copies, and burst shots on Similar. The best photo in each group stays. Only obvious copies are "
              "selected for you, and you can hover a row to see the photo.",
-             lambda: _existing("Pictures", "Desktop", "Downloads"), _scan_similar,
+             lambda: existing_folders("Pictures", "Desktop", "Downloads"), _scan_similar,
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_similar_options, group_title=_similar_group_title),
         Tool("videos", "Similar Videos",
              "Finds the same video saved more than once, like a smaller copy, another format or a second download. "
              "The copy with the most pixels stays, and lower-resolution copies that look the same are selected for "
              "you.",
-             lambda: _existing("Videos", "Pictures", "Downloads", "Desktop"),
+             lambda: existing_folders("Videos", "Pictures", "Downloads", "Desktop"),
              lambda s, p, c: videos.find_similar_videos(s.folders, strictness=s.extra_how.currentData(),
                                                         progress=p, cancel=c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_videos_options,
@@ -523,7 +523,7 @@ def tools() -> list[Tool]:
              "Finds songs saved more than once, even as different files, like an MP3 and a FLAC of the same "
              "recording. The best-quality copy stays. Only copies in the same format as that one are selected for "
              "you.",
-             lambda: _existing("Music", "Downloads", "Desktop", "Documents"), _scan_music,
+             lambda: existing_folders("Music", "Downloads", "Desktop", "Documents"), _scan_music,
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_music_options,
              group_title=music.group_title),
         Tool("large", "Large Files",
@@ -545,32 +545,32 @@ def tools() -> list[Tool]:
              "Photos, videos, music, archives and PDFs that can't be opened, or were cut short by an interrupted "
              "download or copy. Files that won't open at all are selected for you. Damaged ones often still partly "
              "open, so those are up to you.",
-             lambda: _existing("Pictures", "Videos", "Music", "Documents", "Downloads", "Desktop"),
+             lambda: existing_folders("Pictures", "Videos", "Music", "Documents", "Downloads", "Desktop"),
              lambda s, p, c: broken.find_broken(s.folders, s.extra_thorough.isChecked(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_broken_options),
         Tool("archives", "Archives",
              "Finds .zip, .7z and .tar archives that have already been extracted next to themselves. An archive is "
              "only suggested when every file in it is present and identical in the extracted folder.",
-             lambda: _existing("Downloads", "Desktop", "Documents"), lambda s, p, c: archives.find_extracted_archives(
+             lambda: existing_folders("Downloads", "Desktop", "Documents"), lambda s, p, c: archives.find_extracted_archives(
                  s.folders, progress=p, cancel=c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("installers", "Installers",
              "Installers and disk images you downloaded a while ago. Installers for programs you seem to have "
              "installed are marked.",
-             lambda: _existing("Downloads"),
+             lambda: existing_folders("Downloads"),
              lambda s, p, c: installers.find_installers(s.folders, s.extra_days.value(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              options=_days_option("installers", 30, "Older than", "Only list files older than this")),
         Tool("proxies", "Camera Proxies",
              "Low-resolution copies and thumbnails that GoPro, DJI and Insta360 cameras save next to every video "
              "for their phone apps. A file is only listed when its full video is right beside it.",
-             lambda: _existing("Videos", "Pictures", "Desktop", "Downloads"),
+             lambda: existing_folders("Videos", "Pictures", "Desktop", "Downloads"),
              lambda s, p, c: proxies.find_proxies(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("pairs", "RAW + JPEG",
              "Photos the camera saved twice, as RAW and as JPEG or HEIC. One of each pair is listed; which one is "
              "up to you, and nothing is selected for you.",
-             lambda: _existing("Pictures", "Desktop", "Downloads"),
+             lambda: existing_folders("Pictures", "Desktop", "Downloads"),
              lambda s, p, c: pairs.find_pairs(s.folders, s.extra_keep.currentData(), p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")], options=_pairs_options),
         Tool("backups", "Phone Backups",
@@ -596,7 +596,7 @@ def tools() -> list[Tool]:
              available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
         Tool("empty", "Empty Items",
              "Empty folders and empty files. Files that matter even when empty, like .gitkeep, are left alone.",
-             lambda: _existing("Documents", "Downloads", "Desktop", "Pictures"),
+             lambda: existing_folders("Documents", "Downloads", "Desktop", "Pictures"),
              lambda s, p, c: empties.find_empty(s.folders, p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")]),
         Tool("caches", "Caches",
@@ -634,7 +634,7 @@ def tools() -> list[Tool]:
              appcompress.default_sources,
              lambda s, p, c: appcompress.find_compressible(
                  appcompress.expand_sources(s.folders) + (appcompress.old_folders(
-                     _existing("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
+                     existing_folders("Documents", "Downloads", "Desktop"), c) if s.app_old.isChecked() else []),
                  p, c, **s._app_scan_options),
              [(actions.COMPACT, "Compress Folders", "primary"), (actions.DECOMPACT, "Decompress Folders", "secondary")],
              options=_appcompress_options,
@@ -644,7 +644,7 @@ def tools() -> list[Tool]:
              "Turns a Google Photos Takeout into one folder of photos and videos, each with the date it was taken. "
              "Google stores those dates in separate files, so without this every photo shows the export date. If "
              "it's stopped, running it again picks up where it left off.",
-             lambda: _existing("Downloads"), lambda s, p, c: takeout.find(s.folders, p, c),
+             lambda: existing_folders("Downloads"), lambda s, p, c: takeout.find(s.folders, p, c),
              [(actions.TAKEOUT, "Merge Into Folder…", "primary")], folder_label="Takeout files in",
              options=_takeout_options),
     ]

@@ -731,7 +731,7 @@ class ConvertTab(FileJobPage):
 
     def _trim(self, e: FileEntry) -> None:
         from .. import cutjoin
-        from ..engine import _unique
+        from ..engine import unique_path
         from ..formats import VIDEO
         from .trim_dialog import TrimDialog, clock
 
@@ -741,7 +741,7 @@ class ConvertTab(FileJobPage):
             return
         start, end = dlg.times()
         exact = dlg.exact.isChecked()
-        dest = _unique(e.path.with_name(f"{e.path.stem} (trimmed){e.path.suffix}"))
+        dest = unique_path(e.path.with_name(f"{e.path.stem} (trimmed){e.path.suffix}"))
         self.run_made(dest, lambda out, step, cancel: cutjoin.trim(
             e.path, start, end, out, exact, lambda f: step(round(f * 100), 100), cancel), [e.path],
             f"Trimmed to {clock(start)}–{clock(end)}" + (", re-encoded" if exact else " without re-encoding"),

@@ -139,7 +139,7 @@ def remove_orphans(pkg: Package) -> int:
 
 def bitmaps_to_png(pkg: Package) -> int:
     """BMP and TIFF pictures in an Office file's media folders become PNG (same pixels). Returns how many."""
-    from .documents import _same_pixels, shrink_png
+    from .documents import same_pixels, shrink_png
 
     if not pkg.ooxml:
         return 0
@@ -161,7 +161,7 @@ def bitmaps_to_png(pkg: Package) -> int:
                 buf = io.BytesIO()
                 im.save(buf, "PNG")
             png = shrink_png(buf.getvalue())
-            if not _same_pixels(pkg.data[name], png):
+            if not same_pixels(pkg.data[name], png):
                 continue
         except Exception:  # noqa: BLE001 - this picture stays as it is
             continue

@@ -41,7 +41,7 @@ def pdf_available() -> bool:
 
 # ---------------------------------------------------------------- pictures
 
-def _same_pixels(a: bytes, b: bytes) -> bool:
+def same_pixels(a: bytes, b: bytes) -> bool:
     from PIL import Image, ImageChops
 
     with Image.open(io.BytesIO(a)) as ia, Image.open(io.BytesIO(b)) as ib:
@@ -63,7 +63,7 @@ def shrink_jpeg(data: bytes) -> bytes:
         out = mlo.optimize(data)
     except Exception:  # noqa: BLE001 - odd JPEGs (CMYK, arithmetic...) stay as they are
         return data
-    return out if len(out) < len(data) and _same_pixels(data, out) else data
+    return out if len(out) < len(data) and same_pixels(data, out) else data
 
 
 def shrink_png(data: bytes) -> bytes:
@@ -73,7 +73,7 @@ def shrink_png(data: bytes) -> bytes:
         out = oxipng.optimize_from_memory(data, level=3)
     except Exception:  # noqa: BLE001
         return data
-    return out if len(out) < len(data) and _same_pixels(data, out) else data
+    return out if len(out) < len(data) and same_pixels(data, out) else data
 
 
 def reduce_picture(data: bytes, ext: str, long_edge: int) -> bytes:
@@ -301,7 +301,7 @@ def _verify_office(src: Path, out: Path, pkg, lossless: bool) -> None:
                     im.load()
             except Exception as e:  # noqa: BLE001
                 raise VerificationFailed(f"Picture {ia.filename} doesn't open") from e
-            if lossless and ib.filename not in pkg.cropped and not _same_pixels(old, new):
+            if lossless and ib.filename not in pkg.cropped and not same_pixels(old, new):
                 raise VerificationFailed(f"Picture {ia.filename} looks different")
 
 

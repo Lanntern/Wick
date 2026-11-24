@@ -61,7 +61,7 @@ def convert(src: Path, info, plan, s) -> Path:
     import dataclasses
 
     from . import video
-    from .images import Ctx, _jpeg_extras
+    from .images import Ctx, jpeg_extras
     from .plan import Plan
     from .probe import probe_video
 
@@ -81,7 +81,7 @@ def convert(src: Path, info, plan, s) -> Path:
         photo_in = work / "photo.jpg"
         photo_in.write_bytes(photo)
         ctx = Ctx(photo_in, "jpeg", info, plan, s, work / "photo-out.jpg")
-        new_photo = _jpeg_extras(ctx, mz.optimize(photo, copy=mz.COPY_MARKERS.ALL))
+        new_photo = jpeg_extras(ctx, mz.optimize(photo, copy=mz.COPY_MARKERS.ALL))
         # The clip: HEVC, at the chosen video quality.
         clip_info = probe_video(clip_in)
         new_clip = clip
@@ -110,7 +110,7 @@ def convert(src: Path, info, plan, s) -> Path:
 
 
 def _verify(path: Path, original_photo: bytes, clip_len: int) -> None:
-    from .documents import _same_pixels
+    from .documents import same_pixels
     from .jpegparts import primary_end
     from .probe import probe_video
 
@@ -118,7 +118,7 @@ def _verify(path: Path, original_photo: bytes, clip_len: int) -> None:
     if clip_length(data) != clip_len:
         raise VerificationFailed("The photo doesn't point at its clip")
     photo = data[:-clip_len]
-    if not _same_pixels(original_photo[:primary_end(original_photo)], photo[:primary_end(photo)]):
+    if not same_pixels(original_photo[:primary_end(original_photo)], photo[:primary_end(photo)]):
         raise VerificationFailed("The photo looks different")
     with tempfile.TemporaryDirectory(prefix="wick-motion-check-") as folder:
         clip = Path(folder) / "clip.mp4"

@@ -72,13 +72,13 @@ class Tool:
     extra: dict = field(default_factory=dict)
 
 
-def _existing(*names: str) -> list[Path]:
+def existing_folders(*names: str) -> list[Path]:
     return [p for p in (known_folder(n) for n in names) if p is not None]
 
 
 # ---------------------------------------------------------------- workers
 
-class _Scan(QThread):
+class ScanWorker(QThread):
     progress = Signal(str, int, int)
     partial = Signal(str, object)
     done = Signal(object)
@@ -451,7 +451,7 @@ class ToolSection(QWidget):
         self.tree.clear()
         self.result = None
         self._scan_complete = False
-        self.worker = _Scan(lambda progress, cancel: self.tool.scan(self, progress, cancel), self)
+        self.worker = ScanWorker(lambda progress, cancel: self.tool.scan(self, progress, cancel), self)
         self.worker.progress.connect(self._progress)
         self.worker.partial.connect(self._partial)
         self.worker.done.connect(self._scanned)

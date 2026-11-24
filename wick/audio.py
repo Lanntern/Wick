@@ -109,7 +109,7 @@ def identical_channels(src: Path, info: AudioInfo, exact: bool) -> bool:
     return not exact and float(level) < -80.0  # lossy decoders may differ by rounding noise
 
 
-def _cover_metadata(src: Path, info: AudioInfo, folder: Path | None = None) -> Path | None:
+def cover_metadata(src: Path, info: AudioInfo, folder: Path | None = None) -> Path | None:
     """An ffmetadata file carrying the album art as METADATA_BLOCK_PICTURE (for Ogg/Opus), written in
     ``folder`` (default: next to ``src``)."""
     mime = {"mjpeg": "image/jpeg", "png": "image/png"}.get(info.cover_codec)
@@ -487,7 +487,7 @@ def convert_audio(src: Path, info: AudioInfo, plan: Plan, s: Settings,
     if cancel is not None and cancel.is_set():
         raise tools.Cancelled()
     out = temp_name(src.parent, FORMATS[fmt][0])
-    meta = _cover_metadata(src, info) if fmt == "opus" else None
+    meta = cover_metadata(src, info) if fmt == "opus" else None
     pictures, art_saved = small_pictures(src, info) if fmt != "opus" else ([], 0)
     try:
         steps.report(f"Encoding {steps.format_name(FORMATS[fmt][0])}")

@@ -36,13 +36,13 @@ from .thumbs import HoverPreviewer
 from .widgets import (
     CARD_INSET,
     STATUS_ROLE,
+    BodyScroll,
     Card,
     ElidedLabel,
     Page,
     ProgressBar,
     StatTile,
     StatusDelegate,
-    _BodyScroll,
     button,
     hbox,
     text,
@@ -228,7 +228,7 @@ class HomeTab(Page):
         """The width the page's content gets: the page's own width (always current, unlike the cards inside,
         which follow it) less its margins and, when the page scrolls, the scroll bar's gap."""
         body = self.body.contentsMargins()
-        sc = self.findChild(_BodyScroll)
+        sc = self.findChild(BodyScroll)
         bar = sc.verticalScrollBar() if sc is not None else None
         gutter = bar.width() if bar is not None and not bar.isHidden() else 0
         return self.width() - 2 * Space.XXL - body.left() - body.right() - gutter
@@ -339,9 +339,9 @@ class HomeTab(Page):
     def _show_drive(self) -> None:
         import shutil
 
-        from ..space import _anchor
+        from ..space import anchor
 
-        root = _anchor(self.roots[0] if self.roots else Path.home())
+        root = anchor(self.roots[0] if self.roots else Path.home())
         try:
             usage = shutil.disk_usage(root)
         except OSError:

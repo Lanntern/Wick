@@ -730,12 +730,12 @@ class PreviewDialog(QDialog):
     def _save_as(self) -> None:
         from PySide6.QtWidgets import QFileDialog
 
-        from ..engine import _unique
+        from ..engine import unique_path
         from ..steps import format_name
 
         s = self._chosen_settings()
         ext = plan_entry(self.entry, s).target_ext or self.entry.path.suffix
-        suggested = _unique(self.entry.path.with_suffix(ext))
+        suggested = unique_path(self.entry.path.with_suffix(ext))
         name, _ = QFileDialog.getSaveFileName(self, "Save the result as", str(suggested),
                                               f"{format_name(ext)} (*{ext})")
         if not name:

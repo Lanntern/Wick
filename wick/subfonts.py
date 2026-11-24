@@ -113,7 +113,7 @@ def _may_subset(font) -> bool:
     return not fs_type & 0x0302          # (restricted licence, no subsetting, bitmap embedding only)
 
 
-def _quiet_fonttools() -> None:
+def quiet_fonttools() -> None:
     """fontTools reports each table it can't cut ("FFTM NOT subset"): routine, not for the user's console."""
     import logging
 
@@ -127,7 +127,7 @@ def subset(src: Path, dst: Path, chars: set[int]) -> bool:
     from fontTools import subset as ft_subset
     from fontTools.ttLib import TTFont
 
-    _quiet_fonttools()
+    quiet_fonttools()
     with TTFont(src, lazy=False) as font:
         if not _may_subset(font):
             return False

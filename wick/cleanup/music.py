@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
-from .similar import _Ticker
+from .similar import Ticker
 
 RATE = 5512
 SECONDS = 120
@@ -166,10 +166,10 @@ def describe(path: Path) -> dict | None:
 
 
 def quality_label(d: dict, path: Path) -> str:
-    from .extensions import _NAMES
+    from .extensions import TYPE_NAMES
 
     ext = path.suffix.lower()
-    fmt = _NAMES.get(ext, ext.lstrip(".").upper())
+    fmt = TYPE_NAMES.get(ext, ext.lstrip(".").upper())
     if d["codec"] in LOSSLESS or d["codec"].startswith("pcm_"):
         depth = f"{d['bits']}-bit " if d.get("bits") else ""
         rate = f"{d['rate'] / 1000:g} kHz" if d.get("rate") else ""
@@ -221,7 +221,7 @@ def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500
             continue                                   # (unreadable last time, unchanged since)
         todo.append(i)
 
-    ticker = _Ticker(progress)
+    ticker = Ticker(progress)
     done: list[int] = []
 
     def work(i: int) -> None:

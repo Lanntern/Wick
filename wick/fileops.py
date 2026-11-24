@@ -75,10 +75,10 @@ def copy_times(st: os.stat_result, dst: Path) -> None:
         pass
     if IS_WINDOWS:
         created = getattr(st, "st_birthtime_ns", None) or st.st_ctime_ns
-        _set_windows_creation_time(dst, created)
+        set_windows_creation_time(dst, created)
 
 
-def _set_windows_creation_time(path: Path, ns: int) -> None:
+def set_windows_creation_time(path: Path, ns: int) -> None:
     if sys.platform != "win32":
         return
     try:
@@ -100,7 +100,7 @@ def _set_windows_creation_time(path: Path, ns: int) -> None:
             kernel32.CloseHandle(handle)
     except Exception:
         from wick.log import ignored
-        ignored("fileops._set_windows_creation_time")
+        ignored("fileops.set_windows_creation_time")
 
 
 @lru_cache(maxsize=64)
@@ -277,9 +277,9 @@ _FILE_SUPPORTS_BLOCK_REFCOUNTING = 0x08000000
 def supports_block_clone(path: Path) -> bool:
     """Is ``path`` on a volume that can share data between files: ReFS (e.g. a Dev Drive) on Windows, APFS on a Mac?"""
     if sys.platform == "darwin":
-        from .drives import _mac_mount_fs
+        from .drives import mac_mount_fs
 
-        return _mac_mount_fs(path) == "apfs"
+        return mac_mount_fs(path) == "apfs"
     if not IS_WINDOWS:
         return False
     try:

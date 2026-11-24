@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .formats import (
-    _EXT_KIND,
     ARCHIVE,
     AUDIO,
     AUDIO_EXTS,
@@ -23,6 +22,7 @@ from .formats import (
     DOC,
     DOCUMENT,
     DOCUMENT_EXTS,
+    EXT_KIND,
     FONT,
     HEIC,
     IMAGE_KINDS,
@@ -227,7 +227,7 @@ def _add_file(result: ScanResult, p: Path, root: Path | None, seen: set[str], se
 
 
 # Every extension the scanner lists (and JPEG XL, counted as already efficient): what to ask Everything for.
-_LISTED_EXTS = ({*_EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, *DOCUMENT_EXTS, *CONVERT_INPUTS, ".zip", ".7z", ".tar", ".tgz",
+_LISTED_EXTS = ({*EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, *DOCUMENT_EXTS, *CONVERT_INPUTS, ".zip", ".7z", ".tar", ".tgz",
                  ".gz", ".tbz2", ".bz2", ".txz", ".xz"})
 
 FAST_DRIVES = True   # Settings › "Fast whole-drive scanning" (Windows, NTFS: reads the drive's file table)

@@ -30,7 +30,7 @@ from .formats import (
     read_jxl_info,
     register_heif,
 )
-from .images import Ctx, VerificationFailed, _decoded_path, _filtered_meta, _load_frames, _load_static, _open
+from .images import Ctx, VerificationFailed, decoded_path, filtered_meta, load_frames, load_static, open_image
 from .plan import Plan
 from .probe import VideoInfo, probe_video
 from .settings import Settings
@@ -353,17 +353,17 @@ def convert_image(src: Path, kind: str, info, target: str, opts: ConvertOptions,
         steps.report(f"Encoding {label}")
         animated = bool(info is not None and getattr(info, "frames", 1) > 1 and anim_ok)
         if animated:
-            frames, durations, loop = _load_frames(ctx.staged)
+            frames, durations, loop = load_frames(ctx.staged)
             if plan.resize:
                 from PIL import Image
 
                 frames = [f.resize(plan.resize, Image.LANCZOS) for f in frames]
             frames = [_turn_picture(f, opts) for f in frames]
-            with _open(ctx.staged) as im:
-                meta = _filtered_meta(ctx, im)
+            with open_image(ctx.staged) as im:
+                meta = filtered_meta(ctx, im)
             _save_animated(frames, durations, loop, target, ctx, opts, meta)
         else:
-            img, meta = _load_static(ctx)
+            img, meta = load_static(ctx)
             img = _turn_picture(img, opts)
             if img.mode in ("I;16", "I", "F") and target not in ("png", "tiff", "jxl"):
                 img = img.convert("RGB")
@@ -753,10 +753,10 @@ def _save_animated(frames, durations, loop, target: str, ctx: Ctx, opts: Convert
 
 def _verify(ctx: Ctx, frames: int) -> None:
     assert ctx.info is not None, "read before converting"
-    path = _decoded_path(ctx, ctx.out)
+    path = decoded_path(ctx, ctx.out)
     w, h = ctx.plan.resize or (ctx.info.width, ctx.info.height)
     try:
-        with _open(path) as im:
+        with open_image(path) as im:
             size = im.size
             n = getattr(im, "n_frames", 1)
             im.seek(n - 1)
@@ -947,7 +947,7 @@ def animation_to_video(src: Path, info, opts: ConvertOptions, s: Settings,
     animation. See-through parts become white (MP4 has no transparency)."""
     from PIL import Image
 
-    frames, durations, _loop = _load_frames(src)
+    frames, durations, _loop = load_frames(src)
     if len(frames) < 2:
         raise RuntimeError("Only animations can become a video")
     w, h = frames[0].size

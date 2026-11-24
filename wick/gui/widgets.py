@@ -431,7 +431,7 @@ class Page(QWidget):
             outer.addLayout(self.body, 1)
         else:
             self.body.setContentsMargins(0, 0, 0, 0)
-            outer.addWidget(_BodyScroll(self.body), 1)
+            outer.addWidget(BodyScroll(self.body), 1)
 
 
 def available_width(w: QWidget) -> int:
@@ -439,7 +439,7 @@ def available_width(w: QWidget) -> int:
     is never narrower than its own minimum, so its width can't tell whether its contents still fit: decide
     from the page's visible width instead."""
     p = w.parentWidget()
-    while p is not None and not isinstance(p, _BodyScroll):
+    while p is not None and not isinstance(p, BodyScroll):
         p = p.parentWidget()
     if p is None:
         return w.width()
@@ -447,7 +447,7 @@ def available_width(w: QWidget) -> int:
     return p.viewport().width() - m.left() - m.right()
 
 
-class _BodyScroll(QScrollArea):
+class BodyScroll(QScrollArea):
     """A page's body: fills the page, and scrolls only when its content can't fit (large text, a short
     window) instead of squeezing it until text is cut off or widgets overlap. Lists still stretch."""
 

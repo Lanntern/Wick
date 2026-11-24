@@ -25,20 +25,20 @@ from ..formats import human, plural
 from .caches import IS_WINDOWS
 from .common import Candidate, ProgressFn, ScanResult, cancelled, newest_mtime
 from .devrules import (  # noqa: F401 - the tables, used here and by the page
-    _BUILD_MARKERS,
-    _BY_NAME,
-    _GRADLE,
-    _NEVER_ENTER,
-    _NODE_LOCKS,
-    _PM_COMMANDS,
-    _PY_PROJECT,
-    _WARN_RULES,
     AMBIGUOUS,
+    BUILD_MARKERS,
+    BY_NAME,
     CACHEDIR_SIGNATURE,
+    GRADLE,
     KINDS,
     MIN_SIZE,
+    NEVER_ENTER,
+    NODE_LOCKS,
+    PM_COMMANDS,
+    PY_PROJECT,
     RULES,
     SHARED,
+    WARN_RULES,
     Rule,
     shared_specs,
 )
@@ -116,7 +116,7 @@ def _within(p: Path, folder: Path) -> bool:
 
 def _restore_for(rule: Rule, beside_names: set[str]) -> str:
     if rule.names == ("node_modules",):
-        for lock, cmd in _PM_COMMANDS:
+        for lock, cmd in PM_COMMANDS:
             if lock in beside_names:
                 return f"{cmd} puts them back"
     return rule.restore
@@ -159,7 +159,7 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
             except OSError:
                 continue
             p = Path(e.path)
-            rule = next((r for r in _BY_NAME.get(e.name, ()) if not r.next_to or _matches(names, r.next_to)), None)
+            rule = next((r for r in BY_NAME.get(e.name, ()) if not r.next_to or _matches(names, r.next_to)), None)
             if rule is not None:
                 inner = None
                 if rule.inside:
@@ -167,13 +167,13 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
                     if inner is None or not _matches({x.name for x in inner}, rule.inside):
                         rule = None
                 if rule is not None:
-                    warning = _WARN_RULES.get(e.name, "")
+                    warning = WARN_RULES.get(e.name, "")
                     if rule.lock and not _matches(names, rule.lock):
                         warning = "No lock file next to it, so a reinstall may get newer versions"
                     found.append(_Found(p, d, rule.what, _restore_for(rule, names), warning, rule.kind))
                     continue
             low = e.name.lower()
-            if low in _NEVER_ENTER or e.name.startswith(".") or p == home_library:
+            if low in NEVER_ENTER or e.name.startswith(".") or p == home_library:
                 continue
             if IS_WINDOWS:
                 try:
@@ -186,7 +186,7 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
     for f in found:
         if f.what == "Python virtual environment":
             beside = {e.name for e in (_listing(f.beside) or [])}
-            if not _matches(beside, _PY_PROJECT):
+            if not _matches(beside, PY_PROJECT):
                 f.warning = "No requirements file next to it: note which packages it has first"
     return found
 
@@ -222,7 +222,7 @@ def _ambiguous_found(repos: list[Path], already: list[_Found]) -> list[_Found]:
             if any(_within(p, t) for t in taken) or not p.is_dir() or p.is_symlink():
                 continue
             beside = {e.name for e in (_listing(p.parent) or [])}
-            if not _matches(beside, _BUILD_MARKERS):
+            if not _matches(beside, BUILD_MARKERS):
                 continue
             kind = ("coverage" if "coverage" in AMBIGUOUS[p.name].lower() else
                     "cache" if p.name.startswith(".") else "build")

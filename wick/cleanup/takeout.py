@@ -327,11 +327,11 @@ def _file_crc(path: Path) -> int:
 
 
 def _set_times(path: Path, ts: float) -> None:
-    from ..fileops import _set_windows_creation_time
+    from ..fileops import set_windows_creation_time
 
     os.utime(path, (ts, ts))
     if sys.platform == "win32":
-        _set_windows_creation_time(path, int(ts * 1_000_000_000))
+        set_windows_creation_time(path, int(ts * 1_000_000_000))
 
 
 def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",  # noqa: C901 (to split up)

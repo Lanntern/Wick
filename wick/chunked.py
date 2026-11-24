@@ -53,9 +53,9 @@ def applies(info: VideoInfo, s: Settings, encoder: str) -> bool:
 # ---------------------------------------------------------------- where the cuts go
 def scene_cuts(src: Path, info: VideoInfo, cancel: threading.Event | None = None) -> list[float]:
     """Times (seconds) of the first frame of each new scene, found on a small copy of the picture."""
-    from .video import _has_filter
+    from .video import has_filter
 
-    if not _has_filter("scdet"):
+    if not has_filter("scdet"):
         return []
     ffmpeg = tools.require("ffmpeg")
     args = [ffmpeg, "-hide_banner", "-nostdin", "-v", "info", "-i", str(src), "-map", f"0:{info.main_video_index}",

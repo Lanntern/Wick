@@ -33,9 +33,9 @@ def supported(path: Path | None = None) -> bool:
 
 
 def volume_type(path: Path) -> str:
-    from ..drives import _mac_mount_fs
+    from ..drives import mac_mount_fs
 
-    return _mac_mount_fs(path)
+    return mac_mount_fs(path)
 
 
 def is_compressed(st: os.stat_result) -> bool:

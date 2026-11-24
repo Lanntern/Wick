@@ -206,7 +206,7 @@ def _file_types() -> dict[str, str]:
     """extension -> Wick's ProgID for it."""
     from .. import formats
 
-    types = {ext: "Wick.Picture" for ext in formats._EXT_KIND}
+    types = {ext: "Wick.Picture" for ext in formats.EXT_KIND}
     types.update({ext: "Wick.Video" for ext in formats.VIDEO_EXTS})
     types.update({ext: "Wick.Audio" for ext in formats.AUDIO_EXTS})
     return types

@@ -250,7 +250,7 @@ def _convert_once(src: Path, kind: str, info, plan: Plan, s: Settings, label: st
 
 # ======================================================================= helpers
 
-def _open(path: Path):
+def open_image(path: Path):
     from PIL import Image
 
     if path.suffix.lower() in _FAST_FORMATS:
@@ -278,7 +278,7 @@ def read_pam(path: Path):
     return Image.frombytes(mode, (w, h), raw[:w * h * depth])
 
 
-def _filtered_meta(ctx: Ctx, img) -> md.Meta:
+def filtered_meta(ctx: Ctx, img) -> md.Meta:
     from . import jpegparts
 
     meta = md.filter_meta(md.read_meta(img), ctx.s.metadata)
@@ -288,7 +288,7 @@ def _filtered_meta(ctx: Ctx, img) -> md.Meta:
     return meta
 
 
-def _jpeg_extras(ctx: Ctx, new: bytes) -> bytes:
+def jpeg_extras(ctx: Ctx, new: bytes) -> bytes:
     """A rewritten JPEG with what the original carried besides its main picture: the extra pictures after it
     (an Ultra HDR gain map, stereo or depth images; camera previews unless left out), a slimmer EXIF thumbnail
     and colour profile where they can go."""
@@ -323,15 +323,15 @@ def _ffmpeg_png(ctx: Ctx, src: Path, size: tuple[int, int] | None, eight_bit: bo
     return out
 
 
-def _load_static(ctx: Ctx, eight_bit_ok: bool = True):
+def load_static(ctx: Ctx, eight_bit_ok: bool = True):
     """(Pillow image, filtered metadata) of the first frame, resized if planned.
 
     16-bit sources go through ffmpeg (Pillow would truncate them silently).
     """
     from PIL import Image
 
-    with _open(ctx.staged) as im:
-        meta = _filtered_meta(ctx, im)
+    with open_image(ctx.staged) as im:
+        meta = filtered_meta(ctx, im)
         if ctx.deep:
             path = _ffmpeg_png(ctx, ctx.staged, ctx.plan.resize, eight_bit=eight_bit_ok)
             img = Image.open(path)
@@ -381,7 +381,7 @@ def _intermediate_png(ctx: Ctx) -> Path:
     """A PNG of the (resized) first frame, metadata attached, for CLI encoders."""
     if ctx.deep:
         return _ffmpeg_png(ctx, ctx.staged, ctx.plan.resize)
-    img, meta = _load_static(ctx)
+    img, meta = load_static(ctx)
     if img.mode == "CMYK":
         img = img.convert("RGB")
     path = ctx.tmp(".png", "-mid")
@@ -392,11 +392,11 @@ def _intermediate_png(ctx: Ctx) -> Path:
     return path
 
 
-def _load_frames(path: Path):
+def load_frames(path: Path):
     """All frames as RGBA images, with durations and loop count."""
     from PIL import ImageSequence
 
-    with _open(path) as im:
+    with open_image(path) as im:
         loop = im.info.get("loop", 0)
         frames, durations = [], []
         for fr in ImageSequence.Iterator(im):
@@ -442,7 +442,7 @@ def _djxl_fast(path: Path, make_out, png_only: bool = False) -> Path | None:
     return None
 
 
-def _decoded_path(ctx: Ctx, path: Path) -> Path:
+def decoded_path(ctx: Ctx, path: Path) -> Path:
     """Something Pillow can read: JPEG XL is decoded with djxl first."""
     if path.suffix.lower() != ".jxl":
         return path
@@ -457,7 +457,7 @@ def _decoded_path(ctx: Ctx, path: Path) -> Path:
 
 def _orientation(path: Path) -> int:
     try:
-        with _open(path) as im:
+        with open_image(path) as im:
             return int(im.getexif().get(0x0112, 1) or 1)
     except Exception:  # noqa: BLE001
         from wick.log import ignored
@@ -470,8 +470,8 @@ def digest_file(ctx: Ctx, path: Path, apply_orientation: bool = False) -> tuple[
     (djxl applies the EXIF orientation when decoding JPEG XL)."""
     from PIL import ImageOps, ImageSequence
 
-    path = _decoded_path(ctx, path)
-    with _open(path) as im:
+    path = decoded_path(ctx, path)
+    with open_image(path) as im:
         if getattr(im, "format", "") == "MPO":            # (a JPEG with pictures after it: the photo is the first)
             first = im.copy()
             if apply_orientation and _orientation(path) != 1:
@@ -502,7 +502,7 @@ def pixel_hash(path: Path, deep: bool = False) -> str:
 def _check_same_pixels(ctx: Ctx, reference: Path):
     def check():
         if ctx.deep:
-            out = _decoded_path(ctx, ctx.out)
+            out = decoded_path(ctx, ctx.out)
             if pixel_hash(reference, True) != pixel_hash(out, True):
                 raise VerificationFailed("Lossless output's pixels don't match the original")
             return
@@ -527,9 +527,9 @@ def _check_decodes(ctx: Ctx):
     rotated = _orientation(ctx.staged) in (5, 6, 7, 8)
 
     def check():
-        path = _decoded_path(ctx, ctx.out)
+        path = decoded_path(ctx, ctx.out)
         try:
-            with _open(path) as im:
+            with open_image(path) as im:
                 size = im.size
                 n = getattr(im, "n_frames", 1)
                 im.seek(n - 1)
@@ -575,7 +575,7 @@ def _route_jxl(ctx: Ctx):
         # cjxl rejects GIFs whose pixels reference colors past the palette (common in
         # the wild); hand it the exact same frames as an APNG instead.
         remove_quietly(ctx.out)
-        frames, durations, loop = _load_frames(ctx.staged)
+        frames, durations, loop = load_frames(ctx.staged)
         src = ctx.tmp(".png", "-apng")
         frames[0].save(src, "PNG", save_all=True, append_images=frames[1:], duration=durations,
                        loop=loop, disposal=1, blend=0, compress_level=0)
@@ -583,7 +583,7 @@ def _route_jxl(ctx: Ctx):
                f"--num_threads={ctx.s.threads_per_job()}", "--quiet",
                    *quality], cwd=ctx.dir, timeout=3600)
     # cjxl doesn't reliably carry EXIF/XMP over from PNG input: write the boxes ourselves.
-    with _open(src) as im:
+    with open_image(src) as im:
         meta = md.read_meta(im)
     if direct:
         meta = md.filter_meta(meta, "keep")  # staged copy was already filtered
@@ -596,14 +596,14 @@ def _pil_save_frames(ctx: Ctx, fmt: str, **opts):
     """Shared by WebP/AVIF/HEIC: encode static or animated with Pillow."""
     p = ctx.plan
     if ctx.animated:
-        frames, durations, loop = _load_frames(ctx.staged)
-        with _open(ctx.staged) as im:
-            meta = _filtered_meta(ctx, im)
+        frames, durations, loop = load_frames(ctx.staged)
+        with open_image(ctx.staged) as im:
+            meta = filtered_meta(ctx, im)
         digest = digest_images(frames) if p.lossless else None
         frames[0].save(ctx.out, fmt, save_all=True, append_images=frames[1:], duration=durations,
                        loop=loop, **opts, **meta.pil_kwargs())
     else:
-        img, meta = _load_static(ctx)
+        img, meta = load_static(ctx)
         if img.mode in ("I;16", "I", "CMYK", "1"):
             img = img.convert("RGB")
         digest = digest_images([img]) if p.lossless else None
@@ -643,7 +643,7 @@ def _route_jpeg_opt(ctx: Ctx):
     import mozjpeg_lossless_optimization as mz
 
     data = mz.optimize(ctx.staged.read_bytes(), copy=mz.COPY_MARKERS.ALL)
-    ctx.out.write_bytes(_jpeg_extras(ctx, data))
+    ctx.out.write_bytes(jpeg_extras(ctx, data))
     return _check_same_pixels(ctx, ctx.staged)
 
 
@@ -655,7 +655,7 @@ def _jpeg_subsampling(ctx: Ctx) -> str:
         try:
             from PIL import JpegImagePlugin
 
-            with _open(ctx.staged) as im:
+            with open_image(ctx.staged) as im:
                 key = _PIL_SAMPLING_TO_KEY.get(JpegImagePlugin.get_sampling(im))
             if key:
                 return key
@@ -668,7 +668,7 @@ def _jpeg_subsampling(ctx: Ctx) -> str:
 def _route_jpeg(ctx: Ctx):
     s = ctx.s
     sub = _jpeg_subsampling(ctx)
-    img, meta = _load_static(ctx)
+    img, meta = load_static(ctx)
     cjpegli = tools.find_tool("cjpegli")
     if cjpegli and img.mode in ("RGB", "L"):
         mid = ctx.tmp(".png", "-mid")
@@ -689,7 +689,7 @@ def _route_jpeg(ctx: Ctx):
             import mozjpeg_lossless_optimization as mz
 
             data = mz.optimize(data, copy=mz.COPY_MARKERS.ALL)
-    ctx.out.write_bytes(_jpeg_extras(ctx, md.jpeg_write_meta(data, meta, drop_other=False)))
+    ctx.out.write_bytes(jpeg_extras(ctx, md.jpeg_write_meta(data, meta, drop_other=False)))
     return _check_decodes(ctx)
 
 
@@ -711,7 +711,7 @@ def _route_png_opt(ctx: Ctx):
 def _route_png_quant(ctx: Ctx):
     from . import _workers, procpool
 
-    img, meta = _load_static(ctx)
+    img, meta = load_static(ctx)
     q = ctx.s.image_quality
     from PIL import Image
 
@@ -755,7 +755,7 @@ _TIFF_STRIP_GPS = (34853,)
 def _route_tiff(ctx: Ctx):
     from PIL import ImageSequence
 
-    with _open(ctx.staged) as im:
+    with open_image(ctx.staged) as im:
         tags = dict(im.tag_v2) if hasattr(im, "tag_v2") else {}
         drop = _TIFF_STRIP_GPS if ctx.s.metadata == "strip_gps" else () if ctx.s.metadata == "keep" else \
             _TIFF_STRIP_ALL
@@ -812,7 +812,7 @@ def open_for_display(path: Path):
             if out is None:
                 out = tmp(".png")         # (no fast route: djxl writes a PNG)
                 tools.run([tools.require("djxl"), str(path), str(out)], timeout=600)
-            img = _open(out)
+            img = open_image(out)
             img.load()
             return img.convert("RGBA")
         finally:

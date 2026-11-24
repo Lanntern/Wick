@@ -2,7 +2,7 @@
 features (notifications, the accent color) without PowerShell or another dependency.
 
 Only what this app uses: activate a class or get its statics/factory, call methods by vtable slot (via
-jumplist._Com), pass strings as HSTRINGs. Interface IDs and slot numbers come from Windows' own metadata (as
+jumplist.Com), pass strings as HSTRINGs. Interface IDs and slot numbers come from Windows' own metadata (as
 published in Microsoft's windows-rs bindings); slot 6 is the first method after IInspectable's six.
 """
 
@@ -56,33 +56,33 @@ def hstring(text: str):
 
 
 def factory(class_name: str, iid: str):
-    """A class's statics or factory interface (``iid``), as a jumplist._Com."""
-    from .jumplist import _GUID, _Com
+    """A class's statics or factory interface (``iid``), as a jumplist.Com."""
+    from .jumplist import GUID, Com
 
     out = ctypes.c_void_p()
     with hstring(class_name) as name:
-        _check(_api().RoGetActivationFactory(name, ctypes.byref(_GUID.of(iid)), ctypes.byref(out)),
+        _check(_api().RoGetActivationFactory(name, ctypes.byref(GUID.of(iid)), ctypes.byref(out)),
                f"RoGetActivationFactory({class_name})")
-    return _Com(out)
+    return Com(out)
 
 
 def activate(class_name: str):
-    """A new instance of a class with a default constructor (its IInspectable, as a jumplist._Com)."""
-    from .jumplist import _Com
+    """A new instance of a class with a default constructor (its IInspectable, as a jumplist.Com)."""
+    from .jumplist import Com
 
     out = ctypes.c_void_p()
     with hstring(class_name) as name:
         _check(_api().RoActivateInstance(name, ctypes.byref(out)), f"RoActivateInstance({class_name})")
-    return _Com(out)
+    return Com(out)
 
 
 def call_out(com, slot: int, argtypes: tuple = (), *args):
     """Call a method whose last parameter receives an interface pointer; returns that interface."""
-    from .jumplist import _Com
+    from .jumplist import Com
 
     out = ctypes.c_void_p()
     com.call(slot, (*argtypes, ctypes.POINTER(ctypes.c_void_p)), *args, ctypes.byref(out))
-    return _Com(out)
+    return Com(out)
 
 
 class Color(ctypes.Structure):

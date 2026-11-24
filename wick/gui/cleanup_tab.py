@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QSizePolicy, QStackedWidget, QTabBar, QWidget
 
-from .cleanup_section import ToolSection, _Scan
+from .cleanup_section import ScanWorker, ToolSection
 from .cleanup_tools import tools
 from .style import Space
 from .widgets import Page, button, dialog_buttons, dialog_layout
@@ -67,7 +67,7 @@ class CleanupTab(Page):
         """Tool ``index``'s section, built now if it hasn't been yet."""
         sec = self._built.get(index)
         if sec is None:
-            from .widgets import _BodyScroll
+            from .widgets import BodyScroll
 
             sec = ToolSection(self._tools[index], self)
             if self._hover is not None:
@@ -78,7 +78,7 @@ class CleanupTab(Page):
             self.stack.removeWidget(holder)
             holder.deleteLater()
             self.stack.setCurrentIndex(current)
-            for scroll in sec.findChildren(_BodyScroll):
+            for scroll in sec.findChildren(BodyScroll):
                 scroll.verticalScrollBar().rangeChanged.connect(lambda *_: self._refit_soon())
             self._built[index] = sec
         return sec
@@ -192,7 +192,7 @@ class CleanupTab(Page):
                         sec, lambda msg, done, total, sec=sec: progress(f"{sec.tool.tab}: {msg}", done, total), cancel)
             return results
 
-        worker = _Scan(scan, self)
+        worker = ScanWorker(scan, self)
         worker.active_key = ""
         worker.combined = True
         self._batch_worker = worker

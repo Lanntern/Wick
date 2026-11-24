@@ -129,9 +129,9 @@ class Taskbar:
             return None
         if self._list is None:
             try:
-                from .jumplist import _create
+                from .jumplist import create_instance
 
-                tb = _create(CLSID_TaskbarList, IID_ITaskbarList3)
+                tb = create_instance(CLSID_TaskbarList, IID_ITaskbarList3)
                 tb.call(_HR_INIT, ())
                 self._list = tb
             except OSError as e:

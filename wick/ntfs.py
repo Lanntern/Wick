@@ -452,7 +452,7 @@ def listing_for(roots: list[Path], keep: Callable[[str], bool], tmp_dir: Path, c
             pass
 
 
-def _main(argv: list[str]) -> int:
+def main(argv: list[str]) -> int:
     """``--ntfs-dump C: out.tsv.gz root\\parts ...`` (run as administrator by listing_for)."""
     if len(argv) < 3 or argv[0] != "--ntfs-dump":
         print("usage: python -m wick.ntfs --ntfs-dump C: OUT [ROOT ...]", file=sys.stderr)
@@ -471,7 +471,7 @@ def _main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(_main(sys.argv[1:]))
+    sys.exit(main(sys.argv[1:]))
 
 
 __all__ = ["read_tree", "Tree", "Node", "Volume", "NotNTFS", "runs", "dump", "load", "Listing", "listing_for",

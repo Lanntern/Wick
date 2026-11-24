@@ -122,7 +122,7 @@ def _mac_mounts() -> tuple[tuple[str, str], ...]:
     return tuple(sorted(found, key=lambda f: -len(f[0])))
 
 
-def _mac_mount_fs(path: Path) -> str:
+def mac_mount_fs(path: Path) -> str:
     text = os.path.realpath(path)
     for point, fs in _mac_mounts():
         if text == point or text.startswith(point.rstrip("/") + "/"):
@@ -161,7 +161,7 @@ def network(path: Path) -> bool:
             drive = _anchor(path)
             return bool(drive) and ctypes.windll.kernel32.GetDriveTypeW(drive + "\\") == 4     # DRIVE_REMOTE
         if sys.platform == "darwin":
-            return _mac_mount_fs(path) in NETWORK_FS
+            return mac_mount_fs(path) in NETWORK_FS
         return _linux_mount_fs(os.stat(path).st_dev) in NETWORK_FS
     except Exception:  # noqa: BLE001 - unknown: treat it as local
         from .log import ignored

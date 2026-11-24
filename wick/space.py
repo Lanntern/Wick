@@ -35,13 +35,13 @@ class Breakdown:
         return max(0, self.used - sum(self.sizes.values()))
 
 
-def _anchor(p: Path) -> Path:
+def anchor(p: Path) -> Path:
     return Path(Path(os.path.abspath(p)).anchor or "/")
 
 
 def same_drive(a: Path, b: Path) -> bool:
     if sys.platform == "win32":
-        return _anchor(a).drive.upper() == _anchor(b).drive.upper()
+        return anchor(a).drive.upper() == anchor(b).drive.upper()
     try:
         return os.stat(a).st_dev == os.stat(b).st_dev
     except OSError:
@@ -79,7 +79,7 @@ def measure(overview, roots: list[Path], cancel: threading.Event | None = None) 
     """The breakdown for the drive holding ``roots`` (Home's folders), from Home's ``overview``."""
     if not roots:
         return None
-    drive = _anchor(roots[0])
+    drive = anchor(roots[0])
     try:
         usage = shutil.disk_usage(drive)
     except OSError:

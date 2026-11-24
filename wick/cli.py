@@ -413,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] == "--decoder-check" and len(argv) == 2:   # packaging/smoke_test.py: the built app's
         return _decoder_check(Path(argv[1]))                         # decoder worker starts and is restricted
     if argv and argv[0] == "--ntfs-dump":       # the administrator helper for fast drive scans (ntfs.py)
-        from .ntfs import _main as ntfs_main
+        from .ntfs import main as ntfs_main
 
         return ntfs_main(argv)
     commands = {"scan", "run", "history", "undo", "tools", "presets", "speedtest", "gui", "mcp", "-h", "--help",

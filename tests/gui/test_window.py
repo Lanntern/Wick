@@ -30,9 +30,9 @@ def test_every_page_opens_at_any_size(win):
             # given (it adapts: rows wrap, toolbars compact) instead of needing to scroll sideways.
             assert page.minimumSizeHint().width() <= max(width, win.minimumWidth()), \
                 f"text scale {k:.2f}: {_widest(page)}"
-            from wick.gui.widgets import _BodyScroll
+            from wick.gui.widgets import BodyScroll
 
-            for sc in page.findChildren(_BodyScroll):
+            for sc in page.findChildren(BodyScroll):
                 if sc.isVisible():
                     assert sc.widget().width() <= sc.viewport().width() + 1, \
                         f"text scale {k:.2f}, {width}px: {_widest(sc)}"

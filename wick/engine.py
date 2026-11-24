@@ -83,7 +83,7 @@ def _method(entry: FileEntry, plan: Plan, encoder: str = "") -> str:
     return f"{src} → {dst} ({plan.reason[0].lower() + plan.reason[1:]})"
 
 
-def _unique(path: Path) -> Path:
+def unique_path(path: Path) -> Path:
     candidate, n = path, 1
     while candidate.exists():
         candidate = path.with_name(f"{path.stem} ({n}){path.suffix}")
@@ -132,9 +132,9 @@ def output_path(entry: FileEntry, plan: Plan, s: Settings) -> Path:
         target = src.with_suffix(plan.target_ext)
         if str(target).lower() in (str(src).lower(), str(entry.path).lower()):
             target = src.with_name(f"{output_name(src, s.output_suffix)}{plan.target_ext}")
-        return _unique(target)
+        return unique_path(target)
     if s.output_mode == "suffix":
-        return _unique(src.with_name(f"{output_name(src, s.output_suffix)}{plan.target_ext}"))
+        return unique_path(src.with_name(f"{output_name(src, s.output_suffix)}{plan.target_ext}"))
     folder = Path(s.output_dir)
     rel = Path()
     if s.keep_structure and entry.root is not None:  # root is None for individually added files
@@ -143,7 +143,7 @@ def output_path(entry: FileEntry, plan: Plan, s: Settings) -> Path:
         except ValueError:
             rel = Path()
     target = folder / rel / (src.stem + plan.target_ext)
-    return _unique(target)
+    return unique_path(target)
 
 
 _PLACE_LOCK = threading.Lock()
@@ -212,7 +212,7 @@ def place_output(entry: FileEntry, st: os.stat_result, tmp: Path, dest: Path, s:
     moved_to = ""
     if s.originals_to and s.output_mode != "replace":
         steps.report("Moving the original")
-        target = _unique(Path(s.originals_to) / src.name)
+        target = unique_path(Path(s.originals_to) / src.name)
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(src), str(target))
@@ -440,7 +440,7 @@ def folder_output_path(entry: FileEntry, s: Settings) -> Path:
     next to it or in the chosen output folder."""
     src = entry.path
     base = Path(s.output_dir) if s.output_mode == "folder" and s.output_dir else src.parent
-    return _unique(base / f"{src.stem} pages")
+    return unique_path(base / f"{src.stem} pages")
 
 
 def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=None, on_progress=None,

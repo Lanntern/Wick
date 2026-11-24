@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .caches import IS_WINDOWS, CacheSpec, _env
+from .caches import IS_WINDOWS, CacheSpec, env
 
 SHARED = "Package caches and tools"
 MIN_SIZE = 1024 * 1024
@@ -25,11 +25,11 @@ class Rule:
     kind: str = "build"             # see KINDS: lets a whole kind be switched off
 
 
-_GRADLE = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
-_NODE_LOCKS = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock")
+GRADLE = ("build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts")
+NODE_LOCKS = ("package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock")
 
 RULES: tuple[Rule, ...] = (
-    Rule(("node_modules",), ("package.json",), "Node.js packages", "npm install puts them back", lock=_NODE_LOCKS, kind="deps"),
+    Rule(("node_modules",), ("package.json",), "Node.js packages", "npm install puts them back", lock=NODE_LOCKS, kind="deps"),
     Rule(("bower_components",), ("bower.json",), "Bower packages", "bower install puts them back", kind="deps"),
     Rule((".next",), ("next.config.*", "package.json"), "Next.js build output", "recreated on the next build"),
     Rule((".nuxt", ".output"), ("nuxt.config.*",), "Nuxt build output", "recreated on the next build"),
@@ -44,8 +44,8 @@ RULES: tuple[Rule, ...] = (
     Rule(("target",), ("Cargo.toml",), "Rust build output", "cargo build recreates it",
          inside=("CACHEDIR.TAG", ".rustc_info.json", "debug", "release")),
     Rule(("target",), ("pom.xml",), "Maven build output", "mvn package recreates it"),
-    Rule(("build", ".cxx", ".externalNativeBuild"), _GRADLE, "Gradle build output", "recreated on the next build"),
-    Rule((".gradle",), _GRADLE, "Gradle project cache", "recreated on the next build", kind="cache"),
+    Rule(("build", ".cxx", ".externalNativeBuild"), GRADLE, "Gradle build output", "recreated on the next build"),
+    Rule((".gradle",), GRADLE, "Gradle project cache", "recreated on the next build", kind="cache"),
     Rule(("bin", "obj"), ("*.csproj", "*.fsproj", "*.vbproj"), ".NET build output", "dotnet build recreates it"),
     Rule((".build",), ("Package.swift",), "Swift package build output", "swift build recreates it"),
     Rule(("build", "DerivedData"), ("*.xcodeproj", "*.xcworkspace"), "Xcode build output", "Xcode rebuilds it"),
@@ -90,20 +90,20 @@ AMBIGUOUS = {
     ".cache": "Build tool cache", ".vite": "Vite cache", ".astro": "Astro generated files",
     ".expo": "Expo cache",
 }
-_BUILD_MARKERS = ("package.json", "pyproject.toml", "setup.py", "setup.cfg", "Cargo.toml", "go.mod", "pom.xml",
+BUILD_MARKERS = ("package.json", "pyproject.toml", "setup.py", "setup.cfg", "Cargo.toml", "go.mod", "pom.xml",
                   "build.gradle", "build.gradle.kts", "*.csproj", "*.sln", "CMakeLists.txt", "Makefile",
                   "composer.json", "Gemfile", "mix.exs", "pubspec.yaml", "angular.json", "deno.json")
-_WARN_RULES = {".terraform": "It also remembers which Terraform workspace is selected"}
-_BY_NAME: dict[str, list[Rule]] = defaultdict(list)
+WARN_RULES = {".terraform": "It also remembers which Terraform workspace is selected"}
+BY_NAME: dict[str, list[Rule]] = defaultdict(list)
 for _r in RULES:
     for _n in _r.names:
-        _BY_NAME[_n].append(_r)
+        BY_NAME[_n].append(_r)
 
-_PY_PROJECT = ("requirements*.txt", "pyproject.toml", "Pipfile", "setup.py", "setup.cfg", "environment.yml",
+PY_PROJECT = ("requirements*.txt", "pyproject.toml", "Pipfile", "setup.py", "setup.cfg", "environment.yml",
                "uv.lock", "poetry.lock")
-_NEVER_ENTER = {".git", ".svn", ".hg", "$recycle.bin", "system volume information", "windows", "program files",
+NEVER_ENTER = {".git", ".svn", ".hg", "$recycle.bin", "system volume information", "windows", "program files",
                 "program files (x86)", "programdata", "appdata", "steamapps", "steamlibrary"}
-_PM_COMMANDS = (("pnpm-lock.yaml", "pnpm install"), ("yarn.lock", "yarn install"), ("bun.lockb", "bun install"),
+PM_COMMANDS = (("pnpm-lock.yaml", "pnpm install"), ("yarn.lock", "yarn install"), ("bun.lockb", "bun install"),
                 ("bun.lock", "bun install"))
 
 
@@ -114,7 +114,7 @@ def shared_specs() -> list[CacheSpec]:
     H = "~"
     again = "Downloaded again when a project needs it."
     if IS_WINDOWS:
-        L, R = _env("LOCALAPPDATA"), _env("APPDATA")
+        L, R = env("LOCALAPPDATA"), env("APPDATA")
         xdg_cache = H + "/.cache"
         s = [
             CacheSpec("npm cache", SHARED, (f"{L}/npm-cache/_cacache",), again),
@@ -146,8 +146,8 @@ def shared_specs() -> list[CacheSpec]:
             CacheSpec("sccache", SHARED, (f"{L}/Mozilla/sccache/cache",), "Compilers redo the work once."),
         ]
     else:
-        C = xdg_cache = _env("XDG_CACHE_HOME", str(Path.home() / ".cache"))
-        cfg = _env("XDG_CONFIG_HOME", str(Path.home() / ".config"))
+        C = xdg_cache = env("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+        cfg = env("XDG_CONFIG_HOME", str(Path.home() / ".config"))
         lib = f"{H}/Library"
         s = [
             CacheSpec("npm cache", SHARED, (f"{H}/.npm/_cacache",), again),

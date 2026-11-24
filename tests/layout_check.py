@@ -66,7 +66,7 @@ from wick.gui.preview import PreviewDialog  # noqa: E402
 from wick.gui.theme import apply_theme  # noqa: E402
 from wick.gui.tradeoff_dialog import TradeoffDialog  # noqa: E402
 from wick.gui.welcome import WelcomeDialog  # noqa: E402
-from wick.gui.widgets import _BodyScroll  # noqa: E402
+from wick.gui.widgets import BodyScroll  # noqa: E402
 from wick.scanner import scan  # noqa: E402
 from wick.settings import Settings  # noqa: E402
 
@@ -121,7 +121,7 @@ def check(root: QWidget, where: str) -> None:  # noqa: C901 (to split up)
     def flag(problem: str) -> None:
         found.setdefault(problem, set()).add(where)
 
-    for sc in root.findChildren(_BodyScroll):
+    for sc in root.findChildren(BodyScroll):
         if sc.isVisible() and sc.widget().width() > sc.viewport().width() + 1:
             flag(f"page content cut off at the right ({sc.widget().width()} > {sc.viewport().width()})")
     for t in root.findChildren(QTabBar):

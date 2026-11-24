@@ -583,13 +583,13 @@ def _hdr10_params(info: VideoInfo, encoder: str) -> str:
 
 
 @cache
-def _has_filter(name: str) -> bool:
+def has_filter(name: str) -> bool:
     try:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-filters"], timeout=30, check=False).stdout
         return f" {name} " in out
     except Exception:  # noqa: BLE001
         from wick.log import ignored
-        ignored("video._has_filter")
+        ignored("video.has_filter")
         return False
 
 
@@ -598,7 +598,7 @@ def display_filter(info: VideoInfo) -> str:
     parts = []
     if info.interlaced:
         parts.append("bwdif=mode=send_frame")
-    if info.hdr and _has_filter("zscale"):
+    if info.hdr and has_filter("zscale"):
         parts.append("zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,"
                      "zscale=t=bt709:m=bt709:r=tv,format=yuv420p")
     return ",".join(parts)

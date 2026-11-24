@@ -28,7 +28,7 @@ def thumbnail(path: Path, max_px: int, cache_only: bool = True):
         return None
     from ctypes import wintypes
 
-    from .jumplist import _GUID, _Com
+    from .jumplist import GUID, Com
 
     ole32, shell32, gdi32 = ctypes.windll.ole32, ctypes.windll.shell32, ctypes.windll.gdi32  # type: ignore[attr-defined]
     hr_init = ole32.CoInitializeEx(None, 2)          # (a worker thread: its own apartment)
@@ -37,11 +37,11 @@ def thumbnail(path: Path, max_px: int, cache_only: bool = True):
     try:
         out = ctypes.c_void_p()
         hr = shell32.SHCreateItemFromParsingName(ctypes.c_wchar_p(str(path)), None,
-                                                 ctypes.byref(_GUID.of(IID_IShellItemImageFactory)),
+                                                 ctypes.byref(GUID.of(IID_IShellItemImageFactory)),
                                                  ctypes.byref(out))
         if hr < 0 or not out.value:
             return None
-        factory = _Com(out)
+        factory = Com(out)
         flags = SIIGBF_THUMBNAILONLY | SIIGBF_BIGGERSIZEOK | (SIIGBF_INCACHEONLY if cache_only else 0)
         try:
             factory.call(3, (_Size, ctypes.c_int, ctypes.POINTER(wintypes.HBITMAP)),

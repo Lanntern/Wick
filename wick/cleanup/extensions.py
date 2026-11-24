@@ -10,11 +10,11 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from ..formats import _EXT_KIND, AUDIO_EXTS, DOCUMENT_EXTS, VIDEO_EXTS, wrong_extension
+from ..formats import AUDIO_EXTS, DOCUMENT_EXTS, EXT_KIND, VIDEO_EXTS, wrong_extension
 from .common import Candidate, ScanResult, publish, walk_files
 
-CHECKED = {*_EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, ".pdf", ".jxl", ".ico"} - (DOCUMENT_EXTS - {".pdf"})
-_NAMES = {".jpg": "JPEG", ".png": "PNG", ".gif": "GIF", ".webp": "WebP", ".tif": "TIFF", ".bmp": "BMP",
+CHECKED = {*EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, ".pdf", ".jxl", ".ico"} - (DOCUMENT_EXTS - {".pdf"})
+TYPE_NAMES = {".jpg": "JPEG", ".png": "PNG", ".gif": "GIF", ".webp": "WebP", ".tif": "TIFF", ".bmp": "BMP",
           ".heic": "HEIC", ".avif": "AVIF", ".jxl": "JPEG XL", ".mp4": "MP4", ".mov": "QuickTime", ".mkv": "MKV",
           ".webm": "WebM", ".avi": "AVI", ".wmv": "WMV", ".m4v": "MP4", ".3gp": "3GP", ".mp3": "MP3",
           ".flac": "FLAC", ".ogg": "Ogg", ".opus": "Opus", ".wav": "WAV", ".m4a": "M4A", ".pdf": "PDF"}
@@ -46,7 +46,7 @@ def find_wrong_extensions(roots: list[Path], progress: Callable | None = None,
             return None
         if real is None:
             return None
-        what = _NAMES.get(real, real.lstrip(".").upper())
+        what = TYPE_NAMES.get(real, real.lstrip(".").upper())
         return Candidate(p, 0, detail=f"A {what} file named {p.suffix}: rename to {p.stem}{real}",
                          selected=True, extra={"real_ext": real, "size": size})
 
