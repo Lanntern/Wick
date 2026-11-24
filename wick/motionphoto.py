@@ -61,7 +61,7 @@ def convert(src: Path, info, plan, s) -> Path:
     import dataclasses
 
     from . import video
-    from .images import _jpeg_extras, Ctx
+    from .images import Ctx, _jpeg_extras
     from .plan import Plan
     from .probe import probe_video
 

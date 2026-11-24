@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
+
 from ..engine import CANCELLED, DONE, FAILED, SKIPPED, FileResult
-from ..mediainfo import cadence_note, describe
 from ..formats import KIND_LABEL, human
-from .filelist import format_date
+from ..mediainfo import cadence_note, describe
 from ..plan import Plan, plan_entry
 from ..scanner import FileEntry
 from ..settings import Settings
+from .filelist import format_date
 from .theme import muted_color
 from .widgets import PROGRESS_ROLE, STATUS_ROLE
 

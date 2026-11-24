@@ -16,9 +16,9 @@ import sys
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
 from collections.abc import Callable, Iterator, Sequence
-from functools import lru_cache
+from contextlib import contextmanager
+from functools import cache, lru_cache
 from pathlib import Path
 
 TOOL_NAMES = ("ffmpeg", "ffprobe", "cjxl", "djxl", "cjpegli", "gifsicle", "ssimulacra2", "butteraugli_main")
@@ -206,7 +206,7 @@ def _candidate_dirs() -> Iterator[Path]:
         yield from (Path("/opt/homebrew/bin"), Path("/usr/local/bin"), Path("/opt/local/bin"))
 
 
-@lru_cache(maxsize=None)
+@cache
 def find_tool(name: str) -> str | None:
     exe = name + (".exe" if os.name == "nt" else "")
     for d in _candidate_dirs():

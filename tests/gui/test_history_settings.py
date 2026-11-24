@@ -240,9 +240,8 @@ def test_monthly_check_only_when_on_and_due(win, monkeypatch):
 def test_history_can_be_deleted_and_turned_off(win, tmp_path, no_dialogs):
     import time as _time
 
-    from wick import journal
+    from wick import journal, pending
     from wick import log as applog
-    from wick import pending
 
     def run(names):
         w = journal.RunWriter(tmp_path, {"tool": "compress"})
@@ -334,6 +333,7 @@ def test_developer_settings_hidden_until_switched_on(win, monkeypatch):
 def test_settings_scrollbar_reaches_edge_and_top_transition_is_passive(win, monkeypatch):
     from PySide6.QtCore import QPoint, Qt
     from PySide6.QtGui import QColor
+
     from wick.gui import scroll_effects
     from wick.gui.style import Space, tokens
 

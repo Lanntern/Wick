@@ -14,7 +14,7 @@ class _HeaderCap(QWidget):
     """Sits above the list's scroll bar, level with the header, so the bar starts under the column headings and
     the header's look (and its bottom line) runs the full width."""
 
-    def __init__(self, header: "Header"):
+    def __init__(self, header: Header):
         super().__init__()
         self.header = header
 

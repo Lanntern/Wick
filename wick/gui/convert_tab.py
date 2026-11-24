@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import os
-from typing import Any
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLineEdit, QSpinBox, QWidget
@@ -174,7 +174,6 @@ class ConvertTab(FileJobPage):
 
     def accepts(self, path: Path) -> bool:
         from ..formats import DOCUMENT, PANDOC_INPUTS, classify
-
         from ..office import OFFICE_EXTS
 
         return classify(path) != DOCUMENT or path.suffix.lower() in (*PANDOC_INPUTS, *OFFICE_EXTS, ".pdf")

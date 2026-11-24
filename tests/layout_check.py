@@ -21,8 +21,18 @@ from PIL import Image  # noqa: E402
 from PySide6.QtCore import QEvent, QObject, QSettings, Qt, QThread  # noqa: E402
 from PySide6.QtGui import QFont, QFontMetrics  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QAbstractButton, QAbstractItemView, QAbstractScrollArea, QApplication, QComboBox, QLabel, QMenu, QScrollBar,
-    QSizePolicy, QTabBar, QToolButton, QWidget,
+    QAbstractButton,
+    QAbstractItemView,
+    QAbstractScrollArea,
+    QApplication,
+    QComboBox,
+    QLabel,
+    QMenu,
+    QScrollBar,
+    QSizePolicy,
+    QTabBar,
+    QToolButton,
+    QWidget,
 )
 
 app = QApplication([])
@@ -59,6 +69,7 @@ from wick.gui.welcome import WelcomeDialog  # noqa: E402
 from wick.gui.widgets import _BodyScroll  # noqa: E402
 from wick.scanner import scan  # noqa: E402
 from wick.settings import Settings  # noqa: E402
+
 
 class _StrayWindows(QObject):
     """A widget shown before it has a parent becomes a window of its own for a moment (a flash on screen)."""

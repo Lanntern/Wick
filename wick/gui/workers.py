@@ -41,7 +41,7 @@ class ScanThread(QThread):
 
 
 class _Bridge(JobEvents):
-    def __init__(self, thread: "JobThread"):
+    def __init__(self, thread: JobThread):
         self.t = thread
 
     def file_started(self, entry):

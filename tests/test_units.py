@@ -1,8 +1,8 @@
 """Fast tests that need no external tools."""
 
 import os
-import sys
 import struct
+import sys
 import zlib
 from pathlib import Path
 

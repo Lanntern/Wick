@@ -12,9 +12,31 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .formats import (
-    _EXT_KIND, AUDIO, AUDIO_EXTS, CONVERT_INPUTS, CONVERT_ONLY_KINDS, DOC, DOCUMENT, DOCUMENT_EXTS, HEIC, IMAGE_KINDS,
-    ARCHIVE, COMIC, COMIC_EXTS, FONT, JPEG, JXL, PDF, SVG, TEMP_PREFIX, VIDEO, VIDEO_EXTS,
-    ImageInfo, classify, read_image_info, sniff,
+    _EXT_KIND,
+    ARCHIVE,
+    AUDIO,
+    AUDIO_EXTS,
+    COMIC,
+    COMIC_EXTS,
+    CONVERT_INPUTS,
+    CONVERT_ONLY_KINDS,
+    DOC,
+    DOCUMENT,
+    DOCUMENT_EXTS,
+    FONT,
+    HEIC,
+    IMAGE_KINDS,
+    JPEG,
+    JXL,
+    PDF,
+    SVG,
+    TEMP_PREFIX,
+    VIDEO,
+    VIDEO_EXTS,
+    ImageInfo,
+    classify,
+    read_image_info,
+    sniff,
 )
 from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
 from .protected import cloud_only, inside_library, is_hidden, is_library
@@ -252,8 +274,9 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
             return listing
     if not (FAST_DRIVES and _is_drive_root(root)):
         return None
-    from . import ntfs
     import tempfile
+
+    from . import ntfs
 
     if progress:
         progress(f"Reading the file table of {root} (Windows asks for permission)…", 0, 0)

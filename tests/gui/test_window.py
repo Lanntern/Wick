@@ -364,8 +364,7 @@ def test_every_control_has_a_name_for_screen_readers(win):
     than read out as just their current value."""
     from PySide6.QtCore import QEvent, Qt
     from PySide6.QtGui import QAccessible, QFocusEvent
-    from PySide6.QtWidgets import (QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QScrollArea, QScrollBar,
-                                   QWidget)
+    from PySide6.QtWidgets import QAbstractButton, QAbstractSpinBox, QApplication, QComboBox, QScrollArea, QScrollBar, QWidget
 
     from wick.gui.about_dialog import AboutDialog
     from wick.gui.main_window import LAZY_PAGES

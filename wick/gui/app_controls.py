@@ -4,7 +4,15 @@ import re
 
 from PySide6.QtCore import QRect, Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QLineEdit, QListWidget, QListWidgetItem, QMenu, QPushButton, QVBoxLayout, QWidget, QWidgetAction,
+    QComboBox,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMenu,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+    QWidgetAction,
 )
 
 from ..cleanup import appcompress

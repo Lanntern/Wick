@@ -21,6 +21,7 @@ class GameWatcher:
 
     def run(self):
         from ctypes import wintypes
+
         from ..log import log
 
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)

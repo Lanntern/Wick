@@ -7,8 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .caches import CacheSpec, IS_WINDOWS, _env
-
+from .caches import IS_WINDOWS, CacheSpec, _env
 
 SHARED = "Package caches and tools"
 MIN_SIZE = 1024 * 1024

@@ -24,9 +24,8 @@ def _make_images(d: Path) -> dict[str, bytes]:
 
 def _make_more(d: Path) -> None:
     """Every other supported source format, incl. animations and a rotated photo with GPS."""
-    from PIL import Image, ImageSequence
-
     import pillow_heif
+    from PIL import Image, ImageSequence
 
     pillow_heif.register_heif_opener()
     ffmpeg("-f", "lavfi", "-i", "testsrc2=s=160x120:r=10:d=1", "anim.gif", cwd=d)

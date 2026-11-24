@@ -13,7 +13,21 @@ from . import metadata as md
 from . import steps, tools
 from .fileops import link_or_copy, remove_quietly, temp_name
 from .formats import (
-    ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, HEIC, JXL, PANDOC_INPUTS, PDF, RAW, SVG, VIDEO, human, read_jxl_info,
+    ARCHIVE,
+    AUDIO,
+    COMIC,
+    DOC,
+    DOCUMENT,
+    FONT,
+    HEIC,
+    JXL,
+    PANDOC_INPUTS,
+    PDF,
+    RAW,
+    SVG,
+    VIDEO,
+    human,
+    read_jxl_info,
     register_heif,
 )
 from .images import Ctx, VerificationFailed, _decoded_path, _filtered_meta, _load_frames, _load_static, _open
@@ -800,8 +814,16 @@ def video_args(src: Path, dst: Path, info: VideoInfo, target: str, s: Settings) 
 def convert_video(src: Path, info: VideoInfo, target: str, s: Settings,
                   on_progress: Callable[[float], None] | None = None,
                   cancel: threading.Event | None = None) -> Path:
-    from .video import (build_args, check_quality_budget, choose_encoder, measure, measures_quality,
-                        smart_quality, source_rate_limit, verify_video)
+    from .video import (
+        build_args,
+        check_quality_budget,
+        choose_encoder,
+        measure,
+        measures_quality,
+        smart_quality,
+        source_rate_limit,
+        verify_video,
+    )
 
     out = temp_name(src.parent, VIDEO_TARGETS[target][1])
     try:

@@ -2,22 +2,39 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 import os
 import sys
 from pathlib import Path
+from typing import cast
 
 from PySide6.QtWidgets import QComboBox, QFileDialog, QSpinBox
 
 from ..cleanup import (
-    actions, appcompress, archives, backups, broken, caches, devclean, duplicates, empties, extensions, folders,
+    actions,
+    appcompress,
+    archives,
+    backups,
+    broken,
+    caches,
+    devclean,
+    duplicates,
+    empties,
+    extensions,
+    folders,
+    installers,
+    largefiles,
     macclean,
-    installers, largefiles, music, pairs, proxies, similar, takeout, videos, winclean,
+    music,
+    pairs,
+    proxies,
+    similar,
+    takeout,
+    videos,
+    winclean,
 )
+from ..cleanup import apps as apps_mod
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
-from ..cleanup import apps as apps_mod
 from .cleanup_section import Tool, ToolSection, _existing
 from .widgets import SizeInput, button, dialog_buttons, dialog_layout
 
@@ -46,7 +63,7 @@ def _keep_options(sec: ToolSection):
     return [("Keep", keep), ("Ignore files under", sec.extra_min)]
 
 
-def _size_setting(sec: "ToolSection", key: str, default: int,
+def _size_setting(sec: ToolSection, key: str, default: int,
                   old_unit: tuple[str, int] = ("min_kb", 1024)) -> SizeInput:
     """A size option, remembered in bytes (earlier versions kept a whole number of KB or MB)."""
     old = sec.qs.value(f"{key}/{old_unit[0]}", None)
@@ -63,7 +80,7 @@ def _scan_duplicates(sec: ToolSection, progress, cancel):
                                       progress=progress, cancel=cancel)
 
 
-def _similar_options(sec: "ToolSection"):
+def _similar_options(sec: ToolSection):
     how = QComboBox()
     for label, value in (("Nearly identical", "very"), ("Similar", "similar")):
         how.addItem(label, value)
@@ -76,7 +93,7 @@ def _similar_options(sec: "ToolSection"):
     return [("Match", how), ("Ignore photos under", sec.extra_min)]
 
 
-def _large_options(sec: "ToolSection"):
+def _large_options(sec: ToolSection):
     sec.extra_min = _size_setting(sec, "cleanup/large", 500 * 1024 ** 2, old_unit=("min_mb", 1024 ** 2))
     kind = QComboBox()
     for value, label in largefiles.KINDS.items():
@@ -88,17 +105,17 @@ def _large_options(sec: "ToolSection"):
     return [("Larger than", sec.extra_min), ("Type", kind)]
 
 
-def _scan_large(sec: "ToolSection", progress, cancel):
+def _scan_large(sec: ToolSection, progress, cancel):
     return largefiles.find_large_files(sec.folders, sec.extra_min.bytes() / 1024 ** 2, sec.extra_how.currentData(), progress,
                                        cancel)
 
 
-def _scan_similar(sec: "ToolSection", progress, cancel):
+def _scan_similar(sec: ToolSection, progress, cancel):
     return similar.find_similar(sec.folders, strictness=sec.extra_how.currentData(),
                                 min_size=sec.extra_min.bytes(), progress=progress, cancel=cancel)
 
 
-def _videos_options(sec: "ToolSection"):
+def _videos_options(sec: ToolSection):
     how = QComboBox()
     for label, value in (("Nearly identical", "very"), ("Similar", "similar")):
         how.addItem(label, value)
@@ -110,7 +127,7 @@ def _videos_options(sec: "ToolSection"):
     return [("Match", how)]
 
 
-def _music_options(sec: "ToolSection"):
+def _music_options(sec: ToolSection):
     how = QComboBox()
     for label, value in (("Same recording", "sound"), ("Same title and artist", "tags")):
         how.addItem(label, value)
@@ -122,13 +139,13 @@ def _music_options(sec: "ToolSection"):
     return [("Match", how)]
 
 
-def _scan_music(sec: "ToolSection", progress, cancel):
+def _scan_music(sec: ToolSection, progress, cancel):
     phone = cast(str, sec.qs.value("mirror/dest", "", str))      # (the phone copy is meant to repeat the library)
     return music.find_same_music(sec.folders, by=sec.extra_how.currentData(), exclude=[Path(phone)] if phone else [],
                                  progress=progress, cancel=cancel)
 
 
-def _broken_options(sec: "ToolSection"):
+def _broken_options(sec: ToolSection):
     from PySide6.QtWidgets import QCheckBox
 
     box = QCheckBox("Play videos and music all the way through")
@@ -140,7 +157,7 @@ def _broken_options(sec: "ToolSection"):
     return [("", box)]
 
 
-def _pairs_options(sec: "ToolSection"):
+def _pairs_options(sec: ToolSection):
     combo = QComboBox()
     combo.addItem("List the JPEGs (keep the RAW files)", "raw")
     combo.addItem("List the RAW files (keep the JPEGs)", "jpeg")
@@ -169,12 +186,13 @@ def _days_option(key: str, default: int, label: str, tip: str):
 
 
 def _appcompress_options(sec: ToolSection):
-    from PySide6.QtWidgets import QCheckBox, QDialog, QWidget
-    from .dialogs import inform
-    from .widgets import hbox
     import json
 
+    from PySide6.QtWidgets import QCheckBox, QDialog, QWidget
+
     from .app_controls import FileTypePicker, algorithm_picker
+    from .dialogs import inform
+    from .widgets import hbox
 
     group, algorithm = algorithm_picker(sec.qs.value('appcompress/algorithm', appcompress.DEFAULT_ALGORITHM, str))
     algorithm.setAccessibleName('App and game compression algorithm')

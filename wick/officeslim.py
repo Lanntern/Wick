@@ -21,6 +21,7 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from urllib.parse import unquote
+
 from .formats import plural
 
 _REL = re.compile(r"<Relationship\b[^>]*?/?>", re.S)

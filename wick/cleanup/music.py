@@ -23,10 +23,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-
-
 from .. import index, tools
 from ..formats import AUDIO_EXTS, plural
+
 if TYPE_CHECKING:
     import numpy as np
 

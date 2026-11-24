@@ -4,7 +4,11 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView, QDialog, QFileDialog, QListWidget, QListWidgetItem,
+    QAbstractItemView,
+    QDialog,
+    QFileDialog,
+    QListWidget,
+    QListWidgetItem,
 )
 
 from .style import Size

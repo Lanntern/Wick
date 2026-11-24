@@ -21,12 +21,26 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
-from .caches import IS_WINDOWS
 from ..formats import human, plural
+from .caches import IS_WINDOWS
 from .common import Candidate, ProgressFn, ScanResult, cancelled, newest_mtime
 from .devrules import (  # noqa: F401 - the tables, used here and by the page
-    AMBIGUOUS, CACHEDIR_SIGNATURE, KINDS, MIN_SIZE, RULES, SHARED, Rule, _BUILD_MARKERS, _GRADLE,
-    _BY_NAME, _NEVER_ENTER, _NODE_LOCKS, _PM_COMMANDS, _PY_PROJECT, _WARN_RULES, shared_specs,
+    _BUILD_MARKERS,
+    _BY_NAME,
+    _GRADLE,
+    _NEVER_ENTER,
+    _NODE_LOCKS,
+    _PM_COMMANDS,
+    _PY_PROJECT,
+    _WARN_RULES,
+    AMBIGUOUS,
+    CACHEDIR_SIGNATURE,
+    KINDS,
+    MIN_SIZE,
+    RULES,
+    SHARED,
+    Rule,
+    shared_specs,
 )
 
 

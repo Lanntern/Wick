@@ -138,7 +138,7 @@ class Settings:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "Settings":
+    def from_dict(cls, data: dict | None) -> Settings:
         s = cls()
         if not data:
             return s

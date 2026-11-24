@@ -510,8 +510,9 @@ def test_compress_list_remove_and_turn_on(win, tmp_path, no_dialogs):
 
 
 def test_pausing_freezes_loading_bar_and_resuming_restarts_it(win):
-    from PySide6.QtWidgets import QApplication
     from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication
 
     from wick.gui.jobstatus import JobStatus
 

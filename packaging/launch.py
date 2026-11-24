@@ -5,6 +5,7 @@ import sys
 
 from wick.cli import main
 
+
 def _run() -> int:
     try:
         return main() or 0

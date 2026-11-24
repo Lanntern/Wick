@@ -16,8 +16,8 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from ..engine import CANCELLED, DONE, FAILED
 from .. import report
+from ..engine import CANCELLED, DONE, FAILED
 from ..formats import human, plural
 from .style import Space, Type, tokens
 from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, text

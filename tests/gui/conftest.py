@@ -32,9 +32,7 @@ def _wait(cond, timeout=60.0) -> bool:
 def _widest(widget) -> str:
     """The chain of widest descendants, to say which control makes a page too wide."""
     from PySide6.QtCore import Qt
-    from PySide6.QtWidgets import QWidget
-
-    from PySide6.QtWidgets import QScrollArea
+    from PySide6.QtWidgets import QScrollArea, QWidget
 
     chain = []
     while True:

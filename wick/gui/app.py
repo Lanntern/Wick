@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 import os
 import sys
 import tempfile
 import time
+from typing import cast
 
 
 def main(argv: list[str] | None = None) -> int:

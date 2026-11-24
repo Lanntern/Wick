@@ -16,14 +16,34 @@ from ..formats import KIND_LABEL, human, plural, type_label
 from ..mediainfo import cadence_note, describe
 from .dialogs import inform
 from .filelist import (
-    ListPlaceholder, SortItem, add_header_checkbox, click_to_check, created_time, file_menu, filling, format_date,
-    keyboard_list, make_sortable, selected_or_clicked, set_sort_keys,
+    ListPlaceholder,
+    SortItem,
+    add_header_checkbox,
+    click_to_check,
+    created_time,
+    file_menu,
+    filling,
+    format_date,
+    keyboard_list,
+    make_sortable,
+    selected_or_clicked,
+    set_sort_keys,
 )
+from .space_card import SpaceCard
 from .style import Size, Space, Type, safe_filter
 from .thumbs import HoverPreviewer
-from .space_card import SpaceCard
 from .widgets import (
-    CARD_INSET, STATUS_ROLE, Card, ElidedLabel, Page, ProgressBar, StatTile, StatusDelegate, _BodyScroll, button, hbox,
+    CARD_INSET,
+    STATUS_ROLE,
+    Card,
+    ElidedLabel,
+    Page,
+    ProgressBar,
+    StatTile,
+    StatusDelegate,
+    _BodyScroll,
+    button,
+    hbox,
     text,
 )
 
@@ -42,9 +62,9 @@ class _Analyze(QThread):
         self.cancel = threading.Event()
 
     def run(self) -> None:
-        from .. import power
-
         from contextlib import nullcontext
+
+        from .. import power
 
         try:
             with power.awake(), (power.background() if self.background else nullcontext()):
@@ -267,8 +287,9 @@ class HomeTab(Page):
         self.folder_label.setToolTip("\n".join(str(p) for p in self.roots))
 
     def _manage_folders(self) -> None:
-        from .folders import FolderManager
         from PySide6.QtWidgets import QDialog
+
+        from .folders import FolderManager
 
         dialog = FolderManager(self, self.roots, default_roots, self.qs, read_only=self.busy())
         if dialog.exec() == QDialog.Accepted and not self.busy():

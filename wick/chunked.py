@@ -22,13 +22,13 @@ import re
 import shutil
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Callable
 
-from .formats import plural
 from . import steps, tools
 from .fileops import remove_quietly
+from .formats import plural
 from .probe import VideoInfo, probe_video
 from .scanner import PARTS_PREFIX
 from .settings import Settings

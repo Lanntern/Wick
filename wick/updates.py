@@ -94,7 +94,7 @@ def newer(candidate: str, current: str = __version__) -> bool:
 
 
 def latest(timeout: float = 15) -> Release:
-    import urllib.error          # (here, not at the top: loading the network code slows start-up)
+    import urllib.error  # (here, not at the top: loading the network code slows start-up)
     import urllib.request
 
     req = urllib.request.Request(API, headers={"Accept": "application/vnd.github+json",

@@ -9,8 +9,15 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QFileDialog, QFrame, QStackedWidget, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QApplication,
+    QFileDialog,
+    QFrame,
+    QStackedWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from ..engine import CANCELLED, DONE, FAILED
@@ -20,15 +27,24 @@ from ..scanner import FileEntry
 from ..settings import Settings
 from .dialogs import ask
 from .filelist import (
-    ListPlaceholder, SortItem, add_header_checkbox, click_to_check, created_time, file_menu, format_date, filling,
-    keyboard_list, make_sortable, selected_or_clicked, set_sort_keys,
+    ListPlaceholder,
+    SortItem,
+    add_header_checkbox,
+    click_to_check,
+    created_time,
+    file_menu,
+    filling,
+    format_date,
+    keyboard_list,
+    make_sortable,
+    selected_or_clicked,
+    set_sort_keys,
 )
-from .style import Size, Space, Type, tokens
-from .thumbs import HoverPreviewer
-from .widgets import (PROGRESS_ROLE, STATUS_ROLE, Card, DropZone, FlowLayout, Page, StatusDelegate, button, hbox,
-                      set_compact, text)
 from .jobstatus import JobStatus, PauseControl
 from .settings_panel import BIN_NAME
+from .style import Size, Space, Type, tokens
+from .thumbs import HoverPreviewer
+from .widgets import PROGRESS_ROLE, STATUS_ROLE, Card, DropZone, FlowLayout, Page, StatusDelegate, button, hbox, set_compact, text
 from .workers import JobThread, ScanThread
 
 if TYPE_CHECKING:

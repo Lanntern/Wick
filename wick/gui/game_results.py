@@ -3,12 +3,12 @@
 import os
 
 from PySide6.QtCore import Qt, QUrl
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtGui import QDesktopServices
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem
 
-from ..formats import plural
 from ..cleanup import game_results
+from ..formats import plural
 from .style import Size
 from .widgets import button, dialog_buttons, dialog_layout
 

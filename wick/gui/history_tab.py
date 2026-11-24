@@ -7,16 +7,24 @@ import subprocess
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QMenu, QTreeWidget
 
 from .. import journal
 from ..formats import human, plural
-from .settings_panel import BIN_NAME
 from .dialogs import ask, inform
-from .filelist import (ListPlaceholder, SortItem, file_menu, filling, keyboard_list, make_sortable, selected_or_clicked,
-                       set_sort_keys)
+from .filelist import (
+    ListPlaceholder,
+    SortItem,
+    file_menu,
+    filling,
+    keyboard_list,
+    make_sortable,
+    selected_or_clicked,
+    set_sort_keys,
+)
+from .settings_panel import BIN_NAME
 from .style import Size, Space, Type, tokens
 from .widgets import Card, Page, StatTile, button, hbox, set_compact, text
 from .workers import UndoThread

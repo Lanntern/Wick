@@ -476,7 +476,7 @@ def _checkbox_svg(fill: str, border: str, check: str | None) -> str:
             f'rx="6" fill="{fill}" stroke="{border}" stroke-width="1.6"/>{mark}</svg>')
 
 
-def assets(t: "Tokens") -> dict[str, str]:
+def assets(t: Tokens) -> dict[str, str]:
     return {
         "down": _asset("down", _stroke_svg('<path d="m7 10 5 5 5-5"/>', t.text2)),
         "down_disabled": _asset("down", _stroke_svg('<path d="m7 10 5 5 5-5"/>', t.text3)),

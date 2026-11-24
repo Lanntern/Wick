@@ -17,7 +17,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from ..formats import AUDIO, AUDIO_EXTS, AVIF, DOCUMENT, HEIC, IMAGE_KINDS, VIDEO, VIDEO_EXTS, _EXT_KIND, sniff
+from ..formats import _EXT_KIND, AUDIO, AUDIO_EXTS, AVIF, DOCUMENT, HEIC, IMAGE_KINDS, VIDEO, VIDEO_EXTS, sniff
 from .common import Candidate, ScanResult, cancelled, walk_files
 
 ZIP_EXTS = {".zip", ".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",

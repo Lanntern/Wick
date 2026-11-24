@@ -7,7 +7,7 @@ from __future__ import annotations
 import ctypes
 import threading
 import time
-from ctypes import wintypes          # (importable everywhere; the calls themselves are Windows-only)
+from ctypes import wintypes  # (importable everywhere; the calls themselves are Windows-only)
 
 WAIT_TIMEOUT = 0x102
 ERROR_CANCELLED = 1223          # the person said no to Windows' permission prompt

@@ -18,8 +18,8 @@ import io
 import zipfile
 from pathlib import Path
 
-from .images import NotWorthIt, VerificationFailed
 from .fileops import remove_quietly, temp_name
+from .images import NotWorthIt, VerificationFailed
 
 OFFICE_EXTS = {".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
                ".odt", ".ods", ".odp", ".odg", ".epub", ".cbz"}

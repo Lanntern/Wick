@@ -13,8 +13,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .formats import plural
 from . import tools
+from .formats import plural
 from .probe import StreamInfo, VideoInfo
 
 FONT_TYPES = {"application/x-truetype-font", "application/x-font-ttf", "application/x-font-otf",

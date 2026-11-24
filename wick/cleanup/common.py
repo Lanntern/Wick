@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import threading
-from contextlib import contextmanager
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 

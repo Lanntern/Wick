@@ -7,14 +7,14 @@ Undo runs ``compact /u`` (Windows) or decompresses each file (Mac).
 
 from __future__ import annotations
 
-import os
-import sys
-import subprocess
-import threading
-import tempfile
 import hashlib
 import json
+import os
 import shutil
+import subprocess
+import sys
+import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
 

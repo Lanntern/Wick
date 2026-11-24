@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QUrl, Qt
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QVBoxLayout
 

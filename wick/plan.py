@@ -514,8 +514,21 @@ _FLAC_RATIO = {"pcm": 0.58, "flac": 0.97, "alac": 0.98, "ape": 1.03, "wavpack": 
 
 
 def _plan_audio(e: FileEntry, s: Settings) -> Plan:
-    from .audio import (ART_CONTAINERS, FORMATS, PADDING_MIN, SPEECH_KBPS, cd_target, flac_problem, is_lossless,
-                        is_speech, made_by_wick, padding, source_label, target_kbps, upsampled_from)
+    from .audio import (
+        ART_CONTAINERS,
+        FORMATS,
+        PADDING_MIN,
+        SPEECH_KBPS,
+        cd_target,
+        flac_problem,
+        is_lossless,
+        is_speech,
+        made_by_wick,
+        padding,
+        source_label,
+        target_kbps,
+        upsampled_from,
+    )
 
     if s.audio_lossless == "keep" and s.audio_lossy == "keep":
         return _skip("Audio conversion is off")

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 import os
+from typing import cast
 
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtGui import QGuiApplication
@@ -430,7 +429,8 @@ class AppSettingsTab(Page):
         self.win.history.refresh()
 
     def _history_toggled(self, on: bool) -> None:
-        from .. import journal, log as applog, pending
+        from .. import journal, pending
+        from .. import log as applog
 
         self.qs.setValue("history_enabled", on)
         journal.ENABLED = on

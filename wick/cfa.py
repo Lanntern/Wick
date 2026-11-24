@@ -74,7 +74,7 @@ def _default_folders() -> list[Path]:
     names = ("Documents", "Pictures", "Videos", "Music", "Desktop", "Favorites")
     out = [home / n for n in names] + [public / n for n in names if n != "Favorites"]
     try:
-        from .cleanup.common import known_folder     # (redirected folders: OneDrive's Pictures...)
+        from .cleanup.common import known_folder  # (redirected folders: OneDrive's Pictures...)
 
         out += [p for n in names if (p := known_folder(n)) is not None]
     except Exception:  # noqa: BLE001

@@ -108,7 +108,7 @@ def test_preview_save_as_keeps_the_original(win, tmp_path, no_dialogs, monkeypat
 def test_close_busy_preview_never_waits_on_ui_thread(win, tmp_path, monkeypatch, extension, action):
     import threading
 
-    from wick.formats import ImageInfo, VIDEO
+    from wick.formats import VIDEO, ImageInfo
     from wick.gui.preview import PreviewDialog, PreviewThread
     from wick.probe import VideoInfo
     from wick.scanner import FileEntry

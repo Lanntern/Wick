@@ -9,12 +9,21 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, QSize, Qt, QThread, QTimer, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QCheckBox, QComboBox, QFileDialog, QFrame, QLabel, QListWidget,
-                               QListWidgetItem)
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QListWidgetItem,
+)
 
 from .. import presets
 from ..engine import DONE, FAILED, run_job
-from ..formats import plural, human
+from ..formats import human, plural
 from ..plan import plan_entry
 from ..scanner import scan
 from ..settings import Settings

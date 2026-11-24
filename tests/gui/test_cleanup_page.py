@@ -212,6 +212,7 @@ def test_folder_scope_shows_paths_and_edits_are_staged(win, tmp_path):
 def test_app_algorithm_names_and_checkbox_file_types(win):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QLabel
+
     from wick.cleanup import appcompress
     from wick.gui.app_controls import FileTypePicker, algorithm_picker
 
@@ -264,6 +265,7 @@ def test_app_table_separates_sizes_savings_and_settings(win, tmp_path, monkeypat
     assert group.text(4) == "–"      # do not present incomplete estimates as a group total
 
     from types import SimpleNamespace
+
     from wick.cleanup import actions
 
     # A second compression must replace a previous decompression's status.
@@ -275,8 +277,8 @@ def test_app_table_separates_sizes_savings_and_settings(win, tmp_path, monkeypat
 
 
 def test_app_algorithm_changes_keep_controls_in_place(win):
-    from PySide6.QtWidgets import QCheckBox, QLabel
     from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QCheckBox, QLabel
 
     page = win.cleanup
     index = next(i for i, tool in enumerate(page._tools) if tool.key == "appcompress")

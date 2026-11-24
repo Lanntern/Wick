@@ -11,12 +11,25 @@ from pathlib import Path
 
 from . import __version__, journal, tools
 from .engine import DONE, FAILED, FileResult, JobEvents, run_job, undo_run
+from .formats import human
 from .plan import plan_entry
 from .scanner import scan
-from .formats import human
-from .settings import (IMAGE_FORMATS, IMAGE_MODES, JPEG_SUBSAMPLING, METADATA_MODES, OUTPUT_MODES, SMART_TARGETS,
-                       AUDIO_FORMATS, AUDIO_LOSSLESS_MODES, AUDIO_LOSSY_MODES, AUDIO_QUALITIES,
-                       VIDEO_CODECS, VIDEO_ENCODERS, VIDEO_QUALITIES, Settings)
+from .settings import (
+    AUDIO_FORMATS,
+    AUDIO_LOSSLESS_MODES,
+    AUDIO_LOSSY_MODES,
+    AUDIO_QUALITIES,
+    IMAGE_FORMATS,
+    IMAGE_MODES,
+    JPEG_SUBSAMPLING,
+    METADATA_MODES,
+    OUTPUT_MODES,
+    SMART_TARGETS,
+    VIDEO_CODECS,
+    VIDEO_ENCODERS,
+    VIDEO_QUALITIES,
+    Settings,
+)
 
 
 def _add_settings_args(p: argparse.ArgumentParser) -> None:
@@ -321,10 +334,8 @@ def _installer_setup(args: list[str]) -> int:
     set on a first install, so a choice made in Settings later is kept."""
     from PySide6.QtCore import QSettings
 
-    from . import APP_NAME
+    from . import APP_NAME, updates
     from .gui import integration
-
-    from . import updates
 
     opts = dict(a.split("=", 1) for a in args if "=" in a)
     on = {k: v == "1" for k, v in opts.items()}
@@ -380,11 +391,7 @@ def main(argv: list[str] | None = None) -> int:
         faulthandler.dump_traceback_later(20, repeat=True, file=open(trace, "a", encoding="utf-8"))  # noqa: SIM115
     argv = sys.argv[1:] if argv is None else argv
     if argv and argv[0] == "--uninstall-cleanup":   # the uninstaller: undo what the app added to Windows
-        from .gui import integration
-
-        from .gui import toasts
-
-        from .gui import jumplist
+        from .gui import integration, jumplist, toasts
 
         def old_temp_files() -> None:          # (versions before 0.2.0 kept their UI images in %TEMP%)
             import shutil

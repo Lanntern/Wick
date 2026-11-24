@@ -16,11 +16,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import journal, steps, tools, trash_restore
-from .log import log
-from .fileops import (BIN_NAME, copy_times, final_path, link_or_copy, move_to_trash, notify_shell, read_zone_mark,
-                      remove_quietly, temp_name, trash_available, write_zone_mark)
+from .fileops import (
+    BIN_NAME,
+    copy_times,
+    final_path,
+    link_or_copy,
+    move_to_trash,
+    notify_shell,
+    read_zone_mark,
+    remove_quietly,
+    temp_name,
+    trash_available,
+    write_zone_mark,
+)
 from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human, plural
 from .images import NotWorthIt, VerificationFailed, convert_image
+from .log import log
 from .plan import Plan
 from .scanner import FileEntry
 from .settings import Settings

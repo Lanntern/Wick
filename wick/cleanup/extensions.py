@@ -10,7 +10,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from ..formats import AUDIO_EXTS, DOCUMENT_EXTS, VIDEO_EXTS, _EXT_KIND, wrong_extension
+from ..formats import _EXT_KIND, AUDIO_EXTS, DOCUMENT_EXTS, VIDEO_EXTS, wrong_extension
 from .common import Candidate, ScanResult, publish, walk_files
 
 CHECKED = {*_EXT_KIND, *VIDEO_EXTS, *AUDIO_EXTS, ".pdf", ".jxl", ".ico"} - (DOCUMENT_EXTS - {".pdf"})

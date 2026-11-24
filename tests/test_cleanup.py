@@ -710,13 +710,14 @@ def test_large_files_lists_the_biggest_first(tmp_path):
 
 
 def test_files_are_what_their_contents_say(tmp_path):
+    from PIL import Image
+
     from wick import journal
     from wick.cleanup import actions, extensions
     from wick.engine import undo_record
     from wick.formats import PNG, sniff, wrong_extension
     from wick.scanner import scan
     from wick.settings import Settings
-    from PIL import Image
 
     Image.new("RGB", (40, 30), "red").save(tmp_path / "photo.jpg", "PNG")      # a PNG called .jpg
     Image.new("RGB", (40, 30), "blue").save(tmp_path / "fine.jpeg", "JPEG")    # .jpeg = .jpg: fine
@@ -762,8 +763,9 @@ def test_cloud_only_files_are_never_opened(tmp_path, monkeypatch):
 
 def test_wrong_extensions_are_read_side_by_side(tmp_path, monkeypatch):
     """Many files: all are checked (in parallel), and the results are the same as one at a time."""
-    from wick.cleanup import extensions
     from PIL import Image
+
+    from wick.cleanup import extensions
 
     for i in range(60):
         Image.new("RGB", (8, 8), "red").save(tmp_path / f"p{i}.jpg", "PNG" if i % 3 == 0 else "JPEG")
@@ -777,8 +779,9 @@ def test_wrong_extensions_are_read_side_by_side(tmp_path, monkeypatch):
 def test_broken_files_are_found(tmp_path):
     import zipfile
 
-    from wick.cleanup import broken
     from PIL import Image
+
+    from wick.cleanup import broken
 
     Image.effect_noise((300, 200), 40).convert("RGB").save(tmp_path / "fine.jpg", quality=90)
     data = (tmp_path / "fine.jpg").read_bytes()
@@ -882,6 +885,7 @@ def test_block_clone_on_refs():
     """ReFS (CI makes a small drive and sets WICK_REFS_DIR): a clone has the same contents, stays a separate
     file (changing it leaves the original alone), and the volume reports block cloning."""
     import os
+
     import pytest
 
     from wick import fileops

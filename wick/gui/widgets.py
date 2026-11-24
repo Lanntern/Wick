@@ -8,13 +8,27 @@ import sys
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QAbstractButton, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLayout, QProgressBar, QPushButton,
+    QAbstractButton,
+    QApplication,
+    QComboBox,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLayout,
+    QProgressBar,
+    QPushButton,
     QScrollArea,
-    QSizePolicy, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QToolButton, QVBoxLayout, QWidget, QWidgetItem,
+    QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+    QWidgetItem,
 )
 
 from .style import Radius, Size, Space, Type, icon, icon_pixmap, keyboard_focus, text_scale, tokens, ui_font
-
 
 # ---------------------------------------------------------------- text
 

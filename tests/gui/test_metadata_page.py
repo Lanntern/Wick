@@ -2,14 +2,13 @@
 
 from pathlib import Path
 
-
 from .conftest import _wait
 
 
 def test_metadata_streams_bounded_batches_without_recounting_the_table(win, monkeypatch):
     import threading
 
-    from PySide6.QtCore import QTimer, Qt
+    from PySide6.QtCore import Qt, QTimer
 
     from wick import metaclean
     from wick.gui import metadata_scan

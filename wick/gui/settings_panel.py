@@ -6,12 +6,23 @@ import os
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMenu,
-    QPushButton, QSpinBox, QStackedWidget, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QSpinBox,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from ..settings import Settings
 from ..fileops import BIN_NAME  # noqa: F401  (others import it from here too)
+from ..settings import Settings
 from .style import Size, Space, Type, text_scale
 from .widgets import Section, SizeInput, button, text
 

@@ -3,37 +3,48 @@ run them in the background). The tools themselves are defined in cleanup_tools.p
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QSettings, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QFrame, QHBoxLayout, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QAbstractItemView,
+    QCheckBox,
+    QFrame,
+    QHBoxLayout,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
 from .. import APP_NAME, cfa
 from ..cleanup import actions, appcompress, duplicates
 from ..cleanup.common import Candidate, ScanResult, known_folder
-from ..formats import plural, classify, human
+from ..formats import classify, human, plural
 from ..log import log
 from .dialogs import ask, choose, inform
 from .filelist import (
+    ListPlaceholder,
+    SortItem,
+    add_header_checkbox,
     click_to_check,
-    ListPlaceholder, SortItem, add_header_checkbox, file_menu, filling, keyboard_list, make_sortable,
-    selected_or_clicked, set_sort_keys,
+    file_menu,
+    filling,
+    keyboard_list,
+    make_sortable,
+    selected_or_clicked,
+    set_sort_keys,
 )
 from .settings_panel import BIN_NAME
 from .style import Size, Space, Type, tokens, ui_font
 from .thumbs import HoverPreviewer
 from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, hbox, text
-
 
 if TYPE_CHECKING:
     from .cleanup_tab import CleanupTab
@@ -49,14 +60,14 @@ class Tool:
     tab: str
     description: str
     default_folders: Callable[[], list[Path]] | None      # None: this tool doesn't take folders
-    scan: Callable[["ToolSection", Callable, threading.Event], ScanResult]
+    scan: Callable[[ToolSection, Callable, threading.Event], ScanResult]
     actions: list[tuple[str, str, str]]                    # (action id, button label, kind)
     folder_label: str = "Look in"
-    options: Callable[["ToolSection"], list[tuple[str, QWidget]]] = lambda s: []
+    options: Callable[[ToolSection], list[tuple[str, QWidget]]] = lambda s: []
     note: str = ""
     available: Callable[[], str] = lambda: ""              # returns a reason when unavailable
     group_title: Callable[[str, list[Candidate]], str] = lambda g, items: g
-    menu: Callable[["ToolSection", list[Candidate]], list] = lambda s, items: []   # extra right-click entries
+    menu: Callable[[ToolSection, list[Candidate]], list] = lambda s, items: []   # extra right-click entries
     extra: dict = field(default_factory=dict)
 
 
@@ -168,7 +179,7 @@ class _Purge(QThread):
 
 
 class ToolSection(QWidget):
-    def __init__(self, tool: Tool, page: "CleanupTab"):
+    def __init__(self, tool: Tool, page: CleanupTab):
         super().__init__()
         self.tool, self.page = tool, page
         self.qs: QSettings = page.win.qsettings
@@ -382,8 +393,9 @@ class ToolSection(QWidget):
         self.qs.setValue(self.folder_key, [str(p) for p in self.folders])
 
     def _manage_folders(self) -> None:
-        from .folders import FolderManager
         from PySide6.QtWidgets import QDialog
+
+        from .folders import FolderManager
 
         is_apps = self.tool.key == "appcompress"
         dialog = FolderManager(self, self.folders, self.tool.default_folders, self.qs,
@@ -403,9 +415,9 @@ class ToolSection(QWidget):
         self._show_folders()
 
     def _add_drives(self) -> None:
-        from ..cleanup.common import available_drives
         from PySide6.QtWidgets import QDialog
 
+        from ..cleanup.common import available_drives
         from .widgets import dialog_buttons, dialog_layout
 
         dialog = QDialog(self)

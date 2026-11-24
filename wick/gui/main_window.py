@@ -11,8 +11,16 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QGridLayout, QHBoxLayout, QMainWindow, QMenu, QStackedWidget, QSystemTrayIcon,
-    QVBoxLayout, QWidget,
+    QApplication,
+    QDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QMainWindow,
+    QMenu,
+    QStackedWidget,
+    QSystemTrayIcon,
+    QVBoxLayout,
+    QWidget,
 )
 
 from .. import APP_NAME, __version__, tools
@@ -20,12 +28,12 @@ from ..formats import human
 from ..log import log
 from ..settings import Settings
 from . import style
-from .home_tab import HomeTab
 from .compress_tab import CompressTab
 from .dialogs import ask
+from .home_tab import HomeTab
+from .sidebar import Sidebar
 from .style import Space, Type
 from .watch_tab import WatchTab
-from .sidebar import Sidebar
 from .widgets import Card, button, refresh_icons, text
 from .workers import EncoderProbeThread
 
@@ -508,8 +516,8 @@ class MainWindow(QMainWindow):
 
     def commands(self) -> list:
         """Everything the command bar (Ctrl+K) offers."""
-        from .command_bar import Command
         from .cleanup_tools import tools
+        from .command_bar import Command
 
         def page(attr: str):
             def go() -> None:

@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .. import cfa, journal
-from ..formats import human, plural
 from ..fileops import BIN_NAME, copy_times, move_to_trash, remove_quietly, temp_name, trash_available
+from ..formats import human, plural
 from . import appcompress
 from .common import Candidate, folder_size
 

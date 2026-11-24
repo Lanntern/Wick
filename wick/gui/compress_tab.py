@@ -8,31 +8,65 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QInputDialog,
-    QScrollArea, QStackedWidget, QStyledItemDelegate, QTableView,
-    QVBoxLayout, QWidget,
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QScrollArea,
+    QStackedWidget,
+    QStyledItemDelegate,
+    QTableView,
+    QVBoxLayout,
+    QWidget,
 )
 
 from .. import pending, tools
 from ..engine import DONE
-from ..formats import AUDIO, DOCUMENT, KIND_LABEL, VIDEO, plural, human, type_label
+from ..formats import AUDIO, DOCUMENT, KIND_LABEL, VIDEO, human, plural, type_label
 from ..plan import plan_entry
+from .dialogs import ask, inform, warn
 from .file_model import (
-    C_CHECK, C_CREATED, C_EST, C_FOLDER, C_INFO, C_MODIFIED, C_NAME, C_SIZE, C_STATUS, C_TYPE, FileFilterProxy,
+    C_CHECK,
+    C_CREATED,
+    C_EST,
+    C_FOLDER,
+    C_INFO,
+    C_MODIFIED,
+    C_NAME,
+    C_SIZE,
+    C_STATUS,
+    C_TYPE,
+    FileFilterProxy,
     FileTableModel,
     open_in_file_manager,
     open_in_file_manager_many,
 )
-from .preview import PreviewDialog
-from .thumbs import HoverPreviewer
-from .settings_panel import BIN_NAME, SettingsPanel
-from .dialogs import ask, inform, warn
 from .filelist import ListPlaceholder, click_to_check, file_menu, keyboard_list, open_file
-from .style import Size, Space, Type, safe_filter, text_scale
-from .jobstatus import JobStatus, PauseControl, ResumeBanner
 from .header import Header
-from .widgets import (CARD_INSET, Card, DropZone, Page, StatTile, StatusDelegate, available_width, button, keys,
-                      hbox, page_top, set_compact, text)
+from .jobstatus import JobStatus, PauseControl, ResumeBanner
+from .preview import PreviewDialog
+from .settings_panel import BIN_NAME, SettingsPanel
+from .style import Size, Space, Type, safe_filter, text_scale
+from .thumbs import HoverPreviewer
+from .widgets import (
+    CARD_INSET,
+    Card,
+    DropZone,
+    Page,
+    StatTile,
+    StatusDelegate,
+    available_width,
+    button,
+    hbox,
+    keys,
+    page_top,
+    set_compact,
+    text,
+)
 from .workers import JobThread, ScanThread
 
 LIST_COMFORT_W = 596   # the options panel starts hidden unless the list keeps this much room (× the text size)

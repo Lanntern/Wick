@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import have
 from wick import chunked, quality, tools, video
 from wick.plan import Plan
 from wick.probe import probe_video
 from wick.settings import Settings
-from tests.conftest import have
 
 pytestmark = pytest.mark.skipif(not have("ffmpeg", "ffprobe"), reason="needs ffmpeg")
 FFMPEG = tools.find_tool("ffmpeg") or "ffmpeg"     # (on Windows: the app's tools folder, not PATH)

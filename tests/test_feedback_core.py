@@ -1,8 +1,8 @@
 """Context-menu compatibility and cancellation regressions without GUI dependencies."""
 
 import subprocess
-import tempfile
 import sys
+import tempfile
 import threading
 import time
 import unittest

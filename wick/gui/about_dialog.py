@@ -56,8 +56,8 @@ class AboutDialog(QDialog):
 
     def _toggle_dev(self) -> None:
         from . import devmode
-        from .style import show_tip
         from .main_window import open_qsettings
+        from .style import show_tip
 
         qs = open_qsettings()
         on = devmode.toggle(qs)

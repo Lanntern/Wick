@@ -9,9 +9,9 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QComboBox
 
-from ..formats import plural
 from .. import metaclean
 from ..engine import process_metadata
+from ..formats import plural
 from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
@@ -122,9 +122,7 @@ class MetadataTab(FileJobPage):
                         output_suffix="_clean", preserve_dates=self.dates.isChecked(), metadata="keep")
 
     def accepts(self, path: Path) -> bool:
-        from ..formats import AUDIO
-
-        from ..formats import DOCUMENT
+        from ..formats import AUDIO, DOCUMENT
 
         kind = metaclean.kind_of(path)   # about photos and videos; music tags aren't private data
         return kind not in (AUDIO, DOCUMENT)

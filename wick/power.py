@@ -37,7 +37,7 @@ def _mac_begin() -> bool:
     global _activity
     import ctypes
 
-    from .macobjc import nsstring, sel, send, cls
+    from .macobjc import cls, nsstring, sel, send
 
     try:
         info = send(ctypes.c_void_p)(cls("NSProcessInfo"), sel("processInfo"))
@@ -57,7 +57,7 @@ def _mac_end() -> None:
     global _activity
     import ctypes
 
-    from .macobjc import sel, send, cls
+    from .macobjc import cls, sel, send
 
     if _activity is None:
         return

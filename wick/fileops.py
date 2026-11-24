@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import secrets
 import shutil
+import sys
 import time
 from functools import lru_cache
 from pathlib import Path

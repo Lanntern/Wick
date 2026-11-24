@@ -11,23 +11,31 @@ from pathlib import Path
 from PySide6.QtCore import QPointF, QRectF, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QHBoxLayout, QSizePolicy, QSlider, QSpinBox, QTabBar, QVBoxLayout, QWidget,
+    QApplication,
+    QComboBox,
+    QDialog,
+    QHBoxLayout,
+    QSizePolicy,
+    QSlider,
+    QSpinBox,
+    QTabBar,
+    QVBoxLayout,
+    QWidget,
 )
 
+from .. import steps, tools
 from ..engine import preview_file
 from ..fileops import remove_quietly
 from ..formats import KIND_LABEL, VIDEO, human
 from ..images import NotWorthIt, measure_quality
+from ..log import log
 from ..plan import plan_entry
 from ..scanner import FileEntry
 from ..settings import Settings
 from ..video import VideoPreview
-from .. import steps, tools
-from ..log import log
 from .settings_panel import BIN_NAME
 from .style import Radius, Space, Type, tokens, ui_font
 from .widgets import ElidedLabel, button, text
-
 
 _background_previews: set = set()
 
