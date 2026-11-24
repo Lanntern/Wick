@@ -9,8 +9,8 @@ from PySide6.QtWidgets import QAbstractItemView, QDialog, QHeaderView, QLineEdit
 
 from ..cleanup import game_results
 from ..formats import plural
-from .style import Size
-from .widgets import button, dialog_buttons, dialog_layout
+from .style import Size, Type
+from .widgets import button, dialog_buttons, dialog_layout, text
 
 
 class _ResultItem(QTableWidgetItem):
@@ -44,8 +44,8 @@ class GameResultsDialog(QDialog):
         for column in range(1, 6):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         for column in range(2, 6):
-            self.table.horizontalHeaderItem(column).setToolTip("Space saved. Hover over a result to see how many "
-                                                               "people reported it.")
+            if (heading := self.table.horizontalHeaderItem(column)) is not None:
+                heading.setToolTip("Space saved. Hover over a result to see how many people reported it.")
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
@@ -53,6 +53,8 @@ class GameResultsDialog(QDialog):
         self.table.sortItems(0, Qt.SortOrder.AscendingOrder)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         layout.addWidget(self.table)
+        self.note = text("", Type.FOOTNOTE, secondary=True, wrap=True)   # how the download is going
+        layout.addWidget(self.note)
         self.download_button = button("Download / Refresh Public Results")
         self.download_button.clicked.connect(self.fetch)
         source = button("Source / Contribute…", "", None, "Open CompactGUI's public results and contribution information")

@@ -214,7 +214,7 @@ class Taskbar:
         for action in (self._dock_pause, self._dock_stop):
             action.setVisible(False)
         try:
-            menu.setAsDockMenu()
+            menu.setAsDockMenu()  # type: ignore[attr-defined]  # (macOS-only: missing from PySide6's stubs)
             self._dock_menu = menu
         except AttributeError:       # (a Qt built without it)
             pass

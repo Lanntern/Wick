@@ -14,7 +14,7 @@ from .. import systemspace
 from ..formats import human
 from .dialogs import ask, inform
 from .style import Space, Type
-from .widgets import Card, button, dialog_buttons, dialog_layout, hbox, text
+from .widgets import Card, button, clear_layout, dialog_buttons, dialog_layout, hbox, text
 
 
 class _Measure(QThread):
@@ -61,10 +61,7 @@ class HiddenSpaceDialog(QDialog):
         self.worker.start()
 
     def _show(self, items) -> None:
-        while self.list.count():
-            w = self.list.takeAt(0).widget()
-            if w is not None:
-                w.deleteLater()
+        clear_layout(self.list)
         if not items:
             self.list.addWidget(text("Nothing large found outside your folders.", Type.BODY, secondary=True))
             return

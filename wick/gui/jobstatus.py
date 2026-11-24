@@ -24,7 +24,7 @@ from ..formats import human, plural
 from ..log import log_file
 from .filelist import open_file
 from .style import Space, Type, tokens
-from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, text
+from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, clear_layout, text
 
 
 def _elapsed(seconds: float) -> str:
@@ -455,11 +455,7 @@ class JobStatus(Card):
 
     def _show_fixes(self, found) -> None:
         """Advice and buttons for the reasons files failed (fixes.suggest); nothing when there's none."""
-        while self.fix_row.count():
-            item = self.fix_row.takeAt(0)
-            w = item.widget() if item is not None else None
-            if w is not None:
-                w.deleteLater()
+        clear_layout(self.fix_row)
         self.fix_text.setVisible(bool(found))
         if not found:
             return

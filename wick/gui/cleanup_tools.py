@@ -339,8 +339,14 @@ def _scan_caches(sec: ToolSection, progress, cancel):
     return caches.find_caches(progress, cancel)
 
 
+def _setting_list(sec: ToolSection, key: str) -> list[str]:
+    """A list setting's non-empty entries (QSettings gives back whatever was stored)."""
+    value = sec.qs.value(key, [], list)
+    return [str(x) for x in value if x] if isinstance(value, list) else []
+
+
 def _protected(sec: ToolSection) -> list[str]:
-    return [str(x) for x in (sec.qs.value("cleanup/devclean/protected", [], list) or []) if x]
+    return _setting_list(sec, "cleanup/devclean/protected")
 
 
 def _set_protected(sec: ToolSection, ids: list[str]) -> None:
@@ -364,7 +370,7 @@ def _refresh_protected(sec: ToolSection) -> None:
 
 def _dev_off(sec: ToolSection, what: str) -> list[str]:
     """Switched-off kinds ("kinds") or folder names ("names")."""
-    return [str(x) for x in (sec.qs.value(f"cleanup/devclean/off_{what}", [], list) or []) if x]
+    return _setting_list(sec, f"cleanup/devclean/off_{what}")
 
 
 def _set_dev_off(sec: ToolSection, what: str, values: list[str]) -> None:

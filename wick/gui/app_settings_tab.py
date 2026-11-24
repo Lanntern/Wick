@@ -9,7 +9,7 @@ from typing import cast
 
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from .. import APP_NAME, __version__, index, scanner, tools
 from .. import log as applog
@@ -30,14 +30,21 @@ HISTORY_CHOICES = [("Forever", 0), ("1 year", 365), ("6 months", 182), ("3 month
                    ("1 week", 7)]
 
 
-def setting_row(title: str, description: str, control: QWidget, help_text: str = "") -> QWidget:
+class SettingRow(QWidget):
+    """A row made by setting_row; its description can be changed later."""
+
+    description: QLabel
+    text_column: QVBoxLayout        # the title and description (more can go under them)
+
+
+def setting_row(title: str, description: str, control: QWidget, help_text: str = "") -> SettingRow:
     """Apple-style row: title and description on the left, the control on the right. ``help_text``: a
     "?" next to the title explains why the setting exists."""
-    row = QWidget()
+    row = SettingRow()
     h = QHBoxLayout(row)
     h.setContentsMargins(0, Space.XS, 0, Space.XS)
     h.setSpacing(Space.L)
-    left = QVBoxLayout()
+    left = row.text_column = QVBoxLayout()
     left.setSpacing(Space.XXS)
     if help_text:
         from .widgets import HelpTip
@@ -244,7 +251,7 @@ class AppSettingsTab(Page):
         self.index_clear.clicked.connect(self._index_clear)
         self.index_row = setting_row("Remembered files", "", self.index_clear)
         self.index_desc = text("", Type.FOOTNOTE, secondary=True, wrap=True)
-        self.index_row.layout().itemAt(0).layout().addWidget(self.index_desc)
+        self.index_row.text_column.addWidget(self.index_desc)
         card.lay.addWidget(self.index_row)
         card.lay.addWidget(separator())
         self.history_on = ToggleSwitch("Keep a history and log")

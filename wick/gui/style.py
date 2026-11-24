@@ -1051,6 +1051,8 @@ def apply_style(mode: str) -> Tokens:
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        raise RuntimeError("apply_style needs the QApplication made first")
     scale_to_text()
     global _tooltip_wrap, _focus_visible
     if _tooltip_wrap is None:

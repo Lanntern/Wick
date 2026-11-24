@@ -6,15 +6,16 @@ from __future__ import annotations
 import os
 import sys
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMenu, QTreeWidget, QTreeWidgetItem, QWidget
 
-from .header import Header
+from .header import Header, header_of
 from .style import Space, Type, safe_filter, tokens, ui_font
 
 SORT_ROLE = Qt.ItemDataRole.UserRole + 50   # optional per-cell sort key (numbers, timestamps); otherwise the text sorts
@@ -26,13 +27,15 @@ SHOW_IN_FOLDER = ("Show in Explorer" if sys.platform == "win32" else
 class SortItem(QTreeWidgetItem):
     """Tree item that sorts by SORT_ROLE when set (sizes, dates), else by text, case-insensitively."""
 
+    sort_keys: dict[int, Any] = {}     # (set_sort_keys gives each item its own)
+
     def __lt__(self, other: QTreeWidgetItem) -> bool:
         # Called ~16 times per row when sorting (40,000 rows on Home): keys are kept on the Python side,
         # which is several times faster than reading them back from Qt.
         tree = self.treeWidget()
         col = tree.sortColumn() if tree is not None else 0
-        a = getattr(self, "_keys", {}).get(col)
-        b = getattr(other, "_keys", {}).get(col)
+        a = self.sort_keys.get(col)
+        b = other.sort_keys.get(col) if isinstance(other, SortItem) else None
         if a is not None and b is not None:
             try:
                 return a < b
@@ -41,13 +44,14 @@ class SortItem(QTreeWidgetItem):
         return self.text(col).casefold() < other.text(col).casefold()
 
 
-def set_sort_keys(item: QTreeWidgetItem, keys: dict[int, object]) -> None:
+def set_sort_keys(item: SortItem, keys: dict[int, Any]) -> None:
     for col, key in keys.items():
         item.setData(col, SORT_ROLE, key)
-    item._keys = {**getattr(item, "_keys", {}), **keys}   # (read by SortItem.__lt__)
+    item.sort_keys = {**item.sort_keys, **keys}
 
 
-def make_sortable(tree: QTreeWidget, column: int = 0, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder):
+def make_sortable(tree: QTreeWidget, column: int = 0,
+                  order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> Header:
     """Clickable, sortable headers drawn in the app style. Returns the header."""
 
     old = tree.header()
@@ -57,11 +61,17 @@ def make_sortable(tree: QTreeWidget, column: int = 0, order: Qt.SortOrder = Qt.S
     header.setStretchLastSection(True)
     for i, w in enumerate(widths):  # keep the column widths set before the swap
         header.resizeSection(i, w)
-    tree._fitter = ColumnFitter(tree)
-    tree._fitter.fit_soon()
+    header.fitter = ColumnFitter(tree)
+    header.fitter.fit_soon()
     tree.setSortingEnabled(True)
     tree.sortByColumn(column, order)
     return header
+
+
+def fitter_of(tree: QTreeWidget) -> ColumnFitter | None:
+    """The fitter make_sortable gave this list, if any."""
+    h = tree.header()
+    return h.fitter if isinstance(h, Header) else None
 
 
 @contextmanager
@@ -75,7 +85,7 @@ def filling(tree: QTreeWidget):
     finally:
         tree.blockSignals(False)
         tree.setSortingEnabled(sorting)
-        fitter = getattr(tree, "_fitter", None)
+        fitter = fitter_of(tree)
         if fitter is not None:
             fitter.fit_soon()
 
@@ -111,15 +121,13 @@ class ColumnFitter(QObject):
         """A column edge dragged by the person: their widths from now on (scrolling if needed). Only a drag on
         the header counts: resizing the window with the mouse also resizes the stretching last column, and
         taking that for a choice froze every column at its empty-list width."""
-        header = self.tree.header()
-        dragging = getattr(header, "_dragging", None)
-        by_hand = dragging if dragging is not None else bool(QApplication.mouseButtons() & Qt.MouseButton.LeftButton)
+        header = header_of(self.tree)
+        by_hand = header.dragging
         shown = [c for c in range(self.tree.columnCount()) if not self.tree.isColumnHidden(c)]
         if not self._fitting and by_hand and shown and index != shown[-1]:
             self.user_sized = True
             self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            if hasattr(header, "save_widths"):
-                header.save_widths()
+            header.save_widths()
 
     @safe_filter
     def eventFilter(self, obj, ev):  # noqa: N802
@@ -146,7 +154,7 @@ class ColumnFitter(QObject):
         tree = self.tree
         if self.user_sized:      # (an empty list is fitted too: its headings must all show)
             return
-        off: set[int] = getattr(tree.header(), "user_hidden", set())        # turned off by the person: never brought back
+        off = header_of(tree).user_hidden        # turned off by the person: never brought back
         cols = [c for c in range(tree.columnCount())
                 if c not in off and (not tree.isColumnHidden(c) or c in self._dropped)]
         if len(cols) < 2:
@@ -176,15 +184,12 @@ class ColumnFitter(QObject):
 
     def _fitted(self, cols: list[int]) -> tuple[dict, bool]:
         """The widths ``cols`` get in the view's width, and whether they still don't fit (at their minimums)."""
-        tree, header = self.tree, self.tree.header()
+        tree, header = self.tree, header_of(self.tree)
         want = {}
         for c in cols:
             content = tree.sizeHintForColumn(c) if tree.topLevelItemCount() else 0
             head = header.sectionSizeFromContents(c).width()
-            if header._check is not None and header._check[0] == c:
-                head += 32
-            if hasattr(header, "_expander_width"):
-                head += header._expander_width(c)
+            head += header.decoration_width(c)
             want[c] = max(self.MIN, min(self.MAX, max(content, head) + 8))
         available = tree.viewport().width() - 2
         fitted = dict(want)
@@ -198,11 +203,9 @@ class ColumnFitter(QObject):
                 if room >= self.MIN * len(others)
                 else self._share(want, available)
             )
-        mins = getattr(header, "min_width", None)
-        if mins is not None:  # never below a column's minimum (short values are never cut short)
-            header.forget_min_widths()
-            fitted = {c: max(w, mins(c)) for c, w in fitted.items()}
-        last_min = max(self.MIN, mins(cols[-1])) if mins is not None else self.MIN
+        header.forget_min_widths()      # never below a column's minimum (short values are never cut short)
+        fitted = {c: max(w, header.min_width(c)) for c, w in fitted.items()}
+        last_min = max(self.MIN, header.min_width(cols[-1]))
         if self.optional and any(c in cols for c in self.optional):
             last_min = max(last_min, self.last_min)
         return fitted, sum(fitted[c] for c in cols[:-1]) + last_min > available
@@ -210,6 +213,22 @@ class ColumnFitter(QObject):
 
 _CHECKABLE = Qt.ItemFlag.ItemIsUserCheckable.value | Qt.ItemFlag.ItemIsEnabled.value
 _TRISTATE = Qt.ItemFlag.ItemIsAutoTristate.value
+
+
+def top_items(tree: QTreeWidget) -> Iterator[QTreeWidgetItem]:
+    """The list's top-level rows."""
+    for i in range(tree.topLevelItemCount()):
+        it = tree.topLevelItem(i)
+        if it is not None:
+            yield it
+
+
+def child_items(item: QTreeWidgetItem) -> Iterator[QTreeWidgetItem]:
+    """A row's own children (not their children)."""
+    for i in range(item.childCount()):
+        it = item.child(i)
+        if it is not None:
+            yield it
 
 
 def checkable_items(tree: QTreeWidget, column: int = 0) -> list[QTreeWidgetItem]:
@@ -231,7 +250,7 @@ def checkable_items(tree: QTreeWidget, column: int = 0) -> list[QTreeWidgetItem]
 
 def add_header_checkbox(tree: QTreeWidget, column: int = 0, on_change: Callable[[], None] | None = None) -> None:
     """A tri-state select-all checkbox in the header of ``column``, kept in sync with the rows."""
-    header = tree.header()
+    header = header_of(tree)
 
     def state() -> Qt.CheckState:
         items = checkable_items(tree, column)
@@ -611,6 +630,9 @@ __all__ = [
     "SORT_ROLE",
     "SortItem",
     "set_sort_keys",
+    "top_items",
+    "child_items",
+    "fitter_of",
     "make_sortable",
     "filling",
     "add_header_checkbox",

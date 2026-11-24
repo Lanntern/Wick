@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -20,12 +21,14 @@ from .dialogs import ask, inform
 from .filelist import (
     ListPlaceholder,
     SortItem,
+    child_items,
     file_menu,
     filling,
     keyboard_list,
     make_sortable,
     selected_or_clicked,
     set_sort_keys,
+    top_items,
 )
 from .jobstatus import save_report
 from .settings_panel import BIN_NAME, OUTPUT_CHOICES
@@ -135,8 +138,7 @@ class HistoryTab(Page):
         self.tree.setColumnWidth(2, 64)
         self.tree.setColumnWidth(3, 96)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
-        make_sortable(self.tree, 0, Qt.SortOrder.DescendingOrder)  # newest first
-        self.tree.header().remember("history")
+        make_sortable(self.tree, 0, Qt.SortOrder.DescendingOrder).remember("history")  # newest first
         self.placeholder = ListPlaceholder(self.tree)
         self.tree.itemExpanded.connect(self._expanded)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -158,13 +160,16 @@ class HistoryTab(Page):
         if sys.platform == "win32":  # beside the note about it, not among the page's actions
             self.bin_btn = button("Open Recycle Bin", "link", None, "")
             self.bin_btn.clicked.connect(lambda: subprocess.Popen(["explorer", "shell:RecycleBinFolder"]))
-            self.body.addLayout(hbox(self.hint, self.bin_btn, spacing=Space.L))
-            hint_row = self.body.itemAt(self.body.count() - 1).layout()
+            hint_row = hbox(self.hint, self.bin_btn, spacing=Space.L)
             hint_row.setStretchFactor(self.hint, 1)
-            hint_row.setAlignment(self.bin_btn, Qt.AlignTop)
+            hint_row.setAlignment(self.bin_btn, Qt.AlignmentFlag.AlignTop)
+            self.body.addLayout(hint_row)
         else:
             self.body.addWidget(self.hint)
         self.refresh()
+
+    def shortcuts(self) -> list[tuple[str, Callable[[], object]]]:
+        return [("Ctrl+Z", self.undo_selected), ("F5", self.reload)]
 
     def refresh(self, force: bool = False) -> None:
         """Update totals; rebuild the list only if the history changed, and only while it's on screen."""
@@ -210,8 +215,7 @@ class HistoryTab(Page):
         from PySide6.QtGui import QColor
 
         muted = QColor(tokens().text3)
-        for i in range(self.tree.topLevelItemCount()):
-            top = self.tree.topLevelItem(i)
+        for top in top_items(self.tree):
             data = top.data(0, Qt.ItemDataRole.UserRole)
             if not data or data[0] != "run":
                 continue
@@ -229,8 +233,7 @@ class HistoryTab(Page):
                 if n
                 else top.text(4),
             )
-            for j in range(top.childCount()):
-                child = top.child(j)
+            for child in child_items(top):
                 cd = child.data(0, Qt.ItemDataRole.UserRole)
                 reason = self.blocked.get((run.run_id, cd[2].original)) if cd else None
                 if reason:
@@ -261,7 +264,7 @@ class HistoryTab(Page):
             top.setText(4, run_summary(run) + (f" · {undone} undone" if undone else ""))
             top.setToolTip(4, top.text(4))
             # File rows are created when the run is expanded (a run can hold tens of thousands).
-            top.setChildIndicatorPolicy(SortItem.ShowIndicator)
+            top.setChildIndicatorPolicy(SortItem.ChildIndicatorPolicy.ShowIndicator)
             self.tree.addTopLevelItem(top)
         if runs:
             self.placeholder.clear()

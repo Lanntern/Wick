@@ -31,7 +31,7 @@ from ..suggest import watch_suggestions
 from .filelist import ListPlaceholder
 from .style import Size, Space, Type, icon
 from .watcher import FolderWatcher
-from .widgets import Card, FlowLayout, Page, ToggleSwitch, button, hbox, text
+from .widgets import Card, FlowLayout, Page, ToggleSwitch, button, clear_layout, hbox, text
 
 
 class WatchJobThread(QThread):
@@ -274,11 +274,7 @@ class WatchTab(Page):
             self._restart()
 
     def refresh_suggestions(self) -> None:
-
-        while self.suggest_row.count():
-            w = self.suggest_row.takeAt(0).widget()
-            if w is not None:
-                w.deleteLater()
+        clear_layout(self.suggest_row)
         found = watch_suggestions(self.folder_paths())
         if not found:
             return

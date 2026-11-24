@@ -61,7 +61,8 @@ def _name_fields(form: QFormLayout) -> None:
     for row in range(form.rowCount()):
         label = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
         field = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
-        text = label.widget().text() if label is not None and isinstance(label.widget(), QLabel) else ""
+        label_widget = label.widget() if label is not None else None
+        text = label_widget.text() if isinstance(label_widget, QLabel) else ""
         target = field.widget() if field is not None else None
         if text and target is not None and not target.accessibleName():
             target.setAccessibleName(text.replace("&", ""))

@@ -491,7 +491,7 @@ def test_dialogs_share_one_frame_and_button_row(win):
     from PySide6.QtWidgets import QDialog, QPushButton
 
     from wick.gui.style import Space
-    from wick.gui.widgets import button, dialog_buttons, dialog_layout
+    from wick.gui.widgets import button, dialog_buttons, dialog_layout, primary_button
 
     d = QDialog(win)
     lay = dialog_layout(d, "Folders to Scan", "These folders are included.")
@@ -501,7 +501,7 @@ def test_dialogs_share_one_frame_and_button_row(win):
     assert lay.contentsMargins().left() == Space.XL
     labels = [row.itemAt(i).widget().text() for i in range(row.count()) if row.itemAt(i).widget()]
     assert labels == ["Add Folder…", "Save Folders", "Cancel"]
-    go = d._primary_button
+    go = primary_button(d)
     assert go.objectName() == "primary" and go.isDefault()
     cancel = next(b for b in d.findChildren(QPushButton) if b.text() == "Cancel")
     cancel.click()
