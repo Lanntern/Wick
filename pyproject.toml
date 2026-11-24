@@ -80,6 +80,17 @@ min_confidence = 60
 ignore_names = ["*Event", "paintSection", "filterAcceptsRow", "expandingDirections", "hasHeightForWidth",
                 "actualSize", "pytest_*", "pytestmark"]
 
+[tool.coverage.run]
+# (CI's Linux job; Windows- and Mac-only code shows as not run there)
+source = ["wick"]
+omit = ["wick/_ssimulacra2.py"]   # vendored
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+fail_under = 65    # (69 % when this was added: a drop below this fails CI)
+
 [tool.mypy]
 python_version = "3.12"     # (CI's Python; numpy's own type stubs need 3.12 syntax)
 ignore_missing_imports = true

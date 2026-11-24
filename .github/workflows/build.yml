@@ -163,7 +163,7 @@ jobs:
         run: >-
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
-          --junitxml=test-results/core.xml -n auto --dist loadgroup
+          --junitxml=test-results/core.xml -n auto --dist loadgroup --cov --cov-report= --cov-fail-under=0
           --ignore=tests/gui --ignore=tests/test_layout.py --ignore=tests/test_style.py
       - name: Test GUI and layouts
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
@@ -173,8 +173,22 @@ jobs:
         run: >-
           python -u -m pytest -v -ra --durations=25
           --timeout=300 --timeout-method=thread -o faulthandler_timeout=300 -o faulthandler_exit_on_timeout=True
-          --junitxml=test-results/gui.xml
+          --junitxml=test-results/gui.xml --cov --cov-append --cov-report= --cov-fail-under=0
           tests/gui tests/test_layout.py tests/test_style.py
+      # Both runs measured together (settings in pyproject.toml): the total in the job summary, the full report
+      # as an artifact, and a failure if it drops below the floor.
+      - name: Test coverage
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: |
+          python -m coverage html -q -d coverage-html --fail-under=0
+          { echo "### Test coverage (Linux)"; echo; python -m coverage report --format=markdown --skip-covered --fail-under=0; } >> "$GITHUB_STEP_SUMMARY"
+          python -m coverage report --format=total
+      - name: Keep the coverage report
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-linux
+          path: coverage-html
       - name: Keep test reports
         if: always()
         uses: actions/upload-artifact@v7
