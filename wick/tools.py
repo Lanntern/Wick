@@ -31,14 +31,14 @@ _BELOW_NORMAL = 0x00004000  # Windows BELOW_NORMAL_PRIORITY_CLASS
 
 # Hide the console window that would otherwise flash for every subprocess
 # when running as a GUI app on Windows.
-_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+_CREATIONFLAGS = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
 
 
 def _popen_kwargs() -> dict:
     flags = _CREATIONFLAGS
     kw: dict = {}
     if LOW_PRIORITY:
-        if os.name == "nt":
+        if sys.platform == "win32":
             flags |= _BELOW_NORMAL
         else:
             kw["preexec_fn"] = _nice
@@ -81,7 +81,7 @@ def _considerate(proc: subprocess.Popen) -> None:
     """Windows: put a just-started encoder in the job object, and in low-priority mode also give it low disk
     and memory priority (so the computer stays responsive while it works), plus Windows' efficiency mode while
     Wick runs hidden in the tray (power.set_efficiency_mode). Best effort: never stops an encode."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return
     try:
         import ctypes
@@ -114,6 +114,8 @@ def _considerate(proc: subprocess.Popen) -> None:
 
 
 def _nice() -> None:  # pragma: no cover - runs in the child
+    if sys.platform == "win32":
+        return
     try:
         os.nice(10)
     except OSError:
@@ -124,7 +126,7 @@ def _nice() -> None:  # pragma: no cover - runs in the child
 def total_memory_gb() -> float:
     """Installed memory in GB (0 if unknown)."""
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
 
             class MemoryStatus(ctypes.Structure):
@@ -146,7 +148,7 @@ def total_memory_gb() -> float:
 def lower_thread_priority() -> None:
     """Make the calling thread (in-process encoders) run at below-normal priority."""
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
 
             k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -197,7 +199,7 @@ def _candidate_dirs() -> Iterator[Path]:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         yield Path(meipass) / "tools"
-    if os.name == "nt":                    # tools downloaded when first needed (addons.py)
+    if sys.platform == "win32":                    # tools downloaded when first needed (addons.py)
         from .journal import data_dir
 
         yield data_dir() / "tools"
@@ -208,7 +210,7 @@ def _candidate_dirs() -> Iterator[Path]:
 
 @cache
 def find_tool(name: str) -> str | None:
-    exe = name + (".exe" if os.name == "nt" else "")
+    exe = name + (".exe" if sys.platform == "win32" else "")
     for d in _candidate_dirs():
         p = d / exe
         if p.is_file():

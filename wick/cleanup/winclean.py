@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
 
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 SYSTEM = "Windows (one administrator prompt)"
 ACCOUNT = "Your account (Recycle Bin)"
 _NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -144,7 +145,8 @@ def _old_temp_files(days: int, cancel, limit: int = 20000) -> tuple[list[Path], 
     if not temp.is_dir():
         return [], 0
     cutoff = time.time() - days * 86400
-    out, total = [], 0
+    out: list[Path] = []
+    total = 0
     for dirpath, _dirs, files in os.walk(temp):
         if cancelled(cancel) or len(out) >= limit:
             break
@@ -167,6 +169,8 @@ INSTALLER_KEEP_DAYS = 30
 def registered_packages() -> set[str]:
     """Every installer package and patch Windows Installer still lists for an installed product (lower-case
     paths), from its registry records for all accounts. Empty when they can't be read."""
+    if sys.platform != "win32":
+        return set()
     import winreg
 
     found: set[str] = set()

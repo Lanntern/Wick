@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -324,7 +325,7 @@ class HomeTab(Page):
         self.worker.start()
 
     def stop(self) -> None:
-        if self.busy():
+        if self.worker is not None and self.busy():
             self.worker.cancel.set()           # (it stops at its next file; quitting waits for it)
 
     def _progress(self, msg: str, done: int, total: int) -> None:
@@ -360,7 +361,7 @@ class HomeTab(Page):
             drive = b.drive if b is not None else str(Path(self.roots[0]).anchor if self.roots else Path.home().anchor)
             hidden_space.show(drive, self.win.open_cleanup_tool, self)
         elif key == space.BIN:
-            if os.name == "nt":
+            if sys.platform == "win32":
                 import subprocess
 
                 subprocess.Popen(["explorer", "shell:RecycleBinFolder"])

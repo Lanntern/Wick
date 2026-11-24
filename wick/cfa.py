@@ -28,7 +28,7 @@ HOW = ("Windows' Controlled folder access (ransomware protection) only lets appr
        f"access, and add {APP_NAME}. Or leave it on, and {APP_NAME} will skip those folders.")
 
 _cache: tuple[float, dict] | None = None
-_IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 
 
 def _state() -> dict:
@@ -37,7 +37,7 @@ def _state() -> dict:
     if _cache is not None and time.monotonic() - _cache[0] < 60:
         return _cache[1]
     state: dict = {"on": False, "folders": [], "apps": []}
-    if os.name == "nt":
+    if sys.platform == "win32":
         import winreg
 
         for key in _KEYS:
@@ -103,7 +103,7 @@ def protected(path: Path) -> bool:
 
 def blocked(error: BaseException, path: Path) -> bool:
     """Whether ``error``, raised while changing ``path``, is Controlled folder access refusing it."""
-    if not _IS_WINDOWS or not isinstance(error, OSError):
+    if not IS_WINDOWS or not isinstance(error, OSError):
         return False
     codes = {getattr(error, "winerror", None), error.errno, *(a for a in error.args if isinstance(a, int))}
     if not codes & _DENIED and not (codes & _NOT_FOUND and os.path.lexists(path)):

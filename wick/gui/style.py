@@ -7,7 +7,6 @@ When Windows High Contrast is on, no custom styling is applied at all.
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -124,7 +123,7 @@ def tokens() -> Tokens:
 
 def high_contrast_active() -> bool:
     """Windows High Contrast mode: the user's colors must win, so we don't style."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import ctypes
@@ -744,7 +743,7 @@ def _polish_widget(obj: QWidget) -> None:
             # Qt ignores the spin box's own padding for its text field; inset the field itself.
             le.setStyleSheet(css)
     if cls in ("QComboBoxPrivateContainer", "QTipLabel") or isinstance(obj, QMenu):
-        if os.name == "nt":
+        if sys.platform == "win32":
             # Windows: translucent popup windows can render black outside the rounded border. Paint them
             # opaque and let the system round the window itself (Windows 11; see _native_round_corners).
             if cls == "QComboBoxPrivateContainer":
@@ -870,7 +869,7 @@ class _FocusVisible(QObject):
             self._mark(obj, ev.reason() in self._KEYBOARD)
         elif kind == QEvent.FocusOut and isinstance(obj, QWidget):
             self._mark(obj, False)
-        elif kind == QEvent.Show and os.name == "nt" and isinstance(obj, QWidget) and obj.isWindow() \
+        elif kind == QEvent.Show and sys.platform == "win32" and isinstance(obj, QWidget) and obj.isWindow() \
                 and obj.inherits("QDialog") and not obj.property("_titleTinted"):
             obj.setProperty("_titleTinted", True)
             _tint_title_bar(obj)

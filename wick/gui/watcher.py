@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -128,7 +129,7 @@ class FolderWatcher(QObject):
 def _readable(path: str) -> bool:
     """False while another program still has the file open for writing (Windows)."""
     try:
-        if os.name == "nt" and os.access(path, os.W_OK):
+        if sys.platform == "win32" and os.access(path, os.W_OK):
             # Opening for append fails with a sharing violation while the writer holds it.
             with open(path, "ab"):
                 pass

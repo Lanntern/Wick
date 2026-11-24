@@ -4,6 +4,8 @@ process imports only this module."""
 
 from __future__ import annotations
 
+import sys
+
 
 def set_low_priority(low: bool) -> None:
     if not low:
@@ -11,7 +13,7 @@ def set_low_priority(low: bool) -> None:
     import os
 
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             import ctypes
 
             k32 = ctypes.windll.kernel32  # type: ignore[attr-defined]

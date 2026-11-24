@@ -184,7 +184,8 @@ def parse_args(argv: list[str]) -> tuple[bool, str, str, list[str]]:
 
     --convert (Explorer's "Convert with Wick" menu): a Convert format id such as jpeg or mp4_h264, or
     "choose" to open Convert with the files and let you pick."""
-    background, preset, convert_to, paths = False, "", "", []
+    background, preset, convert_to = False, "", ""
+    paths: list[str] = []
     if "--url" in argv:
         # A wick: link (a notification's button, or any web page) only ever opens a page (open_target):
         # nothing else from its command line is used, so a crafted link can't slip in files or options.

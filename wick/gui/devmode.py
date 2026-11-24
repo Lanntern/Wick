@@ -4,6 +4,7 @@ version line in About seven times (click it seven more times to hide them again)
 from __future__ import annotations
 
 import os
+import sys
 
 KEY = "dev/enabled"
 CLICKS = 7
@@ -29,7 +30,7 @@ def apply(qs) -> None:
 
 
 def fluent_default() -> bool:
-    return os.name == "nt"
+    return sys.platform == "win32"
 
 
 __all__ = ["enabled", "toggle", "apply", "CLICKS"]

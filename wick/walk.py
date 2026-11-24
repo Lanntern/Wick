@@ -5,6 +5,7 @@ listed once, and a cancel stops the walk between folders."""
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
@@ -17,7 +18,7 @@ def is_link(e: os.DirEntry) -> bool:
     try:
         if e.is_symlink():
             return True
-        if os.name != "nt":            # (junctions and mount-point folders are Windows'; no extra look elsewhere)
+        if sys.platform != "win32":            # (junctions and mount-point folders are Windows'; no extra look elsewhere)
             return False
         if hasattr(e, "is_junction") and e.is_junction():
             return True

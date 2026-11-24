@@ -53,7 +53,7 @@ def find_wrong_extensions(roots: list[Path], progress: Callable | None = None,
     items: list[Candidate] = []
     checked = 0
     with ThreadPoolExecutor(max_workers=READERS, thread_name_prefix="sniff") as pool:
-        batch = []
+        batch: list[tuple[Path, int]] = []
         last_flush = time.monotonic()
 
         def flush():

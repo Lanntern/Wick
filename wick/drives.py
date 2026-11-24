@@ -14,11 +14,13 @@ from pathlib import Path
 
 
 def _anchor(path: Path) -> str:
-    return os.path.splitdrive(os.path.abspath(path))[0].upper() if os.name == "nt" else str(path)
+    return os.path.splitdrive(os.path.abspath(path))[0].upper() if sys.platform == "win32" else str(path)
 
 
 @lru_cache(maxsize=64)
 def _windows_spinning(drive: str) -> bool:
+    if sys.platform != "win32":
+        return False
     import ctypes
     from ctypes import wintypes
 
@@ -52,6 +54,8 @@ def _windows_spinning(drive: str) -> bool:
 
 @lru_cache(maxsize=64)
 def _linux_spinning(dev: int) -> bool:
+    if sys.platform == "win32":
+        return False
     block = Path(f"/sys/dev/block/{os.major(dev)}:{os.minor(dev)}")
     try:
         node = block.resolve()
@@ -69,7 +73,7 @@ def _linux_spinning(dev: int) -> bool:
 def spinning(path: Path) -> bool:
     """True when ``path`` is on a drive with moving parts (a hard drive), as far as the system says."""
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             drive = _anchor(path)
             return bool(drive) and _windows_spinning(drive)
         return _linux_spinning(os.stat(path).st_dev)
@@ -87,7 +91,7 @@ def readers(paths: list[Path], parallel: int) -> int:
             dev = os.stat(p).st_dev                 # (a file that's gone says nothing about its drive)
         except OSError:
             continue
-        key = _anchor(p) if os.name == "nt" else str(dev)
+        key = _anchor(p) if sys.platform == "win32" else str(dev)
         if key in seen:
             continue
         seen.add(key)
@@ -128,6 +132,8 @@ def _mac_mount_fs(path: Path) -> str:
 
 @lru_cache(maxsize=64)
 def _linux_mount_fs(dev: int) -> str:
+    if sys.platform == "win32":
+        return ""
     """The file system type of the mount that device ``dev`` belongs to ("" if unknown)."""
     try:
         with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as f:
@@ -147,7 +153,7 @@ def network(path: Path) -> bool:
     """True when ``path`` is on a network share (a mapped drive, a UNC path, NFS/SMB/SSHFS mounts)."""
     try:
         text = os.path.abspath(path)
-        if os.name == "nt":
+        if sys.platform == "win32":
             if text.startswith(("\\\\", "//")) and not text.startswith("\\\\?\\"):
                 return True
             import ctypes
@@ -175,7 +181,7 @@ def slow(paths: list[Path], limit: int = 200) -> str:
             dev = os.stat(p).st_dev
         except OSError:
             continue
-        key = _anchor(p) if os.name == "nt" else str(dev)
+        key = _anchor(p) if sys.platform == "win32" else str(dev)
         if key in seen:
             continue
         seen.add(key)

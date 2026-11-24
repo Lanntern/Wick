@@ -146,7 +146,7 @@ def _jpeg_segments(data: bytes) -> tuple[list[tuple[int, bytes]], int]:
     """(marker, full segment bytes) up to SOS; returns (segments, offset of SOS)."""
     if data[:2] != b"\xff\xd8":
         raise ValueError("not a JPEG")
-    i, segs = 2, []
+    i, segs = 2, list[tuple[int, bytes]]()
     while i < len(data) - 3:
         if data[i] != 0xFF:
             raise ValueError("corrupt JPEG marker stream")
@@ -189,7 +189,8 @@ def jpeg_write_meta(data: bytes, meta: Meta, drop_other: bool) -> bytes:
     ``drop_other`` also removes comments, IPTC and other application segments.
     """
     segs, sos = _jpeg_segments(data)
-    head, kept = [], []
+    head: list[bytes] = []
+    kept: list[bytes] = []
     for marker, seg in segs:
         body = seg[4:]
         is_meta = (marker == 0xE1 and (body.startswith(EXIF_HEADER) or body.startswith(XMP_JPEG_HEADER))) \

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import sys
 from typing import cast
 
 from PySide6.QtCore import QSettings, Qt, Signal
@@ -219,7 +219,7 @@ class AppSettingsTab(Page):
         self.index_on.toggled.connect(self._index_toggled)
         card.lay.addWidget(setting_row("Remember file details", "Later scans skip files that haven't changed.",
                                        self.index_on))
-        if os.name == "nt":
+        if sys.platform == "win32":
             card.lay.addWidget(separator())
             self.fast_drives = ToggleSwitch("Fast whole-drive scanning")
             self.fast_drives.setChecked(self.qs.value("fast_drive_scan", True, bool))

@@ -49,11 +49,11 @@ def folder() -> Path:
 
 def can_download(addon: Addon) -> bool:
     """Only the Windows build is downloaded (elsewhere it comes from the system's packages)."""
-    return os.name == "nt" and os.environ.get("WICK_NO_NETWORK") != "1"
+    return sys.platform == "win32" and os.environ.get("WICK_NO_NETWORK") != "1"
 
 
 def install_hint(addon: Addon) -> str:
-    if os.name == "nt":
+    if sys.platform == "win32":
         return f"Wick can download {addon.tool.capitalize()} for you ({addon.size / 1e6:.0f} MB)."
     if sys.platform == "darwin":
         return f"Install it with Homebrew (brew install {addon.tool}), then add the files again."

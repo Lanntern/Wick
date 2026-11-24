@@ -85,12 +85,14 @@ python_version = "3.12"     # (CI's Python; numpy's own type stubs need 3.12 syn
 ignore_missing_imports = true
 follow_imports = "silent"
 warn_unused_ignores = false
-check_untyped_defs = false
-# Not checked: attribute errors on Windows-only modules (winreg, ctypes.windll) when checked on Linux, Qt's
-# "lambda: (a(), b())" slot idiom, attributes that are None until a thread starts (guarded at run time), and
-# notes about unannotated functions.
-disable_error_code = ["attr-defined", "union-attr", "func-returns-value", "annotation-unchecked", "has-type",
-                      "var-annotated"]
+check_untyped_defs = true
+# Not checked: Qt's "lambda: (a(), b())" slot idiom, and notes about unannotated functions.
+disable_error_code = ["func-returns-value", "annotation-unchecked"]
+# CI checks the code once per system (see build.yml's lint job): --platform plus these constants, so each run
+# skips the other systems' branches (Windows' winreg and ctypes.windll, a Mac's st_flags, Linux's os.nice).
+#   mypy wick --platform linux  --always-false IS_WINDOWS --always-false IS_MAC
+#   mypy wick --platform win32  --always-true IS_WINDOWS --always-false IS_MAC
+#   mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
 
 [tool.setuptools.dynamic]
 version = { attr = "wick.__version__" }

@@ -161,4 +161,5 @@ class ActivityMonitor:
             self.window.go_to(page)
             if task.page == "cleanup" and task.section is not None:
                 page.tabs.setCurrentIndex(task.section)
-            self.dialog.hide()
+            if self.dialog is not None:
+                self.dialog.hide()

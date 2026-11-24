@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,7 +40,7 @@ def _anchor(p: Path) -> Path:
 
 
 def same_drive(a: Path, b: Path) -> bool:
-    if os.name == "nt":
+    if sys.platform == "win32":
         return _anchor(a).drive.upper() == _anchor(b).drive.upper()
     try:
         return os.stat(a).st_dev == os.stat(b).st_dev
@@ -49,7 +50,7 @@ def same_drive(a: Path, b: Path) -> bool:
 
 def bin_size(drive: Path) -> int:
     """How much the Recycle Bin (Trash) holds for ``drive``."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             import ctypes
 

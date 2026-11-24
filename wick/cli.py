@@ -229,7 +229,8 @@ class _CliEvents(JobEvents):
         with self.lock:
             self.done += 1
             mark = {"done": "OK  ", "skipped": "skip", "failed": "FAIL", "cancelled": "stop"}[r.status]
-            extra = f" → {r.output.name} ({human(r.entry.size)} → {human(r.new_size)})" if r.status == DONE else ""
+            extra = (f" → {r.output.name} ({human(r.entry.size)} → {human(r.new_size)})"
+                     if r.status == DONE and r.output is not None else "")
             print(f"\r[{self.done}/{self.total}] {mark} {r.entry.path}{extra}  {r.message}" + " " * 10)
 
 
@@ -381,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
     # must never crash the program.
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]  # (TextIOWrapper's)
         except (AttributeError, ValueError):
             pass
     trace = os.environ.get("WICK_TRACE")

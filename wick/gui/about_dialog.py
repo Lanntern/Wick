@@ -44,6 +44,8 @@ def version_for(name: str, v: dict[str, str]) -> tuple[str, str]:
 
 
 class AboutDialog(QDialog):
+    _clicks: int = 0
+
     def eventFilter(self, obj, e) -> bool:
         from PySide6.QtCore import QEvent
 

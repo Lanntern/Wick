@@ -727,7 +727,7 @@ class HelpTip(QAbstractButton):
         from .style import hide_tip
 
         self._hover_timer.stop()
-        if self.is_open():
+        if self._popover is not None and self.is_open():
             if not sticky or self._popover.sticky:
                 return
             self._popover.close()           # a click on a hovered "?" keeps the card: reopen it as sticky
@@ -746,7 +746,7 @@ class HelpTip(QAbstractButton):
     def leaveEvent(self, e) -> None:  # noqa: N802
         super().leaveEvent(e)
         self._hover_timer.stop()
-        if self.is_open() and not self._popover.sticky:
+        if self._popover is not None and self.is_open() and not self._popover.sticky:
             self._popover.close()
 
     def is_open(self) -> bool:

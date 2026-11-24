@@ -10,7 +10,6 @@ is harmless: the app works the same without a jump list.
 from __future__ import annotations
 
 import ctypes
-import os
 import sys
 import uuid
 
@@ -27,7 +26,7 @@ TASKS = (
     ("History", "history", "See and undo past runs"),
 )
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 
 
 def set_process_app_id() -> None:

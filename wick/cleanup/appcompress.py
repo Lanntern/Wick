@@ -21,7 +21,7 @@ from pathlib import Path
 from .caches import steam_libraries
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 ALGORITHMS = {
     "xpress4k": ("XPRESS4K", "Fastest reads; smaller savings. Prefer for loading-sensitive games.", 0.80),
@@ -78,7 +78,7 @@ def compression_records(include_undone: bool = False) -> dict:
     """Oldest measured pre-compression size and latest active settings, from local History."""
     from .. import journal
 
-    records = {}
+    records: dict[str, dict] = {}
     for run in sorted(journal.list_runs(), key=lambda r: r.started):
         for rec in sorted(run.files, key=lambda r: r.trashed_at):
             if rec.mode != "compact":
@@ -251,7 +251,7 @@ def old_folders(roots: list[Path], cancel: threading.Event | None = None, now: f
     import time as _time
 
     cutoff = (now if now is not None else _time.time()) - months * 30 * 86400
-    found = []
+    found: list[Path] = []
     for root in roots:
         try:
             children = [p for p in root.iterdir() if p.is_dir() and not p.is_symlink()]
@@ -442,7 +442,8 @@ def sample_ratio(folder: Path, algorithm_name: str, skip_extensions=(), cancel=N
 
 def _commands(folder, undo, algorithm_name, skip, cancel, changed_since):
     base = [arg for arg in _compact_args(folder, undo, algorithm_name) if not arg.startswith('/s:')]
-    batch, length = [], sum(len(a) + 3 for a in base)
+    batch: list[str] = []
+    length = sum(len(a) + 3 for a in base)
     for path in _compact_files(folder, set() if undo else skip, cancel, changed_since):
         name = str(path)
         if batch and (len(batch) >= 64 or length + len(name) + 3 > 7000):

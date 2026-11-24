@@ -1,7 +1,7 @@
 """Recursive Windows change notifications for tracked folders; no file contents are read."""
 
 import ctypes
-import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -15,11 +15,13 @@ class GameWatcher:
         self.last_change = 0.0
         self.failures = []
         self.thread = None
-        if os.name == "nt" and self.folders:
+        if sys.platform == "win32" and self.folders:
             self.thread = threading.Thread(target=self.run, daemon=True, name="game-update-watch")
             self.thread.start()
 
     def run(self):
+        if sys.platform != "win32":
+            return
         from ctypes import wintypes
 
         from ..log import log

@@ -115,6 +115,7 @@ def shared_specs() -> list[CacheSpec]:
     again = "Downloaded again when a project needs it."
     if IS_WINDOWS:
         L, R = _env("LOCALAPPDATA"), _env("APPDATA")
+        xdg_cache = H + "/.cache"
         s = [
             CacheSpec("npm cache", SHARED, (f"{L}/npm-cache/_cacache",), again),
             CacheSpec("Yarn cache", SHARED, (f"{L}/Yarn/Cache",), again),
@@ -145,7 +146,7 @@ def shared_specs() -> list[CacheSpec]:
             CacheSpec("sccache", SHARED, (f"{L}/Mozilla/sccache/cache",), "Compilers redo the work once."),
         ]
     else:
-        C = _env("XDG_CACHE_HOME", str(Path.home() / ".cache"))
+        C = xdg_cache = _env("XDG_CACHE_HOME", str(Path.home() / ".cache"))
         cfg = _env("XDG_CONFIG_HOME", str(Path.home() / ".config"))
         lib = f"{H}/Library"
         s = [
@@ -199,7 +200,7 @@ def shared_specs() -> list[CacheSpec]:
         CacheSpec("Android build cache", SHARED, (f"{H}/.android/build-cache", f"{H}/.android/cache"), again),
         CacheSpec("Maven repository", SHARED, (f"{H}/.m2/repository",), again,
                   warning="It can also hold your own builds installed with mvn install"),
-        CacheSpec("Hugging Face models", SHARED, (f"{C if not IS_WINDOWS else H + '/.cache'}/huggingface/hub",),
+        CacheSpec("Hugging Face models", SHARED, (f"{xdg_cache}/huggingface/hub",),
                   again, warning="Models can be very large downloads"),
     ]
     return s

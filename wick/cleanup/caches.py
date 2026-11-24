@@ -6,13 +6,14 @@ import fnmatch
 import glob
 import os
 import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
 
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 
 
 @dataclass(frozen=True)
@@ -145,9 +146,9 @@ def steam_libraries() -> list[Path]:
             libs.append(r)
     out, seen = [], set()
     for lib in libs:
-        k = os.path.normcase(str(lib))
-        if k not in seen and (lib / "steamapps").is_dir():
-            seen.add(k)
+        lib_key = os.path.normcase(str(lib))
+        if lib_key not in seen and (lib / "steamapps").is_dir():
+            seen.add(lib_key)
             out.append(lib)
     return out
 

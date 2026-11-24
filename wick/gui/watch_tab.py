@@ -79,7 +79,7 @@ class WatchJobThread(QThread):
         results, _ = run_job(items, s, Path(paths[0]).parent, tool="watch", cancel=self.cancel)
         outputs = []
         for r in results:
-            if r.status == DONE:
+            if r.status == DONE and r.output is not None:
                 outputs.append(str(r.output))
                 self.log.emit(f"Compressed {r.entry.path.name} → {r.output.name}, saved {human(r.saved)}")
             else:

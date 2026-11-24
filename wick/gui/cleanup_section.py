@@ -3,7 +3,7 @@ run them in the background). The tools themselves are defined in cleanup_tools.p
 
 from __future__ import annotations
 
-import os
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
+    QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -209,7 +210,7 @@ class ToolSection(QWidget):
             reset.clicked.connect(self._reset_folders)
             drives = button("Add Drives…", "", None, "Choose multiple connected drives to scan")
             drives.clicked.connect(self._add_drives)
-            if os.name != "nt" or tool.key == "appcompress":
+            if sys.platform != "win32" or tool.key == "appcompress":
                 drives.hide()
             folder_row = hbox(text(tool.folder_label, Type.BODY, bold=True), self.folder_label, add, drives, reset,
                                      spacing=Space.M)
@@ -322,7 +323,7 @@ class ToolSection(QWidget):
         bar.addWidget(self.select_all)
         bar.addWidget(self.select_none)
         bar.addStretch(1)
-        self.action_buttons: dict[str, object] = {}
+        self.action_buttons: dict[str, QPushButton] = {}
         self._actions = QWidget()          # beside the selection buttons, or on a line of their own
         al = QHBoxLayout(self._actions)
         al.setContentsMargins(0, 0, 0, 0)
@@ -1120,7 +1121,7 @@ class ToolSection(QWidget):
         inform(self, title, ("Not freed:\n" + "\n".join(f"• {p}" for p in problems[:12])) if problems else "")
 
     def stop(self) -> None:
-        if self.busy():
+        if self.worker is not None and self.busy():
             self.worker.cancel.set()
             self.status.setText("Stopping…")
 

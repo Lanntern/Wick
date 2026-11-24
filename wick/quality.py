@@ -12,9 +12,11 @@ differences are not visible in normal viewing.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache, lru_cache
 from pathlib import Path
+from typing import TypeVar
 
 from . import tools
 
@@ -74,6 +76,9 @@ class Score:
         if name == "Butteraugli":
             return f"Butteraugli {self.value:.2f}"
         return f"{name} {self.value:.1f}{' dB' if name == 'XPSNR' else ''}"
+
+
+T = TypeVar("T")
 
 
 def worst(scores: list[Score]) -> Score:
@@ -351,7 +356,7 @@ def score_video_output(source: Path, output: Path, start: float, length: float, 
                     metric or _default_video_metric(), grain)
 
 
-def search(values: list[int], try_value) -> tuple[int, object] | None:
+def search(values: list[int], try_value: Callable[[int], tuple[bool, T]]) -> tuple[int, T] | None:
     """Binary search for the most compressed setting that still meets the target.
 
     ``values`` are ordered from best quality to most compression. ``try_value(v)`` returns
@@ -359,7 +364,7 @@ def search(values: list[int], try_value) -> tuple[int, object] | None:
     if even the best quality misses the target.
     """
     lo, hi = 0, len(values) - 1
-    best = None
+    best: tuple[int, T] | None = None
     while lo <= hi:
         mid = (lo + hi) // 2
         ok, payload = try_value(values[mid])

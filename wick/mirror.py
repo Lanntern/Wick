@@ -140,7 +140,7 @@ def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced"
                 res.failed.append((rel, "can't be read"))
             tick(src.name)
             return
-        encode = not is_cover and is_lossless(info.codec)
+        encode = info is not None and is_lossless(info.codec)
         out_rel = str(Path(rel).with_suffix(_ext(fmt)).as_posix()) if encode else rel
         out = dest / out_rel
         out.parent.mkdir(parents=True, exist_ok=True)

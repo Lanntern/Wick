@@ -20,6 +20,7 @@ import math
 import os
 import re
 import shutil
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -181,7 +182,7 @@ def parts_folder(src: Path, s: Settings, encoder: str, grain: int) -> Path:
 
 
 def _hide(folder: Path) -> None:
-    if os.name == "nt":
+    if sys.platform == "win32":
         import ctypes
 
         ctypes.windll.kernel32.SetFileAttributesW(str(folder), 0x2)  # type: ignore[attr-defined]  # HIDDEN

@@ -103,6 +103,8 @@ class GameResultsDialog(QDialog):
         self.reply.finished.connect(self.download_finished)
 
     def read(self):
+        if self.reply is None:
+            return
         self.content.extend(bytes(self.reply.readAll()))
         if len(self.content) > game_results.LIMIT:
             self.download_error = 'Download exceeded the size limit'
@@ -110,6 +112,8 @@ class GameResultsDialog(QDialog):
 
     def download_finished(self):
         reply = self.reply
+        if reply is None:
+            return
         try:
             if self.download_error or reply.error() != QNetworkReply.NoError:
                 raise RuntimeError(self.download_error or reply.errorString())

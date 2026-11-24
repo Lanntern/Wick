@@ -3,8 +3,8 @@ with what it is and, where it's safe, what can be done about it."""
 
 from __future__ import annotations
 
-import os
 import subprocess
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -112,7 +112,7 @@ class HiddenSpaceDialog(QDialog):
 
 
 def show(drive: str, open_tool, parent=None) -> None:
-    d = HiddenSpaceDialog(Path(drive if os.name != "nt" or drive.endswith("\\") else drive + "\\"), open_tool,
+    d = HiddenSpaceDialog(Path(drive if sys.platform != "win32" or drive.endswith("\\") else drive + "\\"), open_tool,
                           parent)
     d.exec()
 

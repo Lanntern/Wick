@@ -309,7 +309,7 @@ def drive_of(path: Path) -> str | None:
 
 
 def is_ntfs(path: Path) -> bool:
-    if os.name != "nt":
+    if sys.platform != "win32":
         return False
     try:
         import ctypes
@@ -411,6 +411,8 @@ def run_elevated(program: str, params: str, cancel=None) -> int | None:
 
 
 def is_admin() -> bool:
+    if sys.platform != "win32":
+        return False
     try:
         import ctypes
 

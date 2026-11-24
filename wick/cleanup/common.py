@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -126,7 +127,7 @@ def walk_files(roots: list[Path], *, skip_program_folders: bool = True, include_
                 return
             yield item
         return
-    files = []
+    files: list[tuple[Path, os.stat_result]] = []
     directories: list[Path] = []
     for item in _walk_files(roots, skip_program_folders=skip_program_folders, include_hidden=include_hidden,
                             cancel=cancel, dirs_out=directories, into_packages=into_packages):
@@ -223,7 +224,7 @@ def home() -> Path:
 
 def available_drives() -> list[Path]:
     """Connected fixed/removable Windows volumes. Network shares can be added explicitly as folders."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return []
     import ctypes
 
@@ -234,7 +235,7 @@ def available_drives() -> list[Path]:
 
 def known_folder(name: str) -> Path | None:
     """User folders such as Downloads, Pictures, Videos, Documents (Windows or XDG)."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         guids = {"Downloads": "{374DE290-123F-4565-9164-39C4925E467B}"}
         if name in guids:
             try:

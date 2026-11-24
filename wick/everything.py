@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import struct
+import sys
 import time
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -38,7 +39,7 @@ _EPOCH_DIFF = 116444736000000000   # FILETIME (100 ns since 1601) -> Unix time
 
 
 def _hwnd() -> int:
-    if os.name != "nt" or not ENABLED:
+    if sys.platform != "win32" or not ENABLED:
         return 0
     import ctypes
 
@@ -91,6 +92,8 @@ def parse_reply(data: bytes) -> list[tuple[str, bool, int, float, int]]:
 
 def query(search: str, timeout: float = 30.0) -> list[tuple[str, bool, int, float, int]] | None:
     """Send ``search`` to Everything and wait for the answer. None: no answer (not running, or too slow)."""
+    if sys.platform != "win32":
+        return None
     target = _hwnd()
     if not target:
         return None
@@ -237,7 +240,7 @@ def to_listing(root: Path, items, marker_exts: Iterable[str] = (".dll", ".so", "
 
 def long_path(p: Path) -> Path:
     """The full name of ``p`` (Everything stores full names: C:\\Users\\RUNNER~1 would match nothing)."""
-    if os.name != "nt":
+    if sys.platform != "win32":
         return p
     try:
         import ctypes

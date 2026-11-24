@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -59,7 +59,7 @@ def _from_everything(roots: list[Path], min_size: int) -> list[tuple[Path, int, 
     if not everything.available():
         return None
     out: list[tuple[Path, int, float]] = []
-    if not any(r == Path.home() or (os.name == "nt" and r.anchor and Path(r.anchor) == r) for r in roots):
+    if not any(r == Path.home() or (sys.platform == "win32" and r.anchor and Path(r.anchor) == r) for r in roots):
         return None                      # (a smaller folder is read directly: certain to be current)
     for root in roots:
         folder = str(everything.long_path(root)).rstrip("\\/") + "\\"
@@ -76,7 +76,7 @@ def find_large_files(roots: list[Path], min_mb: float, kind: str = "all",
                      progress: Callable | None = None, cancel: threading.Event | None = None) -> ScanResult:
     min_size = max(1, int(min_mb * 1024 * 1024))
     found = None
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             found = _from_everything(roots, min_size)
         except Exception:  # noqa: BLE001 - Everything's answer is a bonus: any problem, walk instead

@@ -84,7 +84,7 @@ def forbidden_roots() -> list[Path]:
     from .journal import data_dir
 
     out = [data_dir()]
-    if os.name == "nt":
+    if sys.platform == "win32":
         env = os.environ
         for key in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData", "APPDATA",
                     "LOCALAPPDATA"):
@@ -608,7 +608,7 @@ class Server:
         """Ask the person, outside the agent's reach. True only for an explicit yes."""
         if self._confirm is not None:
             return bool(self._confirm(text))
-        if os.name == "nt":
+        if sys.platform == "win32":
             return _windows_confirm(text, self._cancels.get(request_id))
         if self.client_caps.get("elicitation") is not None:
             return self._elicit(text)
@@ -635,10 +635,11 @@ class Server:
         with self._write_lock:
             self._next_id += 1
             rid = f"wick-{self._next_id}"
-        slot = [threading.Event(), None]
+        done = threading.Event()
+        slot = [done, None]
         self._pending[rid] = slot
         self.send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
-        slot[0].wait(timeout)
+        done.wait(timeout)
         self._pending.pop(rid, None)
         return slot[1]
 
@@ -681,7 +682,7 @@ class Server:
             elif method == "tools/list":
                 self.reply(rid, {"tools": self.tools()})
             elif method == "tools/call":
-                name = params.get("name")
+                name = str(params.get("name") or "")
                 if name not in {t["name"] for t in self.tools()}:
                     self.send({"jsonrpc": "2.0", "id": rid,
                                "error": {"code": -32602, "message": f"Unknown tool: {clean(name, 80)}"}})
@@ -766,6 +767,8 @@ def _std_streams():
     client created: open those directly."""
     if sys.stdin is not None and sys.stdout is not None:
         return sys.stdin.buffer, sys.stdout.buffer
+    if sys.platform != "win32":
+        raise RuntimeError("No standard input or output to talk over")
     import ctypes
     import msvcrt  # type: ignore[import-not-found]
 

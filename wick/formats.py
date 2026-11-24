@@ -532,7 +532,7 @@ def read_jxl_info(path: Path) -> JxlInfo | None:
                 return JxlInfo(w, h, anim, depth)
             if head[:12] != JXL_SIGNATURE:
                 return None
-            pos, boxes, cs = 12, [], b""
+            pos, boxes, cs = 12, list[str](), b""
             end = os.fstat(f.fileno()).st_size
             while pos + 8 <= end and len(boxes) < 10_000:
                 f.seek(pos)

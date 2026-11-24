@@ -13,7 +13,7 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
 from .. import APP_NAME
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 TRAY = "menu bar" if IS_MAC else "tray"     # (where the small icon lives: the Mac's menu bar, Windows' tray)
 HAS_MENU = True                # (macOS: Finder Quick Actions, see quickactions.py)
@@ -69,6 +69,8 @@ def _menu_entries() -> list[tuple[str, list[str]]]:
 
 
 def _delete_tree(root, key: str) -> None:
+    if sys.platform != "win32":
+        return
     import winreg
 
     try:
@@ -352,6 +354,8 @@ def _powershell(script: str, wait: bool) -> bool:
 
 
 def _modern_marker() -> str:
+    if sys.platform != "win32":
+        return ""
     import winreg
 
     try:

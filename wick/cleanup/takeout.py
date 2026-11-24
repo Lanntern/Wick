@@ -19,6 +19,7 @@ import functools
 import json
 import os
 import re
+import sys
 import tarfile
 import threading
 import zipfile
@@ -26,6 +27,7 @@ import zlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import IO
 
 from ..formats import classify, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled
@@ -46,9 +48,13 @@ class Member:
     """One file inside a Takeout: where it is in "Google Photos/", and how to read it."""
     rel: str                       # "Photos from 2019/IMG_1.JPG" (relative to "Google Photos")
     size: int
-    open: Callable[[], object]     # -> binary file object
+    open: Callable[[], IO[bytes]]   # the file, opened for reading
     crc: int | None = None         # zip archives store it; saves reading the file to spot duplicates
     source: str = ""
+
+
+def _open_binary(path: str) -> IO[bytes]:
+    return open(path, "rb")
 
 
 _UNSAFE_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')     # not allowed in Windows names (":" also means a drive)
@@ -106,7 +112,7 @@ def _folder_members(path: Path) -> Iterator[Member]:
             full = os.path.join(dirpath, name)
             rel = _photos_rel(os.path.relpath(full, path.parent))
             if rel:
-                yield Member(rel, os.path.getsize(full), functools.partial(open, full, "rb"), None, full)
+                yield Member(rel, os.path.getsize(full), functools.partial(_open_binary, full), None, full)
 
 
 def find_sources(roots: list[Path]) -> list[Path]:
@@ -324,7 +330,7 @@ def _set_times(path: Path, ts: float) -> None:
     from ..fileops import _set_windows_creation_time
 
     os.utime(path, (ts, ts))
-    if os.name == "nt":
+    if sys.platform == "win32":
         _set_windows_creation_time(path, int(ts * 1_000_000_000))
 
 

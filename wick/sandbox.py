@@ -17,6 +17,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -43,7 +44,7 @@ _started: list[bool] = []
 def tmp_dir() -> str:
     """Where workers may write (decoders' temporary files). On Windows a low-integrity process can only write to
     LocalLow, so their folder is there."""
-    if os.name == "nt":
+    if sys.platform == "win32":
         base = Path(os.environ.get("USERPROFILE") or Path.home()) / "AppData" / "LocalLow"
         return str(base / "Wick" / "decode")
     import tempfile

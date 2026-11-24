@@ -846,7 +846,7 @@ def test_controlled_folder_access_is_recognized(monkeypatch, tmp_path):
     from wick import cfa
 
     protected = tmp_path / "Pictures"
-    monkeypatch.setattr(cfa, "_IS_WINDOWS", True)
+    monkeypatch.setattr(cfa, "IS_WINDOWS", True)
     monkeypatch.setattr(cfa, "_cache", (1e18, {"on": True, "folders": [protected], "apps": []}))
     monkeypatch.setattr(cfa.time, "monotonic", lambda: 1e18)
     denied = PermissionError(13, "Access is denied")

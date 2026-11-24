@@ -9,10 +9,10 @@ Plain ctypes COM; returns None off Windows or whenever Windows can't help.
 from __future__ import annotations
 
 import ctypes
-import os
+import sys
 from pathlib import Path
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IID_IShellItemImageFactory = "bcc18b79-ba16-442f-80c4-8a59c30c463b"
 SIIGBF_BIGGERSIZEOK, SIIGBF_THUMBNAILONLY, SIIGBF_INCACHEONLY = 0x01, 0x08, 0x10
 

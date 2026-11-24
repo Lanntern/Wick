@@ -30,6 +30,8 @@ def runtime():
 def send(restype, *argtypes):
     """objc_msgSend typed for one call: send(ret, argtypes...)(receiver, selector, args...)."""
     addr = ctypes.cast(runtime().objc_msgSend, ctypes.c_void_p).value
+    if addr is None:
+        raise OSError("The Objective-C runtime has no objc_msgSend")
     return ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(addr)
 
 

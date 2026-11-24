@@ -9,7 +9,6 @@ Off in Settings, off Windows, or if anything fails, the caller falls back to the
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
@@ -19,7 +18,7 @@ from ..log import log
 from .jumplist import APP_ID
 
 SCHEME = "wick"            # wick:open/history  ->  --open=history
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 _registered = False
 
 

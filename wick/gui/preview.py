@@ -313,6 +313,8 @@ class CompareView(QWidget):
 
     def _paint_side_by_side(self, p: QPainter) -> None:
         """Original left, compressed right: same zoom and position in both, so details line up."""
+        if self.before is None:
+            return
         tk = tokens()
         pw = self._pane_width()
         w, h = self.before.width() * self.zoom, self.before.height() * self.zoom
@@ -402,6 +404,7 @@ class PreviewDialog(QDialog):
     """Shows before/after for one image or a video sample; lets you try other qualities."""
 
     quality_chosen = Signal(object)              # Settings with the chosen quality: use it for every file
+    view: CompareView
     compress_requested = Signal(object)          # Settings: compress this file now
     save_as_requested = Signal(object, object)   # Settings, Path: save the result there (original kept)
 
@@ -587,9 +590,9 @@ class PreviewDialog(QDialog):
             after = self._frames[self.frame.value()][1]
             size = (after.width(), after.height())
         else:  # frames unavailable: the single middle frame
-            self.view.set_images(QPixmap.fromImage(QImage.fromData(r.before)),
-                                 QPixmap.fromImage(QImage.fromData(r.after)))
-            size = (self.view.after.width(), self.view.after.height())
+            after_pic = QPixmap.fromImage(QImage.fromData(r.after))
+            self.view.set_images(QPixmap.fromImage(QImage.fromData(r.before)), after_pic)
+            size = (after_pic.width(), after_pic.height())
         self._describe(r.est_size, size, desc)
 
     def _drop_frames(self) -> None:

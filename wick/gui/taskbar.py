@@ -10,12 +10,11 @@ to install; off Windows everything here does nothing.
 from __future__ import annotations
 
 import ctypes
-import os
 import sys
 
 from ..log import log
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
 
 # ITaskbarList3
@@ -82,6 +81,8 @@ def _hicon(name: str, size: int, light_taskbar: bool):
 
 def _light_taskbar() -> bool:
     """Whether Windows' taskbar (the "system" mode) is light."""
+    if sys.platform != "win32":
+        return False
     try:
         import winreg
 
@@ -249,7 +250,7 @@ class Taskbar:
     def _button_array(self):
         panel = self.active_panel()
         visible = panel is not None and self.show_buttons
-        paused = visible and getattr(panel, "_paused_reason", "")
+        paused = bool(visible and getattr(panel, "_paused_reason", ""))
         light = _light_taskbar()
         size = ctypes.windll.user32.GetSystemMetrics(49) or 16  # type: ignore[attr-defined]  # SM_CXSMICON
         arr = (_ThumbButton * 2)()

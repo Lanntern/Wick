@@ -11,12 +11,13 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from .cleanup.common import folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 MIN_SIZE = 200 * 1024 ** 2          # smaller items aren't worth explaining
 _NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 

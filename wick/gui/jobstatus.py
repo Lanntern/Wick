@@ -9,6 +9,7 @@ which step (Copy Details, Open Log), so a problem can be narrowed down.
 from __future__ import annotations
 
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -641,25 +642,31 @@ class PauseControl:
     def _running(self) -> bool:
         return self.thread is not None and self.thread.isRunning() and hasattr(self.thread, "pause")
 
+    def _pause_event(self) -> threading.Event | None:
+        """The running job's pause switch (None when no job that can pause is running)."""
+        return getattr(self.thread, "pause", None) if self._running() else None
+
     def _user(self, on: bool) -> None:
-        if not self._running():
+        pause = self._pause_event()
+        if pause is None:
             return
         self.by_user = on
         if on:
-            self.thread.pause.set()
+            pause.set()
         else:
-            self.thread.pause.clear()
+            pause.clear()
             self.apply()
 
     def apply(self) -> None:
-        if not self._running() or self.by_user:
+        pause = self._pause_event()
+        if pause is None or self.by_user:
             return
         if self.win.battery_pause():
-            if not self.thread.pause.is_set():
-                self.thread.pause.set()
+            if not pause.is_set():
+                pause.set()
                 self.status.set_paused(self.BATTERY)
-        elif self.thread.pause.is_set():
-            self.thread.pause.clear()
+        elif pause.is_set():
+            pause.clear()
             self.status.set_paused("")
 
 

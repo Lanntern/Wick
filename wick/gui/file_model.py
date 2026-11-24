@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -415,7 +416,7 @@ def open_in_file_manager_many(paths) -> None:
     paths = [os.path.normpath(str(p)) for p in paths]
     if not paths:
         return
-    if os.name != "nt" or len(paths) == 1:
+    if sys.platform != "win32" or len(paths) == 1:
         open_in_file_manager(paths[0])
     elif not _explorer_select(paths):
         _open_folder(os.path.dirname(paths[0]))
@@ -484,7 +485,7 @@ def open_in_file_manager(path: str) -> None:
     import subprocess
     import sys
 
-    if os.name == "nt":
+    if sys.platform == "win32":
         # Through the shell, not "explorer /select,PATH": Explorer splits its arguments at commas, even inside
         # quotes, so a name with commas in it opened some other folder.
         path = os.path.normpath(path)

@@ -28,6 +28,7 @@ from .. import pending, tools
 from ..engine import DONE
 from ..formats import AUDIO, DOCUMENT, KIND_LABEL, VIDEO, human, plural, type_label
 from ..plan import plan_entry
+from ..settings import Settings
 from .dialogs import ask, inform, warn
 from .file_model import (
     C_CHECK,
@@ -508,7 +509,7 @@ class CompressTab(QWidget):
         entries = [e for e in entries if os.path.normcase(str(e.path)) not in self.removed]
         if not entries:
             return
-        self._scan_settings = self.panel.settings()
+        self._scan_settings: Settings | None = self.panel.settings()
         self.model.show_listed(entries)
         self.placeholder.clear()
         self.update_summary()
@@ -653,8 +654,8 @@ class CompressTab(QWidget):
                 + (f"reading details of {pending:,}…" if pending else f"{convertible} can be compressed")
                 + (f" · {', '.join(extra)}" if extra else ""))
 
-        done = [r for r in self.model.rows if r.result and r.result.status == DONE]
-        saved = sum(r.result.saved for r in done)
+        done = [r.result for r in self.model.rows if r.result and r.result.status == DONE]
+        saved = sum(r.saved for r in done)
         self.tile_files.set(f"{n:,}" if n else "0", f"of {self.model.selectable():,} possible")
         self.tile_size.set(human(size) if n else "—", f"about {human(est)} after" if n else "")
         if done and not n:

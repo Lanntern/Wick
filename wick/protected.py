@@ -68,7 +68,7 @@ def is_hidden(entry: os.DirEntry) -> bool:
             return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
         except OSError:
             return False
-    if os.name == "nt":
+    if sys.platform == "win32":
         try:
             attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
             return bool(attrs & 0x2 or attrs & 0x4)  # HIDDEN | SYSTEM

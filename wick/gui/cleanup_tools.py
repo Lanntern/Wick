@@ -169,7 +169,8 @@ def _pairs_options(sec: ToolSection):
 
 
 def _similar_group_title(g: str, items: list[Candidate]) -> str:
-    return f"{len(items) + 1} similar photos: keeping {items[0].keeper.name}"
+    keeper = items[0].keeper
+    return f"{len(items) + 1} similar photos" + (f": keeping {keeper.name}" if keeper else "")
 
 
 def _days_option(key: str, default: int, label: str, tip: str):
@@ -488,7 +489,8 @@ def _scan_dev(sec: ToolSection, progress, cancel):
 
 
 def _dup_group_title(g: str, items: list[Candidate]) -> str:
-    return f"{len(items) + 1} copies of {items[0].keeper.name}"
+    keeper = items[0].keeper
+    return f"{len(items) + 1} copies" + (f" of {keeper.name}" if keeper else "")
 
 
 def tools() -> list[Tool]:
@@ -576,7 +578,7 @@ def tools() -> list[Tool]:
              "first. Each can be tens of gigabytes; nothing is selected for you.",
              None, lambda s, p, c: backups.find_backups(p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
-             available=lambda: "" if os.name == "nt" or sys.platform == "darwin" else
+             available=lambda: "" if sys.platform == "win32" or sys.platform == "darwin" else
              "Available on Windows and macOS."),
         Tool("apps", "Apps",
              "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "

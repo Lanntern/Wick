@@ -206,7 +206,7 @@ class HoverPreviewer(QObject):
         self.cache.ready.connect(self._ready)
         self.timer = QTimer(self, singleShot=True, interval=HOVER_DELAY_MS)
         self.timer.timeout.connect(self._show)
-        self.row = -1
+        self.row: tuple[int, int, int] | int = -1
         self.index = None
         self.current: tuple | None = None
         view.setMouseTracking(True)

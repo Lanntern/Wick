@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -75,6 +75,8 @@ def run_summary(run) -> str:
 
 
 class HistoryTab(Page):
+    tree: QTreeWidget
+
     def __init__(self, window):
         super().__init__("History")
         self.win = window
@@ -148,7 +150,7 @@ class HistoryTab(Page):
         self.hint = text(f"Undo works while the originals are in the {BIN_NAME}. JPEGs converted losslessly to JPEG XL "
                          "can always be turned back into the exact original.",
                          Type.FOOTNOTE, secondary=True, wrap=True)
-        if os.name == "nt":       # beside the note about it, not among the page's actions
+        if sys.platform == "win32":       # beside the note about it, not among the page's actions
             self.bin_btn = button("Open Recycle Bin", "link", None, "")
             self.bin_btn.clicked.connect(lambda: subprocess.Popen(["explorer", "shell:RecycleBinFolder"]))
             self.body.addLayout(hbox(self.hint, self.bin_btn, spacing=Space.L))

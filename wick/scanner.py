@@ -234,7 +234,7 @@ FAST_DRIVES = True   # Settings › "Fast whole-drive scanning" (Windows, NTFS: 
 
 
 def _is_drive_root(p: Path) -> bool:
-    return os.name == "nt" and p.anchor != "" and Path(p.anchor) == p
+    return sys.platform == "win32" and p.anchor != "" and Path(p.anchor) == p
 
 
 def _mac_volume_root(p: Path) -> bool:
@@ -263,7 +263,7 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
             return spotlight.listing_for(root, _LISTED_EXTS, progress)
         except Exception:  # noqa: BLE001 - Spotlight's answer is a bonus: any problem, the usual way
             return None
-    if os.name == "nt" and _big_scope(root):
+    if sys.platform == "win32" and _big_scope(root):
         from . import everything
 
         try:

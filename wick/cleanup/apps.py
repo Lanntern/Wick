@@ -17,6 +17,7 @@ import os
 import re
 import shlex
 import struct
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -25,7 +26,7 @@ from pathlib import Path
 from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 UNUSED_DAYS = 180                 # "not opened in months"
 LEFTOVER_QUIET_DAYS = 90          # a leftover folder hasn't changed for this long
 _UNINSTALL_KEYS = (r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",

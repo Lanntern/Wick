@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
+from typing import Any
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath, QPen
@@ -196,6 +197,10 @@ def _syscommand(window, command: int, fallback) -> None:
 class WindowFrame:
     """Gives ``window`` its own title bar. Call ``native_event`` from the window's ``nativeEvent``, and
     ``place`` from its ``resizeEvent``; ``set_dark`` when the theme changes."""
+    # (Windows only: ctypes, its wintypes and user32, kept for the window procedure)
+    _ct: Any
+    _wt: Any
+    _user32: Any
 
     def __init__(self, window):
         self.win = window
@@ -204,7 +209,7 @@ class WindowFrame:
         self.buttons = CaptionButtons(window)
         self._leave = QTimer(window, interval=120)
         self._leave.timeout.connect(self._check_leave)
-        if self.native:
+        if sys.platform == "win32" and self.native:
             import ctypes
             from ctypes import wintypes
 
@@ -410,6 +415,8 @@ def _signed(v: int) -> int:
 
 def _autohide_taskbar_edge(monitor_rect) -> int | None:
     """0 left, 1 top, 2 right, 3 bottom: where an auto-hide taskbar sits on this monitor, else None."""
+    if sys.platform != "win32":
+        return None
     import ctypes
     from ctypes import wintypes
 

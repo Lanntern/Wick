@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, QSettings, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence, QPainter, QPainterPath, QPen, QPixmap, QShortcut
@@ -36,6 +37,9 @@ from .style import Space, Type
 from .watch_tab import WatchTab
 from .widgets import Card, button, refresh_icons, text
 from .workers import EncoderProbeThread
+
+if TYPE_CHECKING:
+    from ..cleanup.gamewatch import GameWatcher
 
 MIN_W, MIN_H = 760, 540
 SIDEBAR_COMPACT_BELOW = 1040   # window width at which the sidebar shows icons only
@@ -662,28 +666,31 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ own title bar (Windows)
     def nativeEvent(self, event_type, message):  # noqa: N802
-        if os.name == "nt" and getattr(self, "taskbar", None) is not None:
+        if sys.platform == "win32" and getattr(self, "taskbar", None) is not None:
             from ctypes import wintypes
 
             if self.taskbar.native_event(wintypes.MSG.from_address(int(message))):
                 return True, 0
-        if getattr(self, "frame", None) is not None:
-            handled, result = self.frame.native_event(message)
+        frame = getattr(self, "frame", None)
+        if frame is not None:
+            handled, result = frame.native_event(message)
             if handled:
                 return True, result
         return super().nativeEvent(event_type, message)
 
     def changeEvent(self, e) -> None:  # noqa: N802
         super().changeEvent(e)
-        if getattr(self, "frame", None) is not None:
-            self.frame.changed(e)
+        frame = getattr(self, "frame", None)
+        if frame is not None:
+            frame.changed(e)
         if e.type() == QEvent.ActivationChange and self.isActiveWindow() and getattr(self, "taskbar", None):
             self.taskbar.clear_error()        # a failed job's red taskbar bar has been seen
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
-        if getattr(self, "frame", None) is not None:
-            self.frame.place()
+        frame = getattr(self, "frame", None)
+        if frame is not None:
+            frame.place()
         self.sidebar.set_compact(self.width() < SIDEBAR_COMPACT_BELOW)
         self.compress.adapt_to_width(self.width())
 
@@ -746,7 +753,7 @@ class MainWindow(QMainWindow):
         self._recompress_timer = QTimer(self, interval=15 * 60 * 1000)
         self._recompress_timer.timeout.connect(self.recompress_updated_games)
         self._recompress_timer.start()
-        self._game_watcher = None
+        self._game_watcher: GameWatcher | None = None
         self._refresh_game_watcher()
         self._game_event_timer = QTimer(self, interval=30 * 1000)
         self._game_event_timer.timeout.connect(self._game_update_event)
@@ -823,7 +830,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(2 * 60 * 1000, self.check_low_space)           # once start-up has settled
 
     def _watched_drives(self) -> list[Path]:
-        system = Path((os.environ.get("SystemDrive") or "C:") + "\\") if os.name == "nt" else Path("/")
+        system = Path((os.environ.get("SystemDrive") or "C:") + "\\") if sys.platform == "win32" else Path("/")
         drives = [system]
         for root in getattr(self.home, "roots", [])[:1]:
             anchor = Path(Path(root).anchor or "/")
@@ -1348,7 +1355,8 @@ class MainWindow(QMainWindow):
         self.close()
 
     def closeEvent(self, event) -> None:
-        game_watch = (getattr(self, "_game_watcher", None) is not None and bool(self._game_watcher.folders)
+        watcher = getattr(self, "_game_watcher", None)
+        game_watch = (watcher is not None and bool(watcher.folders)
                       and self.qsettings.value("appcompress/recompress", True, bool)
                       and self.qsettings.value("appcompress/tray", False, bool))
         keep_running = (not self._quitting and self.tray is not None and
@@ -1358,7 +1366,8 @@ class MainWindow(QMainWindow):
             self.qsettings.setValue("geometry", self.saveGeometry())
             event.ignore()
             self.hide()
-            self.tray.setVisible(True)
+            if self.tray is not None:
+                self.tray.setVisible(True)
             from .. import power
 
             power.set_efficiency_mode(True)     # hidden, only watching: Windows' efficiency mode
@@ -1379,8 +1388,9 @@ class MainWindow(QMainWindow):
             for page in [p for p in (self.built("converter"), self.built("metadata")) if p is not None]:
                 page.stop()
         self.watch.shutdown()
-        if getattr(self, "_game_watcher", None) is not None:
-            self._game_watcher.stop()
+        watcher = getattr(self, "_game_watcher", None)
+        if watcher is not None:
+            watcher.stop()
         self.home.stop()
         from . import resilience
 

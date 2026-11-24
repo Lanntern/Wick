@@ -652,6 +652,7 @@ def _draw_svg(ctx: Ctx, size: int) -> None:
     r = QSvgRenderer(str(ctx.staged))
     if not r.isValid():
         raise RuntimeError("The SVG can't be read")
+    assert ctx.info is not None, "read before converting"
     w, h = ctx.info.width, ctx.info.height
     if size:
         scale = size / max(w, h)
@@ -751,6 +752,7 @@ def _save_animated(frames, durations, loop, target: str, ctx: Ctx, opts: Convert
 
 
 def _verify(ctx: Ctx, frames: int) -> None:
+    assert ctx.info is not None, "read before converting"
     path = _decoded_path(ctx, ctx.out)
     w, h = ctx.plan.resize or (ctx.info.width, ctx.info.height)
     try:

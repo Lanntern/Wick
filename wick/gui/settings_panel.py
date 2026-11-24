@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
@@ -36,7 +37,7 @@ NAME_TIP = ("Text is added to the end of the name, like _compressed. You can als
             "modified date.")
 
 
-def _combo(items: list[tuple[str, str]], tip: str = "") -> QComboBox:
+def _combo(items: Sequence[tuple[str, object]], tip: str = "") -> QComboBox:
     c = QComboBox()
     # Don't let long option texts widen the panel; the popup still shows them in full.
     c.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)

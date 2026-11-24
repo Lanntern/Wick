@@ -151,7 +151,7 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
     if cancelled(cancel):
         result.cancelled = True
         return result
-    groups = []
+    groups: list[list] = []
     for g in stage2:
         by_hash: dict[bytes, list] = defaultdict(list)
         for p, st in g:

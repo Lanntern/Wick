@@ -17,7 +17,7 @@ from .style import safe_filter
 
 SORT_ROLE = Qt.UserRole + 50   # optional per-cell sort key (numbers, timestamps); otherwise the text sorts
 
-SHOW_IN_FOLDER = ("Show in Explorer" if os.name == "nt" else
+SHOW_IN_FOLDER = ("Show in Explorer" if sys.platform == "win32" else
                   "Show in Finder" if sys.platform == "darwin" else "Show in Folder")
 
 
@@ -145,7 +145,7 @@ class ColumnFitter(QObject):
         tree = self.tree
         if self.user_sized:      # (an empty list is fitted too: its headings must all show)
             return
-        off = getattr(tree.header(), "user_hidden", set())        # turned off by the person: never brought back
+        off: set[int] = getattr(tree.header(), "user_hidden", set())        # turned off by the person: never brought back
         cols = [c for c in range(tree.columnCount())
                 if c not in off and (not tree.isColumnHidden(c) or c in self._dropped)]
         if len(cols) < 2:
@@ -426,7 +426,7 @@ def created_time(path) -> float | None:
     birth = getattr(st, "st_birthtime", None)
     if birth:
         return float(birth)
-    return float(st.st_ctime) if os.name == "nt" else None
+    return float(st.st_ctime) if sys.platform == "win32" else None
 
 
 class _ClickToCheck(QObject):

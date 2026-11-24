@@ -258,8 +258,9 @@ class ConvertSettingsDialog(QDialog):
         return tuple(s for s, b in self.ico_boxes.items() if b.isChecked())
 
     def _enable(self) -> None:
-        if getattr(self, "pdf_target", None) is not None:
-            self.pdf_dpi.setEnabled(self.pdf_target.currentData() in ("png", "jpeg"))
+        pdf_target = getattr(self, "pdf_target", None)
+        if pdf_target is not None:
+            self.pdf_dpi.setEnabled(pdf_target.currentData() in ("png", "jpeg"))
         if self.image_target is not None:
             info = convert.IMAGE_TARGETS.get(self.image_target.currentData())
             on = info is not None

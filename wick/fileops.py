@@ -12,9 +12,9 @@ from pathlib import Path
 
 from .formats import TEMP_PREFIX
 
-BIN_NAME = "Recycle Bin" if os.name == "nt" else "Trash"     # what the person's system calls it
+BIN_NAME = "Recycle Bin" if sys.platform == "win32" else "Trash"     # what the person's system calls it
 
-_IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 
 
 def temp_name(directory: Path, suffix: str, tag: str = "") -> Path:
@@ -62,7 +62,7 @@ def final_path(original: Path, new_ext: str) -> Path:
 
 
 def _same_path(a: Path, b: Path) -> bool:
-    if _IS_WINDOWS:
+    if IS_WINDOWS:
         return str(a).lower() == str(b).lower()
     return a == b
 
@@ -73,12 +73,14 @@ def copy_times(st: os.stat_result, dst: Path) -> None:
         os.utime(dst, ns=(st.st_atime_ns, st.st_mtime_ns))
     except OSError:
         pass
-    if _IS_WINDOWS:
+    if IS_WINDOWS:
         created = getattr(st, "st_birthtime_ns", None) or st.st_ctime_ns
         _set_windows_creation_time(dst, created)
 
 
 def _set_windows_creation_time(path: Path, ns: int) -> None:
+    if sys.platform != "win32":
+        return
     try:
         import ctypes
         from ctypes import wintypes
@@ -114,7 +116,7 @@ def trash_available(path: Path) -> bool:
     On Windows, removable and network drives have no Recycle Bin: deleting
     there is permanent, so we refuse to replace originals on them.
     """
-    if not _IS_WINDOWS:
+    if not IS_WINDOWS:
         return True
     drive = os.path.splitdrive(str(path.resolve()))[0]
     if not drive or drive.startswith("\\\\"):
@@ -137,7 +139,7 @@ def recycle_bin_capacity(path: Path) -> int | None:
 
     Windows quietly deletes anything bigger *permanently* when asked to recycle it without a prompt (which
     is how send2trash asks), so callers must check this first."""
-    if not _IS_WINDOWS:
+    if sys.platform != "win32":
         return None
     try:
         import ctypes
@@ -222,7 +224,7 @@ def move_to_trash(path: Path, size: int | None = None) -> None:
 
 def read_zone_mark(path: Path) -> bytes | None:
     """Windows: the "downloaded from the internet" mark on ``path`` (its Zone.Identifier stream), or None."""
-    if not _IS_WINDOWS:
+    if not IS_WINDOWS:
         return None
     try:
         with open(f"{path}:Zone.Identifier", "rb") as f:
@@ -234,7 +236,7 @@ def read_zone_mark(path: Path) -> bytes | None:
 def write_zone_mark(path: Path, mark: bytes | None) -> None:
     """Give ``path`` a mark read by read_zone_mark, so SmartScreen and Office's Protected View treat a converted
     download the same as the original."""
-    if not mark or not _IS_WINDOWS:
+    if not mark or not IS_WINDOWS:
         return
     try:
         with open(f"{path}:Zone.Identifier", "wb") as f:
@@ -251,7 +253,7 @@ def notify_shell(created=(), updated=(), deleted=()) -> None:
     """Windows: tell Explorer which files changed, so open windows show new thumbnails and icons straight away
     instead of stale ones until F5 (Explorer caches thumbnails by name, and a file replaced under the same name
     often keeps its old one)."""
-    if not _IS_WINDOWS:
+    if not IS_WINDOWS:
         return
     try:
         import ctypes
@@ -278,7 +280,7 @@ def supports_block_clone(path: Path) -> bool:
         from .drives import _mac_mount_fs
 
         return _mac_mount_fs(path) == "apfs"
-    if not _IS_WINDOWS:
+    if not IS_WINDOWS:
         return False
     try:
         import ctypes
@@ -309,6 +311,10 @@ def clone_file(src: Path, dst: Path) -> None:
             remove_quietly(dst)
             raise OSError(err, os.strerror(err), str(dst))
         return
+    if sys.platform != "win32":
+        import errno
+
+        raise OSError(errno.ENOTSUP, "Block cloning isn't available here", str(dst))
     from ctypes import wintypes
 
     class DuplicateExtents(ctypes.Structure):

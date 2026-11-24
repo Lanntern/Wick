@@ -9,10 +9,10 @@ published in Microsoft's windows-rs bindings); slot 6 is the first method after 
 from __future__ import annotations
 
 import ctypes
-import os
+import sys
 from contextlib import contextmanager
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 _combase = None
 
 

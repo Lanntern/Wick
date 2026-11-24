@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable
@@ -28,7 +29,7 @@ from pathlib import Path
 
 from .common import Candidate, cancelled
 
-IS_WINDOWS = os.name == "nt"
+IS_WINDOWS = sys.platform == "win32"
 GROUP = "Virtual disks"
 MIN_FILE = 2 * 1024 ** 3          # smaller disks aren't worth a WSL shutdown
 _NOWINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)

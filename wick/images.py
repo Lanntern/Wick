@@ -15,7 +15,7 @@ from pathlib import Path
 from . import metadata as md
 from . import steps, tools
 from .fileops import link_or_copy, remove_quietly, temp_name
-from .formats import BMP, GIF, HEIC, JPEG, PNG, TIFF, WEBP, register_heif
+from .formats import BMP, GIF, HEIC, JPEG, PNG, TIFF, WEBP, ImageInfo, register_heif
 from .plan import Plan
 from .settings import Settings
 
@@ -36,7 +36,7 @@ _PIL_SAMPLING_TO_KEY = {0: "444", 1: "422", 2: "420"}
 class Ctx:
     src: Path
     kind: str
-    info: object
+    info: ImageInfo | None         # (None: not read, such as a file converted straight from another format)
     plan: Plan
     s: Settings
     out: Path
@@ -174,7 +174,7 @@ def _convert_smart(src: Path, kind: str, info, plan: Plan, s: Settings) -> Path:
         link_or_copy(src, ref_ctx.staged)
         reference = _intermediate_png(ref_ctx)
 
-        def attempt(q: int):
+        def attempt(q: int) -> tuple[bool, tuple[Path, quality.Score]]:
             out = _convert_once(src, kind, info, plan, dataclasses.replace(s, image_quality=q),
                                 label=f"Trying quality {q} (Smart quality looks for the smallest that looks the same)")
             outputs.append(out)
@@ -193,7 +193,7 @@ def _convert_smart(src: Path, kind: str, info, plan: Plan, s: Settings) -> Path:
                 outputs.append(out)
             plan.outcome = f"quality {q} (target not reached)"
         else:
-            q, (out, score) = chosen  # type: ignore[misc]  # (the search hands back what attempt() made)
+            q, (out, score) = chosen
             plan.outcome = f"quality {q}, {score}"
         for o in outputs:
             if o != out:
@@ -521,6 +521,7 @@ def _check_same_digest(ctx: Ctx, digest: tuple[int, str]):
 
 def _check_decodes(ctx: Ctx):
     """Lossy output: must decode, with the expected size and frame count."""
+    assert ctx.info is not None, "read before converting"
     want = ctx.plan.resize or (ctx.info.width, ctx.info.height)
     frames = ctx.info.frames if ctx.plan.route not in ("jpeg", "png_quant", "heic") else 1
     rotated = _orientation(ctx.staged) in (5, 6, 7, 8)
@@ -618,6 +619,7 @@ def webp_method(lossless: bool, pixels: int) -> int:
 
 
 def _route_webp(ctx: Ctx):
+    assert ctx.info is not None, "read before converting"
     w, h = ctx.plan.resize or (ctx.info.width, ctx.info.height)
     method = webp_method(ctx.plan.lossless, w * h)
     if ctx.plan.lossless:

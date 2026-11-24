@@ -108,7 +108,8 @@ class TrimDialog(QDialog):
             lay.addWidget(self.exact)
         lay.addLayout(dialog_buttons(self, ("Save Trimmed Copy", self.accept)))
         self.save = self._primary_button
-        self.is_video, self._ticket, self._shown, self._workers = is_video, 0, 0, []
+        self.is_video, self._ticket, self._shown = is_video, 0, 0
+        self._workers: list[QThread] = []
         self._timer = QTimer(self, singleShot=True, interval=150)
         self._timer.timeout.connect(self._grab)
         self._editing = 0

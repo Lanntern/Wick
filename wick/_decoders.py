@@ -40,7 +40,7 @@ def enter_sandbox(tmp_dir: str, memory_limit: int) -> dict:
 
         tempfile.tempdir = tmp_dir
     try:
-        if os.name == "nt":
+        if sys.platform == "win32":
             applied["job"] = _windows_job(memory_limit)
             applied["integrity"] = _windows_low_integrity()
         else:
@@ -51,6 +51,8 @@ def enter_sandbox(tmp_dir: str, memory_limit: int) -> dict:
 
 
 def _windows_job(memory_limit: int) -> bool:
+    if sys.platform != "win32":
+        return False
     import ctypes
     from ctypes import wintypes
 
@@ -74,6 +76,8 @@ def _windows_job(memory_limit: int) -> bool:
 
 def _windows_low_integrity() -> str:
     """Lower this process's own integrity level to low (allowed: a process may lower, never raise, its own)."""
+    if sys.platform != "win32":
+        return ""
     import ctypes
     from ctypes import wintypes
 
@@ -124,9 +128,11 @@ def _windows_low_integrity() -> str:
 
 
 def _posix_limits(memory_limit: int) -> dict:
+    if sys.platform == "win32":
+        return {}
     import resource
 
-    applied = {}
+    applied: dict[str, int] = {}
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     if memory_limit and sys.platform != "darwin":
         # (macOS doesn't enforce an address-space limit, and its system libraries reserve far more address space

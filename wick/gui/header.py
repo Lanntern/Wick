@@ -288,12 +288,12 @@ class Header(QHeaderView):
     def mousePressEvent(self, e) -> None:
         self._mins.clear()   # measured afresh for each drag (the rows may have changed)
         self._dragging = e.button() == Qt.LeftButton
-        if e.button() == Qt.LeftButton and self._check_hit(e.position().toPoint()):
+        if e.button() == Qt.LeftButton and self._check is not None and self._check_hit(e.position().toPoint()):
             self._check[2]()
             self.viewport().update()
             e.accept()
             return
-        if e.button() == Qt.LeftButton and self._expander_hit(e.position().toPoint()):
+        if e.button() == Qt.LeftButton and self._expander is not None and self._expander_hit(e.position().toPoint()):
             self._expander[2]()
             self.viewport().update()
             e.accept()
@@ -346,6 +346,8 @@ class Header(QHeaderView):
 
         from .style import assets
 
+        if self._check is None:
+            return 0
         state = self._check[1]()
         key = {Qt.Checked: "box_checked", Qt.PartiallyChecked: "box_mixed"}.get(state, "box")
         with open(assets(tokens())[key], "rb") as f:
@@ -357,6 +359,8 @@ class Header(QHeaderView):
 
     def _draw_expander(self, p: QPainter, rect: QRect) -> None:
         """A chevron like the rows' own: pointing right (some are closed: open all) or down (all open)."""
+        if self._expander is None:
+            return
         t = tokens()
         p.save()
         p.setRenderHint(QPainter.Antialiasing, True)
