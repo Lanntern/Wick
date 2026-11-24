@@ -325,47 +325,29 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
 def _walk(result: ScanResult, root: Path, settings: Settings, progress: ProgressFn | None,
           cancel: threading.Event | None, seen: set[str],
           found: Callable[[FileEntry], None] | None = None) -> None:
-    stack = [root]
-    while stack:
-        if cancel is not None and cancel.is_set():
-            return
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                children = list(it)
-        except OSError:
-            result.unreadable_dirs.append(d)
-            continue
+    from . import walk
+
+    def enter(c: os.DirEntry) -> bool:
+        if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
+            return False
+        if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
+            result.skipped_libraries.append(Path(c.path))
+            return False
+        return settings.include_hidden or not is_hidden(c)
+
+    for folder in walk.folders([root], cancel=cancel, enter=enter, unreadable=result.unreadable_dirs.append,
+                               ordered=True):
         result.dirs_scanned += 1
-
-        if settings.skip_program_folders and any(
-            c.is_file(follow_symlinks=False)
-            and os.path.splitext(c.name)[1].lower() in PROGRAM_MARKER_EXTS
-            for c in children
-        ):
-            result.skipped_program_dirs.append(d)
+        if settings.skip_program_folders and any(os.path.splitext(c.name)[1].lower() in PROGRAM_MARKER_EXTS
+                                                 and c.is_file(follow_symlinks=False) for c in folder.entries):
+            result.skipped_program_dirs.append(folder.path)
+            folder.skip()
             continue
-
-        subdirs = []
-        for c in children:
+        for c in folder.files():
             if cancel is not None and cancel.is_set():
                 return
             try:
-                if c.is_symlink():
-                    continue
-                if c.is_dir(follow_symlinks=False):
-                    if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
-                        continue
-                    if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
-                        result.skipped_libraries.append(Path(c.path))
-                        continue
-                    if not settings.include_hidden and is_hidden(c):
-                        continue
-                    subdirs.append(Path(c.path))
-                    continue
-                if not c.is_file(follow_symlinks=False) or c.name.startswith(TEMP_PREFIX):
-                    continue
-                if os.path.splitext(c.name)[1].lower() not in _LISTED_EXTS:
+                if c.name.startswith(TEMP_PREFIX) or os.path.splitext(c.name)[1].lower() not in _LISTED_EXTS:
                     continue            # (most files: no path made, and on a Mac no extra look for the hidden flag)
                 if not settings.include_hidden and is_hidden(c):
                     continue
@@ -392,9 +374,8 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     found(entry)
             except OSError:
                 continue
-        stack.extend(sorted(subdirs, reverse=True))
         if progress and result.dirs_scanned % 25 == 0:
-            progress(f"Scanning {d}", result.dirs_scanned, 0)
+            progress(f"Scanning {folder.path}", result.dirs_scanned, 0)
 
 
 _preloaded = False

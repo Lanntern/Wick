@@ -49,13 +49,10 @@ def _listing(d: Path) -> list[os.DirEntry] | None:
 
 
 def _is_link(e: os.DirEntry) -> bool:
-    """Symlinks and Windows junctions/mount points: never followed, never removed through."""
-    try:
-        if e.is_symlink() or (hasattr(e, "is_junction") and e.is_junction()):
-            return True
-        return bool(getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400)   # REPARSE_POINT
-    except OSError:
-        return True
+    """Symlinks and Windows junctions/mount points: never followed, never removed through (see walk.is_link)."""
+    from ..walk import is_link
+
+    return is_link(e)
 
 
 @dataclass
@@ -252,23 +249,16 @@ class Measure:
 
 
 def measure(path: Path, cancel: threading.Event | None = None) -> Measure:
+    from .. import walk
+
     m = Measure()
     # Windows only reports link counts through a full stat (a directory listing says 0). Do that for every file
     # where links are expected (pnpm), and elsewhere for files big enough to matter (most of the bytes).
     full_stat = IS_WINDOWS and ((path / ".pnpm").is_dir() or (path.parent / "pnpm-lock.yaml").exists()
                                 or "pnpm" in str(path).lower())
-    stack = [path]
-    while stack:
-        if cancelled(cancel):
-            break
-        for e in _listing(stack.pop()) or []:
+    for folder in walk.folders([path], cancel=cancel):
+        for e in folder.files():
             try:
-                if e.is_symlink():
-                    continue
-                if e.is_dir(follow_symlinks=False):
-                    if not _is_link(e):
-                        stack.append(Path(e.path))
-                    continue
                 st = e.stat(follow_symlinks=False)
             except OSError:
                 continue

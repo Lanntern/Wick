@@ -343,22 +343,19 @@ def leftovers_of(app: App, others: list[App]) -> list[Path]:
 
 def _newest_change(path: Path, limit: int = 2000) -> float:
     """The latest modified time in a folder (looking at up to ``limit`` entries: enough to tell a used folder)."""
+    from .. import walk
+
     newest = path.stat().st_mtime
-    stack, seen = [path], 0
-    while stack and seen < limit:
-        try:
-            entries = list(os.scandir(stack.pop()))
-        except OSError:
-            continue
-        for e in entries:
+    seen = 0
+    for folder in walk.folders([path]):
+        for e in folder.entries:
             seen += 1
             try:
-                st = e.stat(follow_symlinks=False)
+                newest = max(newest, e.stat(follow_symlinks=False).st_mtime)
             except OSError:
                 continue
-            newest = max(newest, st.st_mtime)
-            if e.is_dir(follow_symlinks=False):
-                stack.append(Path(e.path))
+        if seen >= limit:
+            break
     return newest
 
 

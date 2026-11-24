@@ -142,44 +142,30 @@ def measure(folder: Path, cancel: threading.Event | None = None, seen: set[str] 
             by_extension: dict | None = None) -> tuple[int, int, int]:
     """(logical bytes, bytes on disk, file count). ``seen`` collects lower-case file names (to look for
     tell-tale files such as DirectStorage's)."""
-    logical = disk = count = 0
-    stack = [folder]
-    while stack:
-        if cancelled(cancel):
-            break
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                for e in it:
-                    try:
-                        if e.is_symlink():
-                            continue
-                        if e.is_dir(follow_symlinks=False):
-                            if getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400:
-                                continue
-                            stack.append(Path(e.path))
-                        else:
-                            st = e.stat(follow_symlinks=False)
-                            from .common import cloud_only
+    from .. import walk
+    from .common import cloud_only
 
-                            if cloud_only(st):
-                                continue
-                            logical += st.st_size
-                            allocated = size_on_disk(Path(e.path))
-                            disk += allocated
-                            if by_extension is not None:
-                                ext = Path(e.name).suffix.lower()
-                                old = by_extension.get(ext, (0, 0))
-                                by_extension[ext] = (old[0] + st.st_size, old[1] + allocated)
-                            count += 1
-                            if seen is not None and e.name.lower() in _DIRECTSTORAGE:
-                                seen.add(e.name.lower())
-                            if seen is not None and Path(e.name).suffix.lower() in (".ucas", ".utoc"):
-                                seen.add("streaming-assets")
-                    except OSError:
-                        continue
-        except OSError:
-            continue
+    logical = disk = count = 0
+    for d in walk.folders([folder], cancel=cancel):
+        for e in d.files():
+            try:
+                st = e.stat(follow_symlinks=False)
+                if cloud_only(st):
+                    continue
+                logical += st.st_size
+                allocated = size_on_disk(Path(e.path))
+                disk += allocated
+                if by_extension is not None:
+                    ext = Path(e.name).suffix.lower()
+                    old = by_extension.get(ext, (0, 0))
+                    by_extension[ext] = (old[0] + st.st_size, old[1] + allocated)
+                count += 1
+                if seen is not None and e.name.lower() in _DIRECTSTORAGE:
+                    seen.add(e.name.lower())
+                if seen is not None and Path(e.name).suffix.lower() in (".ucas", ".utoc"):
+                    seen.add("streaming-assets")
+            except OSError:
+                continue
     return logical, disk, count
 
 
@@ -578,31 +564,19 @@ def compressed_folders() -> list[tuple[Path, float]]:
 def uncompressed_since(folder: Path, since: float, cancel: threading.Event | None = None) -> int:
     """Bytes in files changed after ``since`` that aren't compressed (what an update added). Files Windows
     can't compress well are small anyway; anything at 95 % or more of its size counts as uncompressed."""
+    from .. import walk
+
     total = 0
-    stack = [folder]
-    while stack:
-        if cancelled(cancel):
-            break
-        try:
-            with os.scandir(stack.pop()) as it:
-                for e in it:
-                    try:
-                        if e.is_symlink():
-                            continue
-                        if e.is_dir(follow_symlinks=False):
-                            if getattr(e.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400:
-                                continue
-                            stack.append(Path(e.path))
-                            continue
-                        st = e.stat(follow_symlinks=False)
-                        if st.st_mtime <= since or st.st_size < 64 * 1024:
-                            continue
-                        if size_on_disk(Path(e.path)) >= st.st_size * 0.95:
-                            total += st.st_size
-                    except OSError:
-                        continue
-        except OSError:
-            continue
+    for d in walk.folders([folder], cancel=cancel):
+        for e in d.files():
+            try:
+                st = e.stat(follow_symlinks=False)
+                if st.st_mtime <= since or st.st_size < 64 * 1024:
+                    continue
+                if size_on_disk(Path(e.path)) >= st.st_size * 0.95:
+                    total += st.st_size
+            except OSError:
+                continue
     return total
 
 

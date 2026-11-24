@@ -145,6 +145,13 @@ def _walk_files(roots: list[Path], *, skip_program_folders: bool = True, include
                cancel: threading.Event | None = None, dirs_out: list[Path] | None = None,
                into_packages: bool = False) -> Iterator[tuple[Path, os.stat_result]]:
     """All regular files under ``roots`` (no symlinks, no system/program folders, no cloud-only files)."""
+    from .. import walk
+
+    def enter(c: os.DirEntry) -> bool:
+        if c.name.lower() in EXCLUDED_DIR_NAMES or (not include_hidden and is_hidden(c)):
+            return False
+        return into_packages or not is_library(c.name)   # (deleting inside an app's library breaks it)
+
     seen: set[str] = set()
     for root in roots:
         root = Path(os.path.abspath(root))
@@ -156,96 +163,57 @@ def _walk_files(roots: list[Path], *, skip_program_folders: bool = True, include
             except OSError:
                 pass
             continue
-        stack = [root]
-        while stack:
-            if cancelled(cancel):
-                return
-            d = stack.pop()
-            key = os.path.normcase(str(d))
-            if key in seen:
-                continue
-            seen.add(key)
-            try:
-                with os.scandir(d) as it:
-                    children = list(it)
-            except OSError:
-                continue
-            if skip_program_folders and d != root and any(
-                    os.path.splitext(c.name)[1].lower() in PROGRAM_MARKER_EXTS for c in children):
+        for folder in walk.folders([root], cancel=cancel, enter=enter, seen=seen):
+            if skip_program_folders and folder.path != root and any(
+                    os.path.splitext(c.name)[1].lower() in PROGRAM_MARKER_EXTS for c in folder.entries):
+                folder.skip()
                 continue
             if dirs_out is not None:
-                dirs_out.append(d)
-            for c in children:
+                dirs_out.append(folder.path)
+            for c in folder.files():
                 if cancelled(cancel):
                     return
                 try:
-                    if c.is_symlink():
+                    if not include_hidden and is_hidden(c):
                         continue
-                    if c.is_dir(follow_symlinks=False):
-                        if getattr(c.stat(follow_symlinks=False), "st_file_attributes", 0) & 0x400:
-                            continue    # directory junction/reparse point: avoid cycles and crossing into other trees
-                        if c.name.lower() in EXCLUDED_DIR_NAMES or (not include_hidden and is_hidden(c)):
-                            continue
-                        if not into_packages and is_library(c.name):   # (deleting inside an app's library breaks it)
-                            continue
-                        stack.append(Path(c.path))
-                    elif c.is_file(follow_symlinks=False):
-                        if not include_hidden and is_hidden(c):
-                            continue
-                        st = c.stat(follow_symlinks=False)
-                        if cloud_only(st):
-                            continue
-                        yield Path(c.path), st
+                    st = c.stat(follow_symlinks=False)
+                    if cloud_only(st):
+                        continue
+                    yield Path(c.path), st
                 except OSError:
                     continue
 
 
 def folder_size(path: Path, cancel: threading.Event | None = None) -> tuple[int, int]:
-    """(bytes, file count) of everything under ``path`` (symlinks not followed)."""
+    """(bytes, file count) of everything under ``path`` (links not followed)."""
+    from .. import walk
+
     total = count = 0
-    stack = [path]
-    while stack:
-        if cancelled(cancel):
-            break
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                for e in it:
-                    try:
-                        if e.is_symlink():
-                            continue
-                        if e.is_dir(follow_symlinks=False):
-                            stack.append(Path(e.path))
-                        else:
-                            total += e.stat(follow_symlinks=False).st_size
-                            count += 1
-                    except OSError:
-                        continue
-        except OSError:
-            continue
+    for folder in walk.folders([path], cancel=cancel):
+        for e in folder.files():
+            try:
+                total += e.stat(follow_symlinks=False).st_size
+                count += 1
+            except OSError:
+                continue
     return total, count
 
 
 def newest_mtime(path: Path, skip_names: set[str] | frozenset[str] = frozenset(), limit: int = 20000) -> float:
     """Most recent modification time inside ``path`` (bounded walk; skips heavy dependency folders)."""
+    from .. import walk
+
     newest = 0.0
-    stack = [path]
     seen = 0
-    while stack and seen < limit:
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                for e in it:
-                    seen += 1
-                    try:
-                        st = e.stat(follow_symlinks=False)
-                    except OSError:
-                        continue
-                    newest = max(newest, st.st_mtime)
-                    if e.is_dir(follow_symlinks=False) and e.name not in skip_names and not e.name.startswith("."):
-                        stack.append(Path(e.path))
-        except OSError:
-            continue
+    for folder in walk.folders([path], enter=lambda e: e.name not in skip_names and not e.name.startswith(".")):
+        for e in folder.entries:
+            seen += 1
+            try:
+                newest = max(newest, e.stat(follow_symlinks=False).st_mtime)
+            except OSError:
+                continue
+        if seen >= limit:
+            break
     return newest
 
 

@@ -25,21 +25,17 @@ def _real_size(path: Path) -> int | None:
 
 def truly_empty(folder: Path) -> bool:
     """No files at all below ``folder``: hidden and system files count, links and junctions count."""
-    stack = [folder]
-    while stack:
-        d = stack.pop()
-        try:
-            with os.scandir(d) as it:
-                for c in it:
-                    if c.is_symlink() or getattr(c, "is_junction", lambda: False)():
-                        return False
-                    if c.is_dir(follow_symlinks=False):
-                        stack.append(Path(c.path))
-                    else:
-                        return False
-        except OSError:
-            return False
-    return True
+    from .. import walk
+
+    unreadable: list[Path] = []
+    for d in walk.folders([folder], unreadable=unreadable.append):
+        for c in d.entries:
+            try:
+                if walk.is_link(c) or not c.is_dir(follow_symlinks=False):
+                    return False
+            except OSError:
+                return False
+    return not unreadable
 
 
 def still_empty(path: Path, is_dir: bool) -> bool:

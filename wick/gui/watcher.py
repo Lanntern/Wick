@@ -66,26 +66,20 @@ class FolderWatcher(QObject):
 
     # ---- internals
     def _iter_files(self):
+        from .. import walk
+
+        def visible(e: os.DirEntry) -> bool:
+            return not (e.name.startswith(".") or e.name.startswith(TEMP_PREFIX))
+
         for root in self.folders:
-            stack = [root]
-            while stack:
-                d = stack.pop()
-                try:
-                    with os.scandir(d) as it:
-                        for e in it:
-                            if e.name.startswith(".") or e.name.startswith(TEMP_PREFIX):
-                                continue
-                            try:
-                                if e.is_dir(follow_symlinks=False):
-                                    if self.recursive:
-                                        stack.append(Path(e.path))
-                                elif e.is_file(follow_symlinks=False) and classify(Path(e.name)):
-                                    st = e.stat(follow_symlinks=False)
-                                    yield os.path.normcase(e.path), e.path, (st.st_size, st.st_mtime_ns)
-                            except OSError:
-                                continue
-                except OSError:
-                    continue
+            for folder in walk.folders([root], enter=lambda e: self.recursive and visible(e)):
+                for e in folder.files():
+                    try:
+                        if visible(e) and classify(Path(e.name)):
+                            st = e.stat(follow_symlinks=False)
+                            yield os.path.normcase(e.path), e.path, (st.st_size, st.st_mtime_ns)
+                    except OSError:
+                        continue
 
     def _snapshot(self) -> dict[str, tuple[int, int]]:
         return {key: sig for key, _, sig in self._iter_files()}
