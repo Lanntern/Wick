@@ -328,7 +328,7 @@ def _set_times(path: Path, ts: float) -> None:
         _set_windows_creation_time(path, int(ts * 1_000_000_000))
 
 
-def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",
+def merge(sources: list[Path], output: Path, *, albums: str = "link", edited: str = "both",  # noqa: C901 (to split up)
           progress: Callable[[str, int, int], None] | None = None, cancel: threading.Event | None = None
           ) -> MergeResult:
     """Merge Takeout ``sources`` into ``output`` (see the module notes). Safe to run again: resumes."""

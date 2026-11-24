@@ -256,7 +256,7 @@ class FileTableModel(QAbstractTableModel):
             f |= Qt.ItemIsUserCheckable
         return f
 
-    def data(self, index, role=Qt.DisplayRole):
+    def data(self, index, role=Qt.DisplayRole):  # noqa: C901 (to split up)
         if not index.isValid():
             return None
         r = self.rows[index.row()]

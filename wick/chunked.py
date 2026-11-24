@@ -188,7 +188,7 @@ def _hide(folder: Path) -> None:
 
 
 # ---------------------------------------------------------------- encoding
-def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,
+def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, grain: int,  # noqa: C901 (to split up)
            on_progress: Callable[[float], None] | None = None,
            cancel: threading.Event | None = None, fonts=None) -> tuple[Path, list[str]]:
     """Encode ``src`` scene by scene into ``out`` (with all the other tracks; ``fonts``: a subfonts.FontPlan).

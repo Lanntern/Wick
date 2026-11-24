@@ -69,7 +69,7 @@ def _inside(a: Path, b: Path) -> bool:
         return False
 
 
-def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced",
+def sync(library: Path, dest: Path, fmt: str = "opus", quality: str = "balanced",  # noqa: C901 (to split up)
          progress: Callable[[str, int, int], None] | None = None, cancel: threading.Event | None = None,
          workers: int = 0) -> SyncResult:
     """Bring the copy in ``dest`` up to date with ``library`` (see the module notes)."""

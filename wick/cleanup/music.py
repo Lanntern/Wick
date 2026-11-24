@@ -187,7 +187,7 @@ def _rank(d: dict, size: int) -> tuple:
 
 # ---------------------------------------------------------------- the scan
 
-def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500 * 1024,
+def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500 * 1024,  # noqa: C901 (to split up)
                     exclude: list[Path] | None = None, progress: ProgressFn | None = None,
                     cancel: threading.Event | None = None) -> ScanResult:
     import numpy as np

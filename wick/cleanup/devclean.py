@@ -438,10 +438,6 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     there is one). ``protected``: ``project_id`` values and ``path:`` entries that are never listed.
     ``kinds_off``: KINDS not to list; ``names_off``: folder names not to list (``node_modules``...). Projects
     with something running in them (a terminal, a dev server, a Docker container) count as in use."""
-    from . import docker as docker_mod
-    from .inuse import busy_projects
-    from .caches import find_caches
-
     result = ScanResult("devclean")
     repos: list[Path] = []
     found = _scan_projects(roots, progress, cancel, repos)
@@ -451,9 +447,27 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     if progress:
         progress("Checking what your .gitignore files mark as build output…", 0, 0)
     found += _ambiguous_found(repos, found)
+    found, project_of, left_out = _leave_out(found, roots, kinds_off, names_off, protected, progress, cancel)
+    busy = _busy(project_of, docker and "docker" not in kinds_off, progress)
+    sizes = _measure_all(found, progress, cancel)
+    if cancelled(cancel):
+        result.cancelled = True
+        return result
+    last_work = _project_items(result, found, sizes, project_of, busy, idle_days)
+    _other_sources(result, shared, docker, kinds_off, protected, busy, last_work, idle_days, progress, cancel)
+    if any(f.path in sizes and sizes[f.path] is None for f in found):
+        result.notes.append("Folders with a git repository inside were left out.")
+    for why, items in left_out.items():
+        if items:
+            result.notes.append(f"{plural(len(items), 'folder')} {why}.")
+    return result
+
+
+def _leave_out(found: list[_Found], roots: list[Path], kinds_off, names_off, protected, progress, cancel):
+    """(what's left to list, each one's project, what was left out and why). Left out: kinds and names switched
+    off, folders inside installed apps, folders with files committed to git, protected projects."""
     switched_off = [f for f in found if f.kind in kinds_off or f.path.name in names_off]
     found = [f for f in found if f not in switched_off]
-
     stop = {os.path.normcase(str(Path(os.path.abspath(r)).parent)) for r in roots}
     in_apps = [f for f in found if _inside_installed_app(f.path)]
     found = [f for f in found if f not in in_apps]
@@ -474,17 +488,31 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     project_of = {f.path: _repo_of(f.path, stop) or f.beside for f in found}
     hidden = [f for f in found if _protected(f.path, project_of[f.path], set(protected))]
     found = [f for f in found if f not in hidden]
+    return found, project_of, {"with files committed to git were left out": skipped,
+                               "inside installed apps were left out": in_apps,
+                               "of kinds you switched off not shown": switched_off,
+                               "in protected projects not shown": hidden}
+
+
+def _busy(project_of: dict[Path, Path], docker: bool, progress) -> dict[Path, str]:
+    """Projects with something running in them (a terminal, a dev server, a Docker container): why."""
+    from . import docker as docker_mod
+    from .inuse import busy_projects
 
     if progress:
         progress("Checking which projects have something running…", 0, 0)
     busy = busy_projects(sorted(set(project_of.values())))
-    if docker and "docker" not in kinds_off:
+    if docker:
         for wd, name in docker_mod.running_projects().items():
             for proj in set(project_of.values()):
                 if os.path.normcase(os.path.abspath(proj)) == wd:
                     busy.setdefault(proj, f"its Docker container {name} is running")
+    return busy
 
-    # Measure (the slow part: these folders hold many small files).
+
+def _measure_all(found: list[_Found], progress, cancel) -> dict[Path, Measure | None]:
+    """Each folder's size, side by side (the slow part: these folders hold many small files). None: a folder
+    with a repository inside, which is never listed."""
     sizes: dict[Path, Measure | None] = {}
     lock = threading.Lock()
     done = [0]
@@ -502,10 +530,12 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
 
     with ThreadPoolExecutor(max_workers=min(8, (os.cpu_count() or 2) * 2)) as pool:
         list(pool.map(work, found))
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
+    return sizes
 
+
+def _project_items(result: ScanResult, found: list[_Found], sizes, project_of, busy: dict[Path, str],
+                   idle_days: int) -> dict[Path, float]:
+    """List the project folders, biggest projects first; returns when each project was last worked on."""
     now = time.time()
     last_work: dict[Path, float] = {}
     heavy = {n for r in RULES for n in r.names} | set(AMBIGUOUS) | {".git", "node_modules"}
@@ -535,6 +565,14 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     for c in result.items:
         totals[c.group] += c.size
     result.items.sort(key=lambda c: (-totals[c.group], c.group, -c.size))   # biggest projects first
+    return last_work
+
+
+def _other_sources(result: ScanResult, shared: bool, docker: bool, kinds_off, protected, busy: dict[Path, str],
+                   last_work: dict[Path, float], idle_days: int, progress, cancel) -> None:
+    """Shared developer caches, what Docker can let go, and virtual disks."""
+    from . import docker as docker_mod
+    from .caches import find_caches
 
     if shared and "shared" not in kinds_off and not cancelled(cancel):
         def shared_size(p: Path, c) -> tuple[int, int]:
@@ -548,6 +586,7 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     if docker and "docker" not in kinds_off and not cancelled(cancel):
         if progress:
             progress("Asking Docker what it can let go…", 0, 0)
+        now = time.time()
         active: dict[str, str] = {}
         for proj, last in last_work.items():
             reason = busy.get(proj) or (f"you worked on it {_ago((now - last) / 86400)}"
@@ -569,21 +608,6 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
         for c in vdisk.find():
             c.extra["kind"] = "vdisk"
             result.items.append(c)
-    if any(f.path in sizes and sizes[f.path] is None for f in found):
-        result.notes.append("Folders with a git repository inside were left out.")
-    if skipped:
-        result.notes.append(f"{plural(len(skipped), 'folder')} with files committed to "
-                            "git were left out.")
-    if in_apps:
-        result.notes.append(f"{plural(len(in_apps), 'folder')} inside installed apps "
-                            "were left out.")
-    if switched_off:
-        result.notes.append(f"{plural(len(switched_off), 'folder')} of kinds you "
-                            "switched off not shown.")
-    if hidden:
-        result.notes.append(f"{plural(len(hidden), 'folder')} in protected projects "
-                            "not shown.")
-    return result
 
 
 def _compose_name(project: Path) -> str:

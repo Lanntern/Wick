@@ -691,7 +691,7 @@ def preview_file(entry: FileEntry, plan: Plan, s: Settings) -> Path:
 
 # ------------------------------------------------------------------ undo
 
-def undo_record(run_id: str, rec: journal.FileRecord) -> tuple[bool, str]:
+def undo_record(run_id: str, rec: journal.FileRecord) -> tuple[bool, str]:  # noqa: C901 (to split up)
     if rec.undone:
         return True, "Already undone"
     if rec.mode == "decompact":

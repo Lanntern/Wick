@@ -203,7 +203,7 @@ def _star_groups(members: list[int], prints, sharp: dict[int, float], files, lim
     return out
 
 
-def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,
+def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,  # noqa: C901 (to split up)
                  progress: ProgressFn | None = None, cancel: threading.Event | None = None) -> ScanResult:
     from ..sandbox import similar_fingerprint, similar_inspect
 

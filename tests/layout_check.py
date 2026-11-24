@@ -106,7 +106,7 @@ def name(x: QWidget) -> str:
 found: dict[str, set] = {}
 
 
-def check(root: QWidget, where: str) -> None:
+def check(root: QWidget, where: str) -> None:  # noqa: C901 (to split up)
     def flag(problem: str) -> None:
         found.setdefault(problem, set()).add(where)
 

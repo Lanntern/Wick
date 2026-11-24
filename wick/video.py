@@ -760,44 +760,12 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     from there and take everything else from ``src``. ``fonts``: a subfonts.FontPlan for the subtitle fonts.
     ``fonts.covers``: MP4 cover pictures stored smaller. ``info.screen``: a screen recording (SVT-AV1's screen-content
     tools)."""
-    ffmpeg = tools.require("ffmpeg")
     mp4 = is_mp4(dst.suffix)
     if q is None and not remux:
         q = encoder_quality(s, encoder)
-    args = [ffmpeg, "-hide_banner", "-nostdin", "-y", "-v", "error"]
-    if progress:
-        args += ["-progress", "pipe:1", "-nostats"]
-    if hw_decode:
-        # Decode the source on the graphics card where it can (D3D11VA, CUDA, Quick Sync...): the frames come back
-        # to normal memory, so filters and every encoder work as before; ffmpeg decodes on the CPU otherwise.
-        args += ["-hwaccel", "auto"]
-    if segment:
-        if segment[0] > 0:
-            args += ["-ss", f"{segment[0]:.3f}"]
-        if segment[1] > 0:                                  # (0: to the end)
-            args += ["-t", f"{segment[1]:.3f}"]
-    args += ["-i", str(src)]
-    if video_from is not None:
-        args += ["-i", str(video_from)]
-    picture_input = {}
-    pictures = fonts.covers if fonts is not None and not segment else {}
-    for n, (index, path) in enumerate(sorted(pictures.items())):
-        args += ["-i", str(path)]
-        picture_input[index] = (2 if video_from is not None else 1) + n
-
-    # Which input streams go into the output, in order.
-    keep_audio, keep_subs, dropped = select_tracks(info, s)
-    if segment:
-        mapped = [st for st in info.streams if st.index == info.main_video_index]
-    elif mp4:
-        mapped = [st for st in info.streams if st.index == info.main_video_index]
-        mapped += keep_audio
-        mapped += [st for st in keep_subs if st.codec in _TEXT_SUBS]
-        mapped += [st for st in info.streams if st.attached_pic and st.codec in ("mjpeg", "png")]    # covers
-    else:  # mkv / webm keep everything except data streams (and tracks in languages left out)
-        gone = {st.index for st in dropped} | set(fonts.replace if fonts is not None else ())
-        mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone
-                  and not (st.kind == "subtitle" and st.codec not in _MKV_SUBTITLES)]    # (teletext: no place in MKV)
+    args, picture_input = _input_args(src, segment, progress, hw_decode, video_from,
+                                      fonts.covers if fonts is not None and not segment else {})
+    keep_audio, mapped = _mapped_streams(info, s, mp4, segment, fonts)
     for st in mapped:
         joined = video_from is not None and st.index == info.main_video_index
         args += ["-map", "1:v:0" if joined else f"{picture_input[st.index]}:0" if st.index in picture_input
@@ -813,10 +781,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
             args += [f"-disposition:v:{n}", "attached_pic"]
     if remux or video_from is not None:
         if video_from is not None:
-            for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
-                             ("range", "color_range")):
-                if info.color.get(key):
-                    args += [f"-{opt}:v:{v_out}", info.color[key]]
+            args += _color_args(info, v_out)
             if mp4 and codec_for(info, s) == "hevc":
                 args += [f"-tag:v:{v_out}", "hvc1"]
         args += _audio_args(keep_audio, s, mp4, fit, remux=remux) + default_audio_args(info, keep_audio)
@@ -827,7 +792,80 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
     args += [f"-c:v:{v_out}", encoder]
     if info.hdr == "Dolby Vision" and _encoder_option(encoder, "dolbyvision"):
         args += ["-dolbyvision", "0"]          # (the Dolby Vision layer isn't carried over: the base layer is kept)
+    rate, pix = _rate_args(info, s, encoder, q, fit, probe, grain, threads)
+    args += rate
+    args += [f"-pix_fmt:v:{v_out}", pix]
+    args += _color_args(info, v_out)        # (essential for HDR: without it the picture looks washed out)
+    filters = _video_filters(info, s, fit, segment)
+    if filters:
+        args += [f"-filter:v:{v_out}", ",".join(filters)]
+    if mp4 and (encoder.startswith("hevc_") or encoder == "libx265"):
+        args += [f"-tag:v:{v_out}", "hvc1"]  # plays in Windows/Apple players
 
+    if not segment:
+        args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
+        args += _container_args(dst, s, mapped, fonts,
+                                f"{encoder} {'size limit' if fit is not None else q}", grain, live_photo_id(info))
+    args.append(str(dst))
+    return args
+
+
+def _input_args(src: Path, segment, progress: bool, hw_decode: bool, video_from: Path | None,
+                pictures: dict) -> tuple[list[str], dict[int, int]]:
+    """ffmpeg and its inputs: the source (or a part of it), the already-encoded video, smaller cover pictures.
+    Also, for each cover stream, the input it now comes from."""
+    args = [tools.require("ffmpeg"), "-hide_banner", "-nostdin", "-y", "-v", "error"]
+    if progress:
+        args += ["-progress", "pipe:1", "-nostats"]
+    if hw_decode:
+        # Decode the source on the graphics card where it can (D3D11VA, CUDA, Quick Sync...): the frames come back
+        # to normal memory, so filters and every encoder work as before; ffmpeg decodes on the CPU otherwise.
+        args += ["-hwaccel", "auto"]
+    if segment:
+        if segment[0] > 0:
+            args += ["-ss", f"{segment[0]:.3f}"]
+        if segment[1] > 0:                                  # (0: to the end)
+            args += ["-t", f"{segment[1]:.3f}"]
+    args += ["-i", str(src)]
+    if video_from is not None:
+        args += ["-i", str(video_from)]
+    picture_input = {}
+    for n, (index, path) in enumerate(sorted(pictures.items())):
+        args += ["-i", str(path)]
+        picture_input[index] = (2 if video_from is not None else 1) + n
+    return args, picture_input
+
+
+def _mapped_streams(info: VideoInfo, s: Settings, mp4: bool, segment, fonts) -> tuple[list, list]:
+    """(audio tracks kept, every input stream that goes into the output, in order)."""
+    keep_audio, keep_subs, dropped = select_tracks(info, s)
+    if segment:
+        mapped = [st for st in info.streams if st.index == info.main_video_index]
+    elif mp4:
+        mapped = [st for st in info.streams if st.index == info.main_video_index]
+        mapped += keep_audio
+        mapped += [st for st in keep_subs if st.codec in _TEXT_SUBS]
+        mapped += [st for st in info.streams if st.attached_pic and st.codec in ("mjpeg", "png")]    # covers
+    else:  # mkv / webm keep everything except data streams (and tracks in languages left out)
+        gone = {st.index for st in dropped} | set(fonts.replace if fonts is not None else ())
+        mapped = [st for st in info.streams if st.kind != "data" and st.index not in gone
+                  and not (st.kind == "subtitle" and st.codec not in _MKV_SUBTITLES)]    # (teletext: no place in MKV)
+    return keep_audio, mapped
+
+
+def _color_args(info: VideoInfo, v_out: int) -> list[str]:
+    """The source's color description, kept on the output video."""
+    args = []
+    for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
+                     ("range", "color_range")):
+        if info.color.get(key):
+            args += [f"-{opt}:v:{v_out}", info.color[key]]
+    return args
+
+
+def _rate_args(info: VideoInfo, s: Settings, encoder: str, q: int | None, fit, probe: bool, grain: int,
+               threads: int) -> tuple[list[str], str]:
+    """The encoder's quality (or, with a size limit, bitrate) settings, and the pixel format it encodes."""
     ten_bit = info.is_10bit or bool(info.hdr) or encoder in ("av1_nvenc", "libsvtav1")
     gpu_pix = "p010le" if ten_bit else ("yuv420p" if encoder.endswith("_nvenc") else "nv12")   # (QSV/AMF: NV12)
     hdr10 = _hdr10_params(info, encoder)
@@ -845,6 +883,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         svt = ":".join(p for p in (svt, f"mbr={min(cap, 100000)}") if p)
     x265 = ":".join(p for p in ("log-level=error", hdr10 if encoder == "libx265" else "",
                                 f"pools={threads}" if threads and encoder == "libx265" else "") if p)
+    args: list[str] = []
     if fit is not None:                  # a size limit: an average bitrate instead of a constant quality
         kbps = fit[0]
         rate = ["-b:v", f"{kbps}k", "-maxrate", f"{int(kbps * 1.5)}k", "-bufsize", f"{kbps * 2}k"]
@@ -874,13 +913,11 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         args += ["-profile:v", "main10"]        # (10-bit, HDR included: VideoToolbox needs the profile named)
     if cap and encoder != "libsvtav1":
         args += ["-maxrate", f"{cap}k", "-bufsize", f"{cap * 2}k"]
-    args += [f"-pix_fmt:v:{v_out}", pix]
-    # Keep the color description (essential for HDR: without it the picture looks washed out).
-    for key, opt in (("primaries", "color_primaries"), ("transfer", "color_trc"), ("space", "colorspace"),
-                     ("range", "color_range")):
-        if info.color.get(key):
-            args += [f"-{opt}:v:{v_out}", info.color[key]]
+    return args, pix
 
+
+def _video_filters(info: VideoInfo, s: Settings, fit, segment) -> list[str]:
+    """Deinterlacing, black bars, repeated frames, size and frame rate, in that order."""
     filters = []
     if info.interlaced:
         filters.append("bwdif=mode=send_frame:deint=all")  # one progressive frame per frame, no combing
@@ -896,17 +933,7 @@ def build_args(src: Path, dst: Path, info: VideoInfo, s: Settings, encoder: str,
         filters.append(f"fps={fps:g}")
     if segment:
         filters.append("setpts=PTS-STARTPTS")      # (a part starts at 0: parts are joined by their exact lengths)
-    if filters:
-        args += [f"-filter:v:{v_out}", ",".join(filters)]
-    if mp4 and (encoder.startswith("hevc_") or encoder == "libx265"):
-        args += [f"-tag:v:{v_out}", "hvc1"]  # plays in Windows/Apple players
-
-    if not segment:
-        args += _audio_args(keep_audio, s, mp4, fit) + default_audio_args(info, keep_audio)
-        args += _container_args(dst, s, mapped, fonts,
-                                f"{encoder} {'size limit' if fit is not None else q}", grain, live_photo_id(info))
-    args.append(str(dst))
-    return args
+    return filters
 
 
 TAG = "WICK"        # container tag: the Wick version and settings that made the file (a remux or re-encode)
@@ -1391,7 +1418,7 @@ def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
         return None
 
 
-def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:
+def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:  # noqa: C901 (to split up)
     out = temp_name(src.parent, plan.target_ext)
     keep_audio, _subs, dropped = select_tracks(info, s)
     if plan.route == "video_remux":   # efficient already: tracks, fonts and lossless audio packing only
