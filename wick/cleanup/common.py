@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import os
-import sys
 import threading
 from contextlib import contextmanager
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..protected import inside_library, is_library
-from ..scanner import EXCLUDED_DIR_NAMES, PROGRAM_MARKER_EXTS, _CLOUD_ONLY_ATTRS
+from ..protected import cloud_only, inside_library, is_hidden, is_library
+from ..scanner import EXCLUDED_DIR_NAMES, PROGRAM_MARKER_EXTS
 
 ProgressFn = Callable[[str, int, int], None]  # message, done, total
 _scan_context = threading.local()
@@ -104,30 +103,6 @@ class ScanResult:
 
 def cancelled(cancel: threading.Event | None) -> bool:
     return cancel is not None and cancel.is_set()
-
-
-def cloud_only(st: os.stat_result) -> bool:
-    """OneDrive's online-only files on Windows, iCloud Drive's dataless ones on a Mac (reading would download)."""
-    from ..protected import dataless
-
-    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS) or dataless(st)
-
-
-def is_hidden(entry: os.DirEntry) -> bool:
-    if entry.name.startswith("."):
-        return True
-    if sys.platform == "darwin":            # (Finder's hidden flag, as on ~/Library)
-        try:
-            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
-        except OSError:
-            return False
-    if os.name == "nt":
-        try:
-            attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
-            return bool(attrs & 0x2 or attrs & 0x4)
-        except (OSError, AttributeError):
-            return False
-    return False
 
 
 def walk_files(roots: list[Path], *, skip_program_folders: bool = True, include_hidden: bool = False,

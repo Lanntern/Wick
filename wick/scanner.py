@@ -17,7 +17,7 @@ from .formats import (
     ImageInfo, classify, read_image_info, sniff,
 )
 from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
-from .protected import dataless, inside_library, is_library
+from .protected import cloud_only, inside_library, is_hidden, is_library
 from .settings import Settings
 
 # Folder names that are never scanned (case-insensitive). These hold OS,
@@ -34,9 +34,6 @@ EXCLUDED_DIR_NAMES = {
 # and skipped together with its subfolders (when skip_program_folders is on).
 PROGRAM_MARKER_EXTS = {".dll", ".so", ".dylib"}
 
-# Windows: OFFLINE | RECALL_ON_OPEN | RECALL_ON_DATA_ACCESS. Set on cloud-only
-# OneDrive/Dropbox placeholders; reading them would download the file.
-_CLOUD_ONLY_ATTRS = 0x1000 | 0x40000 | 0x400000
 
 
 @dataclass
@@ -80,29 +77,6 @@ class ScanResult:
 
 ProgressFn = Callable[[str, int, int], None]  # (message, done, total)
 PARTS_PREFIX = ".wick-parts-"   # a video being encoded scene by scene (chunked.py): never scanned
-
-
-def _is_hidden(entry: os.DirEntry) -> bool:
-    if entry.name.startswith("."):
-        return True
-    if sys.platform == "darwin":            # (Finder's hidden flag: ~/Library, where apps keep their data, has it)
-        try:
-            return bool(getattr(entry.stat(follow_symlinks=False), "st_flags", 0) & 0x8000)
-        except OSError:
-            return False
-    if os.name == "nt":
-        try:
-            attrs = entry.stat(follow_symlinks=False).st_file_attributes  # type: ignore[attr-defined]
-            return bool(attrs & 0x2 or attrs & 0x4)  # HIDDEN | SYSTEM
-        except (OSError, AttributeError):
-            return False
-    return False
-
-
-def _cloud_only(st: os.stat_result) -> bool:
-    """Only in the cloud (OneDrive on Windows, iCloud Drive's optimised storage on a Mac): reading it would
-    download it."""
-    return bool(getattr(st, "st_file_attributes", 0) & _CLOUD_ONLY_ATTRS) or dataless(st)
 
 
 def scan(
@@ -220,7 +194,7 @@ def _add_file(result: ScanResult, p: Path, root: Path | None, seen: set[str], se
         st = p.stat()
     except OSError:
         return
-    if _cloud_only(st):
+    if cloud_only(st):
         result.cloud_only_files += 1
         return
     seen.add(key)
@@ -385,7 +359,7 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     if is_library(c.name):          # (Photos and other apps' libraries: see protected.py)
                         result.skipped_libraries.append(Path(c.path))
                         continue
-                    if not settings.include_hidden and _is_hidden(c):
+                    if not settings.include_hidden and is_hidden(c):
                         continue
                     subdirs.append(Path(c.path))
                     continue
@@ -393,7 +367,7 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                     continue
                 if os.path.splitext(c.name)[1].lower() not in _LISTED_EXTS:
                     continue            # (most files: no path made, and on a Mac no extra look for the hidden flag)
-                if not settings.include_hidden and _is_hidden(c):
+                if not settings.include_hidden and is_hidden(c):
                     continue
                 p = Path(c.path)
                 kind = _kind(p, settings)
@@ -403,7 +377,7 @@ def _walk(result: ScanResult, root: Path, settings: Settings, progress: Progress
                         result.jxl_bytes += c.stat(follow_symlinks=False).st_size
                     continue
                 st = c.stat(follow_symlinks=False)
-                if _cloud_only(st):
+                if cloud_only(st):
                     result.cloud_only_files += 1
                     if kind in (VIDEO, JPEG, HEIC):
                         result.cloud_only_live.append(p)

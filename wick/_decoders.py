@@ -54,41 +54,13 @@ def _windows_job(memory_limit: int) -> bool:
     import ctypes
     from ctypes import wintypes
 
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    from . import winapi
 
-    class Basic(ctypes.Structure):
-        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
-                    ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
-                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
-                    ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
-                    ("SchedulingClass", wintypes.DWORD)]
-
-    class Extended(ctypes.Structure):
-        _fields_ = [("BasicLimitInformation", Basic), ("IoInfo", ctypes.c_uint64 * 6),
-                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
-                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
-
-    # (Every argument type declared: a handle passed as a plain int overflows ctypes' default C int.)
-    k32.CreateJobObjectW.restype = wintypes.HANDLE
-    k32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-    k32.GetCurrentProcess.restype = wintypes.HANDLE
-    k32.GetCurrentProcess.argtypes = []
-    k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
-    k32.SetInformationJobObject.restype = wintypes.BOOL
-    k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-    k32.AssignProcessToJobObject.restype = wintypes.BOOL
-    job = k32.CreateJobObjectW(None, None)
-    if not job:
-        raise OSError(ctypes.get_last_error(), "CreateJobObject failed")
-    info = Extended()
-    # KILL_ON_JOB_CLOSE | ACTIVE_PROCESS | DIE_ON_UNHANDLED_EXCEPTION (no breakaway: its programs stay in it)
-    info.BasicLimitInformation.LimitFlags = 0x2000 | 0x8 | 0x400
-    info.BasicLimitInformation.ActiveProcessLimit = 8     # itself and the decoders it runs, never a process tree
-    if memory_limit:
-        info.BasicLimitInformation.LimitFlags |= 0x100       # PROCESS_MEMORY
-        info.ProcessMemoryLimit = memory_limit
-    if not k32.SetInformationJobObject(wintypes.HANDLE(job), 9, ctypes.byref(info), ctypes.sizeof(info)):
-        raise OSError(ctypes.get_last_error(), "SetInformationJobObject (limits) failed")
+    k32 = winapi.job_kernel32()
+    # Its own process and the decoders it runs, never a process tree; ended with the app, and on a crash (no
+    # breakaway: its programs stay in it).
+    job = winapi.job_object(winapi.KILL_ON_JOB_CLOSE | winapi.DIE_ON_UNHANDLED_EXCEPTION, memory_limit,
+                            active_processes=8)
     # Basic UI restrictions, all of them: desktop, display settings, log off, global atoms, other processes'
     # windows (handles), clipboard (read and write), system parameters.
     ui = wintypes.DWORD(0xFF)

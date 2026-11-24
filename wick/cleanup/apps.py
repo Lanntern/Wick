@@ -268,34 +268,13 @@ def still_installed(app: App) -> bool:
 def _run_and_wait(program: str, args: str, cancel: threading.Event | None) -> None:
     """Start the uninstaller the way Explorer would (Windows asks for permission when it needs it) and wait for
     it to finish."""
-    import ctypes
-    from ctypes import wintypes
+    from .. import winapi
 
-    class Info(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
-                    ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
-                    ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
-                    ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
-                    ("dwHotKey", wintypes.DWORD), ("hIcon", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
-
-    shell = ctypes.WinDLL("shell32", use_last_error=True)
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    shell.ShellExecuteExW.argtypes = [ctypes.POINTER(Info)]
-    shell.ShellExecuteExW.restype = wintypes.BOOL
-    k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    k32.CloseHandle.argtypes = [wintypes.HANDLE]
-    info = Info(cbSize=ctypes.sizeof(Info), fMask=0x40, lpVerb="open", lpFile=program,   # SEE_MASK_NOCLOSEPROCESS
-                lpParameters=args or None, nShow=1)
-    if not shell.ShellExecuteExW(ctypes.byref(info)):
-        err = ctypes.get_last_error()
-        raise OSError(err, "The uninstaller didn't start" + (" (permission was refused)" if err == 1223 else ""))
-    if info.hProcess:
-        try:
-            while k32.WaitForSingleObject(info.hProcess, 500) == 0x102:      # WAIT_TIMEOUT
-                if cancelled(cancel):
-                    return
-        finally:
-            k32.CloseHandle(info.hProcess)
+    try:
+        winapi.run_and_wait(program, args, cancel=cancel)
+    except OSError as e:
+        raise OSError(e.errno, "The uninstaller didn't start"
+                      + (" (permission was refused)" if e.errno == winapi.ERROR_CANCELLED else "")) from e
 
 
 def uninstall(app: App, cancel: threading.Event | None = None, wait: float = 600.0) -> tuple[bool, str]:

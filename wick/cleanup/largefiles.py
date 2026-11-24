@@ -9,7 +9,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..formats import VIDEO_EXTS, human
-from .common import _CLOUD_ONLY_ATTRS, Candidate, ScanResult, publish, walk_files
+from ..protected import CLOUD_ONLY_ATTRS
+from .common import Candidate, ScanResult, publish, walk_files
 
 LIMIT = 500                    # the biggest this many are listed
 
@@ -67,7 +68,7 @@ def _from_everything(roots: list[Path], min_size: int) -> list[tuple[Path, int, 
             return None
         out += [(Path(n), s, m) for n, is_dir, s, m, a in items
                 if not is_dir and s >= min_size and not a & 0x2         # (hidden files left out, like the walk,
-                and not a & _CLOUD_ONLY_ATTRS]                          #  and files only in the cloud)
+                and not a & CLOUD_ONLY_ATTRS]                          #  and files only in the cloud)
     return out
 
 

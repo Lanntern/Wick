@@ -401,36 +401,13 @@ def helper_command(drive: str, out: Path, roots_parts: list[list[str]]) -> tuple
 
 def run_elevated(program: str, params: str, cancel=None) -> int | None:
     """Run ``program params`` as administrator (Windows asks the user), hidden; wait. Exit code, or None if
-    the user said no (or it couldn't start)."""
-    import ctypes
-    import time
-    from ctypes import wintypes
+    the user said no (or it couldn't start, or it was stopped)."""
+    from . import winapi
 
-    class SHELLEXECUTEINFOW(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
-                    ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR), ("lpParameters", wintypes.LPCWSTR),
-                    ("lpDirectory", wintypes.LPCWSTR), ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
-                    ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR), ("hkeyClass", wintypes.HKEY),
-                    ("dwHotKey", wintypes.DWORD), ("hIconOrMonitor", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
-
-    info = SHELLEXECUTEINFOW()
-    info.cbSize = ctypes.sizeof(info)
-    info.fMask = 0x00000040 | 0x00000400            # SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI
-    info.lpVerb, info.lpFile, info.lpParameters, info.nShow = "runas", program, params, 0   # SW_HIDE
-    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
-        return None
-    k32 = ctypes.windll.kernel32
     try:
-        while k32.WaitForSingleObject(info.hProcess, 200) == 0x102:       # WAIT_TIMEOUT
-            if cancel is not None and cancel.is_set():
-                k32.TerminateProcess(info.hProcess, 1)
-                time.sleep(0.2)
-                return None
-        code = wintypes.DWORD()
-        k32.GetExitCodeProcess(info.hProcess, ctypes.byref(code))
-        return code.value
-    finally:
-        k32.CloseHandle(info.hProcess)
+        return winapi.run_and_wait(program, params, admin=True, hidden=True, cancel=cancel, kill_on_cancel=True)
+    except OSError:
+        return None
 
 
 def is_admin() -> bool:
