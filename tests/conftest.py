@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -25,6 +26,61 @@ def pytest_collection_modifyitems(items):
     """Tests marked ``runs_long`` first: with parallel workers, a long test that starts last leaves the others
     idle while it finishes. (Every worker sorts the same way, so they still agree on the order.)"""
     items.sort(key=lambda item: item.get_closest_marker("runs_long") is None)
+
+
+# What a cancelled dialog gives back, for each way of asking that waits for an answer.
+_DIALOG_CANCEL = {
+    ("QDialog", "exec"): 0,
+    ("QMessageBox", "exec"): 0,
+    ("QMessageBox", "question"): 0x00400000,           # QMessageBox.StandardButton.No
+    ("QMessageBox", "warning"): 0x00400000,
+    ("QMessageBox", "information"): 0x00400000,
+    ("QMessageBox", "critical"): 0x00400000,
+    ("QFileDialog", "getOpenFileName"): ("", ""),
+    ("QFileDialog", "getOpenFileNames"): ([], ""),
+    ("QFileDialog", "getSaveFileName"): ("", ""),
+    ("QFileDialog", "getExistingDirectory"): "",
+    ("QInputDialog", "getText"): ("", False),
+    ("QInputDialog", "getItem"): ("", False),
+    ("QInputDialog", "getInt"): (0, False),
+    ("QInputDialog", "getDouble"): (0.0, False),
+    ("QColorDialog", "getColor"): None,
+}
+
+
+@pytest.fixture(autouse=True)
+def no_real_dialogs(monkeypatch):
+    """A dialog that waits for an answer would wait forever in a test (and on Windows, put a real window on the
+    runner's desktop). Every such call is answered "cancel" and the test fails, naming it; a test that means
+    to open one replaces it first (monkeypatch.setattr(SomeDialog, "exec", ...)), which this leaves alone."""
+    opened: list[str] = []
+
+    def stand_in(where: str, answer):
+        def call(*args, **kwargs):
+            opened.append(where)
+            return answer
+        return call
+
+    widgets = sys.modules.get("PySide6.QtWidgets")
+    if widgets is None:
+        try:
+            import PySide6.QtWidgets as widgets
+        except ImportError:
+            widgets = None
+    if widgets is not None:
+        for (cls_name, attr), answer in _DIALOG_CANCEL.items():
+            cls = getattr(widgets, cls_name)
+            if answer is None:
+                answer = sys.modules["PySide6.QtGui"].QColor()
+            fake = stand_in(f"{cls_name}.{attr}", answer)
+            monkeypatch.setattr(cls, attr, fake if attr == "exec" else staticmethod(fake))
+    if sys.platform == "win32":          # Windows' own message box, used where Qt isn't running
+        from wick import mcp_server
+        monkeypatch.setattr(mcp_server, "_windows_confirm",
+                            stand_in("mcp_server._windows_confirm (a Windows message box)", False))
+    yield
+    if opened:
+        pytest.fail("a real dialog was opened (replace it in the test): " + ", ".join(opened), pytrace=False)
 
 
 def have(*names: str) -> bool:

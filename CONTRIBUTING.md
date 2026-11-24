@@ -103,6 +103,11 @@ The lint job checks most of these; the rest are here so a change doesn't have to
 - **Private names stay private:** `_name` is for its own module. If another module needs it, give it a
   public name (`tests/test_code_rules.py` checks).
 - **Functions under 25 branches** (ruff C901). The few older ones over it are marked `noqa: C901 (to split up)`.
+- **Tests that fake another system** change `sys.platform` (`monkeypatch.setattr(sys, "platform", "linux")`);
+  changing `os.name` does nothing, and `tests/test_code_rules.py` rejects it.
+- **Tests never open a real dialog.** Anything that waits for an answer (`exec()`, `QFileDialog.get...`,
+  `QMessageBox`, Windows' message box) is answered "cancel" and fails the test that opened it; replace the dialog
+  in the test first (`monkeypatch.setattr(SomeDialog, "exec", ...)`).
 - **Folder walks** go through `wick/walk.py`, so links, junctions and unreadable folders are handled the same way
   everywhere.
 
