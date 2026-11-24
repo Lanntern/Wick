@@ -69,7 +69,6 @@ def versions() -> dict[str, str]:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("components.versions")
-        pass
     try:
         import pikepdf
 
@@ -77,7 +76,6 @@ def versions() -> dict[str, str]:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("components.versions")
-        pass
     try:
         from PIL import features
 
@@ -88,7 +86,6 @@ def versions() -> dict[str, str]:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("components.versions")
-        pass
     return {k: v for k, v in out.items() if v}
 
 

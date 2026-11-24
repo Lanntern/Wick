@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QAbstractItemView, QFrame, QHBoxLayout, QTreeWidge
 
 from .. import overview
 from ..fileops import BIN_NAME
-from ..formats import KIND_LABEL, human, type_label
+from ..formats import KIND_LABEL, human, plural, type_label
 from ..mediainfo import cadence_note, describe
 from .dialogs import inform
 from .filelist import (
@@ -357,7 +357,7 @@ class HomeTab(Page):
                            f"up to {human(ov.potential)} with current options" if ov.opportunities
                            else "with the current options")
         self.tile_eff.set(human(ov.efficient_size) if ov.efficient else "None",
-                          f"{ov.efficient_count:,} file{'s' if ov.efficient_count != 1 else ''}" if ov.efficient
+                          f"{plural(ov.efficient_count, 'file')}" if ov.efficient
                           else "every file could shrink")
         self.tile_files.set(f"{ov.files:,} files", f"{human(ov.total_size)} of images, videos and audio")
         if ov.space is not None:
@@ -378,7 +378,7 @@ class HomeTab(Page):
             self.placeholder.show_message("Nothing found that's worth compressing with the current options.")
         groups = sorted(ov.efficient.values(), key=lambda g: g.size, reverse=True)
         self.eff_box.setText("<br><br>".join(
-            f"<b>{g.label}</b><br>{g.count:,} file{'s' if g.count != 1 else ''} · {human(g.size)}<br>{g.explanation}"
+            f"<b>{g.label}</b><br>{plural(g.count, 'file')} · {human(g.size)}<br>{g.explanation}"
             for g in groups) or "None found. Every file could be made smaller.")
         self.qs.setValue("home/last", time.time())
         self._update_send()

@@ -241,7 +241,6 @@ class WindowFrame:
         except Exception:  # noqa: BLE001 - older Windows: no shadow or rounding, still works
             from wick.log import ignored
             ignored("gui.winframe.attach")
-            pass
         self.set_dark(tokens().dark)
         # Recalculate the frame now that it has a caption (SWP_NOMOVE|NOSIZE|NOZORDER|NOACTIVATE|FRAMECHANGED).
         user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
@@ -263,7 +262,6 @@ class WindowFrame:
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("gui.winframe.set_dark")
-            pass
 
     def place(self) -> None:
         b = self.buttons

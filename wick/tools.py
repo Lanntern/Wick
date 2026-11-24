@@ -111,7 +111,6 @@ def _considerate(proc: subprocess.Popen) -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("tools._considerate")
-        pass
 
 
 def _nice() -> None:  # pragma: no cover - runs in the child
@@ -159,7 +158,6 @@ def lower_thread_priority() -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("tools.lower_thread_priority")
-        pass
 
 
 class ToolMissing(RuntimeError):

@@ -8,7 +8,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from ..formats import VIDEO_EXTS, human
+from ..formats import VIDEO_EXTS, human, plural
 from ..protected import CLOUD_ONLY_ATTRS
 from .common import Candidate, ScanResult, publish, walk_files
 
@@ -90,7 +90,7 @@ def find_large_files(roots: list[Path], min_mb: float, kind: str = "all",
     items = []
     for path, size, mtime in found[:LIMIT]:
         age = int((now - mtime) // 86400) if mtime else 0
-        when = "changed today" if age < 1 else f"unchanged for {age:,} day{'s' if age != 1 else ''}"
+        when = "changed today" if age < 1 else f"unchanged for {plural(age, 'day')}"
         items.append(Candidate(path, size, detail=f"{_label(path)} · {when}", selected=False))
     notes = [f"Showing the largest {LIMIT}."] if len(found) > LIMIT else []
     if not items:

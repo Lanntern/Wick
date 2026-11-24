@@ -392,7 +392,6 @@ class Header(QHeaderView):
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("gui.header._row_check_x")
-            pass
         return Space.S
 
     def paintSection(self, p: QPainter, rect, index: int) -> None:

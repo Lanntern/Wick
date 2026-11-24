@@ -297,7 +297,6 @@ def _associations_changed() -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("gui.integration._associations_changed")
-        pass
 
 
 # ------------------------------------------------------------------ Windows 11's main menu

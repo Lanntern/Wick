@@ -64,7 +64,6 @@ def bin_size(drive: Path) -> int:
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("space.bin_size")
-            pass
         return 0
     from .cleanup.common import folder_size
 
@@ -96,7 +95,6 @@ def measure(overview, roots: list[Path], cancel: threading.Event | None = None) 
     except Exception:  # noqa: BLE001 - a breakdown without caches is still useful
         from wick.log import ignored
         ignored("space.measure")
-        pass
     b.sizes[BIN] = bin_size(drive)
     return b
 

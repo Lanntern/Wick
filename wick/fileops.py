@@ -99,7 +99,6 @@ def _set_windows_creation_time(path: Path, ns: int) -> None:
     except Exception:
         from wick.log import ignored
         ignored("fileops._set_windows_creation_time")
-        pass
 
 
 @lru_cache(maxsize=64)
@@ -268,7 +267,6 @@ def notify_shell(created=(), updated=(), deleted=()) -> None:
     except Exception:  # noqa: BLE001 - cosmetic: never fails a job
         from wick.log import ignored
         ignored("fileops.notify_shell")
-        pass
 
 
 _FILE_SUPPORTS_BLOCK_REFCOUNTING = 0x08000000

@@ -19,7 +19,7 @@ from . import journal, steps, tools, trash_restore
 from .log import log
 from .fileops import (BIN_NAME, copy_times, final_path, link_or_copy, move_to_trash, notify_shell, read_zone_mark,
                       remove_quietly, temp_name, trash_available, write_zone_mark)
-from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human
+from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human, plural
 from .images import NotWorthIt, VerificationFailed, convert_image
 from .plan import Plan
 from .scanner import FileEntry
@@ -411,7 +411,7 @@ def process_convert(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=No
             change = f"{'+' if delta > 0 else '−'}{human(abs(delta))}"
             if dest.is_dir():
                 n = sum(1 for _ in dest.iterdir())
-                return FileResult(entry, DONE, f"Converted: {n} file{'s' if n != 1 else ''} in “{dest.name}”",
+                return FileResult(entry, DONE, f"Converted: {plural(n, 'file')} in “{dest.name}”",
                                   dest, new_size)
             return FileResult(entry, DONE, f"Converted ({change}{'; ' + note if note else ''})", dest, new_size)
         finally:
@@ -832,7 +832,7 @@ def _remove_made_folder(folder: Path) -> str:
         else:
             left += 1
     if left:
-        return f"Removed the pages; {left} other item{'s' if left != 1 else ''} in “{folder.name}” were kept"
+        return f"Removed the pages; {plural(left, 'other item')} in “{folder.name}” were kept"
     try:
         folder.rmdir()
     except OSError:

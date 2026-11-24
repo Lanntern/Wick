@@ -112,7 +112,6 @@ class Taskbar:
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("gui.taskbar.__init__")
-                pass
 
     # ------------------------------------------------------------- settings
     @property

@@ -660,7 +660,6 @@ def _jpeg_subsampling(ctx: Ctx) -> str:
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("images._jpeg_subsampling")
-            pass
     return "444" if ctx.s.image_quality >= 90 else "420"
 
 

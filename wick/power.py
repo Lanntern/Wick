@@ -99,7 +99,6 @@ def _release_other() -> None:
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("power._release_other")
-            pass
         _inhibitor = None
 
 
@@ -133,7 +132,6 @@ def awake(enabled: bool = True) -> Iterator[None]:
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("power.awake")
-                pass
         elif os.name != "nt":
             with _lock:
                 _holders -= 1
@@ -230,7 +228,6 @@ def background():
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("power.background")
-                pass
 
 
 _efficiency = False

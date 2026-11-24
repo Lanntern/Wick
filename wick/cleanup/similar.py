@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import index
-from ..formats import IMAGE_KINDS, classify
+from ..formats import IMAGE_KINDS, classify, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 STRICTNESS = {"very": 3, "similar": 6}   # max differing bits of 64
@@ -352,7 +352,7 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
                 extra=extra,
             ))
     if sets:
-        result.notes.append(f"{len(sets)} group{'s' if len(sets) != 1 else ''} of similar photos. Hover a "
+        result.notes.append(f"{plural(len(sets), 'group')} of similar photos. Hover a "
                             "row to see it; right-click to keep a different one.")
     return result
 

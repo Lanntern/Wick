@@ -291,7 +291,6 @@ def known_folder(name: str) -> Path | None:
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("cleanup.common.known_folder")
-                pass
     p = home() / name
     return p if p.is_dir() else None
 

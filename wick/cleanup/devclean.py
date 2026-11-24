@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .caches import IS_WINDOWS
-from ..formats import human
+from ..formats import human, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, newest_mtime
 from .devrules import (  # noqa: F401 - the tables, used here and by the page
     AMBIGUOUS, CACHEDIR_SIGNATURE, KINDS, MIN_SIZE, RULES, SHARED, Rule, _BUILD_MARKERS, _GRADLE,
@@ -572,16 +572,16 @@ def find_dev_clutter(roots: list[Path], idle_days: int = 30, *, shared: bool = T
     if any(f.path in sizes and sizes[f.path] is None for f in found):
         result.notes.append("Folders with a git repository inside were left out.")
     if skipped:
-        result.notes.append(f"{len(skipped)} folder{'s' if len(skipped) != 1 else ''} with files committed to "
+        result.notes.append(f"{plural(len(skipped), 'folder')} with files committed to "
                             "git were left out.")
     if in_apps:
-        result.notes.append(f"{len(in_apps)} folder{'s' if len(in_apps) != 1 else ''} inside installed apps "
+        result.notes.append(f"{plural(len(in_apps), 'folder')} inside installed apps "
                             "were left out.")
     if switched_off:
-        result.notes.append(f"{len(switched_off)} folder{'s' if len(switched_off) != 1 else ''} of kinds you "
+        result.notes.append(f"{plural(len(switched_off), 'folder')} of kinds you "
                             "switched off not shown.")
     if hidden:
-        result.notes.append(f"{len(hidden)} folder{'s' if len(hidden) != 1 else ''} in protected projects "
+        result.notes.append(f"{plural(len(hidden), 'folder')} in protected projects "
                             "not shown.")
     return result
 
@@ -598,7 +598,7 @@ def group_title(group: str, items: list[Candidate]) -> str:
         return group
     idle = items[0].extra.get("idle_days", 0)
     n = len(items)
-    return f"{Path(group).name}  ·  {n} folder{'s' if n != 1 else ''}  ·  changed {_ago(idle)}"
+    return f"{Path(group).name}  ·  {plural(n, 'folder')}  ·  changed {_ago(idle)}"
 
 
 __all__ = ["find_dev_clutter", "shared_specs", "group_title", "RULES", "SHARED"]

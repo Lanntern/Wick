@@ -193,7 +193,6 @@ def ask_to_stop(thread: QThread) -> None:
         except Exception:  # noqa: BLE001 - stopping must never fail the quit
             from wick.log import ignored
             ignored("gui.resilience.ask_to_stop")
-            pass
     thread.requestInterruption()
 
 

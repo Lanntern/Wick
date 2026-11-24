@@ -7,6 +7,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QAbstractItemView, QDialog, QHeaderView, QLineEdit, QTableWidget, QTableWidgetItem
 
+from ..formats import plural
 from ..cleanup import game_results
 from .style import Size
 from .widgets import button, dialog_buttons, dialog_layout
@@ -79,7 +80,7 @@ class GameResultsDialog(QDialog):
                 item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 if result:
                     count = result["samples"]
-                    item.setToolTip(f"{saving:.0%} saved ({count:,} sample{'s' if count != 1 else ''})")
+                    item.setToolTip(f"{saving:.0%} saved ({plural(count, 'sample')})")
                 else:
                     item.setToolTip("No community results for this algorithm")
                 self.table.setItem(i, column, item)

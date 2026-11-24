@@ -184,7 +184,6 @@ def running_processes() -> set[str]:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("cleanup.caches.running_processes")
-        pass
     return names
 
 

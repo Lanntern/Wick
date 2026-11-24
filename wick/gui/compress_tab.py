@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 
 from .. import pending, tools
 from ..engine import DONE
-from ..formats import count, AUDIO, DOCUMENT, KIND_LABEL, VIDEO, human, type_label
+from ..formats import AUDIO, DOCUMENT, KIND_LABEL, VIDEO, plural, human, type_label
 from ..plan import plan_entry
 from .file_model import (
     C_CHECK, C_CREATED, C_EST, C_FOLDER, C_INFO, C_MODIFIED, C_NAME, C_SIZE, C_STATUS, C_TYPE, FileFilterProxy,
@@ -376,13 +376,14 @@ class CompressTab(QWidget):
             self.add_paths([d])
 
     def _last_dir(self) -> str:
-        """Where Add Folder / Add Files last were (else the home folder)."""
-        last = str(self.win.qsettings.value("browse/last_dir", "", str)) if hasattr(self, "win") else ""
-        return last if last and os.path.isdir(last) else str(Path.home())
+        from .folders import last_browse_dir
+
+        return last_browse_dir(self.win.qsettings if hasattr(self, "win") else None)
 
     def _remember_dir(self, picked: str) -> None:
-        if hasattr(self, "win"):
-            self.win.qsettings.setValue("browse/last_dir", picked if os.path.isdir(picked) else os.path.dirname(picked))
+        from .folders import remember_browse_dir
+
+        remember_browse_dir(self.win.qsettings if hasattr(self, "win") else None, picked)
 
     def browse_files(self) -> None:
         exts = "*.jpg *.jpeg *.jfif *.png *.apng *.gif *.webp *.tif *.tiff *.bmp *.heic *.heif *.avif " \
@@ -464,7 +465,7 @@ class CompressTab(QWidget):
         if not self.start_job(confirm=False):
             self.win.show_window()
             return
-        self.win.tray_message(f"Compressing {len(items)} file{'s' if len(items) != 1 else ''} ({human(size)}) in "
+        self.win.tray_message(f"Compressing {plural(len(items), 'file')} ({human(size)}) in "
                               "the background…", actions=[("Show Progress", "compress")])
         self._quick_running = True
 
@@ -590,7 +591,7 @@ class CompressTab(QWidget):
         self.rescan_btn.setEnabled(bool(self.paths) and not self.busy())
         self.clear_btn.setEnabled(bool(self.model.rows or self.paths) and not self.busy())
         self.compress_btn.setEnabled(n > 0 and not self.busy())
-        self.compress_btn.setText(f"Compress {n} File{'s' if n != 1 else ''}" if n else "Compress")
+        self.compress_btn.setText(f"Compress {plural(n, 'File')}" if n else "Compress")
 
         names = ", ".join(p.name or str(p) for p in self.paths[:3]) + (f" and {len(self.paths) - 3} more"
                                                                           if len(self.paths) > 3 else "")
@@ -602,7 +603,7 @@ class CompressTab(QWidget):
             convertible = sum(1 for r in self.model.rows if r.plan.convert)
             extra: list = []
             if self.skipped_dirs:
-                extra.append(f"{count(len(self.skipped_dirs), 'program/game folder')} skipped")
+                extra.append(f"{plural(len(self.skipped_dirs), 'program/game folder')} skipped")
             libraries = getattr(self, "skipped_libraries", [])
             if libraries:
                 from ..protected import describe
@@ -611,10 +612,10 @@ class CompressTab(QWidget):
                 extra.append(f"left alone: {names} (app libraries)")
                 self.page.subtitle.setToolTip("\n".join(describe(p) for p in libraries[:10]))
             if self.cloud_only:
-                extra.append(f"{count(self.cloud_only, 'cloud-only file')} skipped")
+                extra.append(f"{plural(self.cloud_only, 'cloud-only file')} skipped")
             pending = self.model.pending_count()
             self.page.subtitle.setText(
-                f"{names} · {len(self.model.rows)} file{'s' if len(self.model.rows) != 1 else ''} found, "
+                f"{names} · {plural(len(self.model.rows), 'file')} found, "
                 + (f"reading details of {pending:,}…" if pending else f"{convertible} can be compressed")
                 + (f" · {', '.join(extra)}" if extra else ""))
 
@@ -624,7 +625,7 @@ class CompressTab(QWidget):
         self.tile_size.set(human(size) if n else "—", f"about {human(est)} after" if n else "")
         if done and not n:
             self.tile_save.label.setText("Saved")
-            self.tile_save.set(human(saved), f"{len(done)} file{'s' if len(done) != 1 else ''} compressed")
+            self.tile_save.set(human(saved), f"{plural(len(done), 'file')} compressed")
         else:
             self.tile_save.label.setText("Could save")
             pct = f"about {100 * (size - est) / size:.0f}% smaller" if size else ""
@@ -742,8 +743,8 @@ class CompressTab(QWidget):
             if jxl:
                 from ..compat import jxl_note
 
-                info += f"\n\n{jxl} file{'s' if jxl != 1 else ''} become{'s' if jxl == 1 else ''} JPEG XL. " + jxl_note()
-            if not ask(self, f"Compress {len(items)} file{'s' if len(items) != 1 else ''} ({human(size)})?",
+                info += f"\n\n{plural(jxl, 'file')} become{'s' if jxl == 1 else ''} JPEG XL. " + jxl_note()
+            if not ask(self, f"Compress {plural(len(items), 'file')} ({human(size)})?",
                        info, "Compress"):
                 return False
         self.win.save_settings()

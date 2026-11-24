@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .. import cfa, journal
-from ..formats import human
+from ..formats import human, plural
 from ..fileops import BIN_NAME, copy_times, move_to_trash, remove_quietly, temp_name, trash_available
 from . import appcompress
 from .common import Candidate, folder_size
@@ -144,7 +144,7 @@ def uninstall_item(item: Candidate, writer: journal.RunWriter, others: list, can
         _record(writer, Candidate(path, size), "removed", f"Left behind by {app.name} → {BIN_NAME}", size, at)
         moved += 1
         freed += size
-    return Outcome(item, True, "Uninstalled" + (f", and {moved} leftover folder{'s' if moved != 1 else ''} moved to "
+    return Outcome(item, True, "Uninstalled" + (f", and {plural(moved, 'leftover folder')} moved to "
                                                f"the {BIN_NAME}" if moved else ""), freed, at)
 
 

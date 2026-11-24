@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..engine import CANCELLED, DONE, FAILED
-from ..formats import KIND_LABEL, human
+from ..formats import KIND_LABEL, human, plural
 from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
@@ -186,13 +186,14 @@ class FileJobPage(Page):
         self.scan()
 
     def _last_dir(self) -> str:
-        """Where Add Folder / Add Files last were (else the home folder)."""
-        last = str(self.win.qsettings.value("browse/last_dir", "", str)) if hasattr(self, "win") else ""
-        return last if last and os.path.isdir(last) else str(Path.home())
+        from .folders import last_browse_dir
+
+        return last_browse_dir(self.win.qsettings if hasattr(self, "win") else None)
 
     def _remember_dir(self, picked: str) -> None:
-        if hasattr(self, "win"):
-            self.win.qsettings.setValue("browse/last_dir", picked if os.path.isdir(picked) else os.path.dirname(picked))
+        from .folders import remember_browse_dir
+
+        remember_browse_dir(self.win.qsettings if hasattr(self, "win") else None, picked)
 
     def browse_files(self) -> None:
         files, _ = QFileDialog.getOpenFileNames(self, "Add files", self._last_dir())
@@ -350,13 +351,13 @@ class FileJobPage(Page):
         self.stack.setCurrentIndex(1 if (self.entries or self.busy()) else 0)
         n = self.selection_count() if self.entries else 0
         self.run_btn.setEnabled(n > 0 and not self.busy())
-        self.run_btn.setText(f"{self.action_label} {n} File{'s' if n != 1 else ''}" if n else self.action_label)
+        self.run_btn.setText(f"{self.action_label} {plural(n, 'File')}" if n else self.action_label)
         self.clear_btn.setEnabled(bool(self.entries) and not self.busy())
         self.update_summary()
 
     def update_summary(self) -> None:
         n = self.selection_count()
-        self.summary.setText(f"{len(self.entries)} file{'s' if len(self.entries) != 1 else ''} · <b>{n} selected</b>")
+        self.summary.setText(f"{plural(len(self.entries), 'file')} · <b>{n} selected</b>")
 
     # ---- running
     def start(self, confirm: bool = True, only: set[str] | None = None) -> None:

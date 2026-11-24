@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
 IS_WINDOWS = os.name == "nt"
@@ -186,7 +187,7 @@ def _ago(when: float | None, now: float) -> str:
     if days < 1:
         return "Opened today"
     if days < 60:
-        return f"Last opened {days} day{'s' if days != 1 else ''} ago"
+        return f"Last opened {plural(days, 'day')} ago"
     months = days // 30
     if months < 24:
         return f"Last opened {months} months ago"

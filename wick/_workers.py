@@ -21,7 +21,6 @@ def set_low_priority(low: bool) -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("_workers.set_low_priority")
-        pass
 
 
 def oxipng_file(src: str, dst: str, deep: bool) -> None:

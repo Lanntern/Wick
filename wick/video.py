@@ -10,6 +10,7 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from .formats import plural
 from . import steps, tools
 from .fileops import remove_quietly, temp_name
 from .images import NotWorthIt, VerificationFailed
@@ -480,13 +481,13 @@ def tracks_note(info: VideoInfo, s: Settings) -> str:
     other = len(dropped) - copies - silent - twins
     parts = []
     if other:
-        parts.append(f"{other} track{'s' if other != 1 else ''} in other languages left out")
+        parts.append(f"{plural(other, 'track')} in other languages left out")
     if copies:
         parts.append(f"{copies} lower-quality cop{'ies' if copies != 1 else 'y'} of a soundtrack left out")
     if silent:
-        parts.append(f"{silent} silent soundtrack{'s' if silent != 1 else ''} left out")
+        parts.append(f"{plural(silent, 'silent soundtrack')} left out")
     if twins:
-        parts.append(f"{twins} duplicate subtitle track{'s' if twins != 1 else ''} left out")
+        parts.append(f"{plural(twins, 'duplicate subtitle track')} left out")
     return ", ".join(parts)
 
 

@@ -183,7 +183,6 @@ def processes() -> list[Proc]:
     except Exception:  # noqa: BLE001 - a nicety: never fail a scan over it
         from wick.log import ignored
         ignored("cleanup.inuse.processes")
-        pass
     return []
 
 

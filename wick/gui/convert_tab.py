@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QL
 
 from .. import convert
 from ..engine import process_convert
-from ..formats import ARCHIVE, COMIC, DOC, DOCUMENT, FONT, KIND_LABEL, PANDOC_INPUTS, PDF, PICTURE, SVG, human
+from ..formats import ARCHIVE, COMIC, DOC, DOCUMENT, FONT, KIND_LABEL, PANDOC_INPUTS, PDF, PICTURE, SVG, human, plural
 from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
@@ -722,7 +722,7 @@ class ConvertTab(FileJobPage):
         page = self.opts().pdf_page
         paths = [e.path for e in entries]
         self.run_made(Path(dest).with_suffix(".pdf"), lambda out, step, cancel: pdftools.combine(
-            paths, out, page, step, cancel), paths, f"{len(paths)} file{'s' if len(paths) != 1 else ''} → one PDF",
+            paths, out, page, step, cancel), paths, f"{plural(len(paths), 'file')} → one PDF",
             "Combining into one PDF")
 
     # ---- trimming and joining

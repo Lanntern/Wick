@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..formats import classify
+from ..formats import classify, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
 ALBUMS = ("link", "copy", "skip")           # album copies: hard links | real copies | leave out
@@ -261,10 +261,10 @@ def find(roots: list[Path], progress: ProgressFn | None = None, cancel: threadin
             continue
         if not s.photos:
             continue
-        parts = [f"{s.photos:,} photo{'s' if s.photos != 1 else ''} or video{'s' if s.photos != 1 else ''}",
-                 f"{s.jsons:,} date file{'s' if s.jsons != 1 else ''}"]
+        parts = [f"{plural(s.photos, 'photo')} or video{'s' if s.photos != 1 else ''}",
+                 f"{plural(s.jsons, 'date file')}"]
         if s.albums:
-            parts.append(f"{len(s.albums)} album{'s' if len(s.albums) != 1 else ''}")
+            parts.append(f"{plural(len(s.albums), 'album')}")
         if s.edited:
             parts.append(f"{s.edited:,} edited versions")
         result.items.append(Candidate(src, s.size, title=src.name, detail=" · ".join(parts), is_dir=src.is_dir(),

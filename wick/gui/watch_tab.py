@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QCheckBox, QCombo
 
 from .. import presets
 from ..engine import DONE, FAILED, run_job
-from ..formats import count, human
+from ..formats import plural, human
 from ..plan import plan_entry
 from ..scanner import scan
 from ..settings import Settings
@@ -50,7 +50,7 @@ class WatchJobThread(QThread):
                 from ..log import log
 
                 log.exception("Watched files failed")
-                self.log.emit(f"Couldn't process {count(len(paths), 'new file')}: {e}")
+                self.log.emit(f"Couldn't process {plural(len(paths), 'new file')}: {e}")
                 o, d, f, b = [], 0, len(paths), 0
             outputs += o
             done, failed, saved = done + d, failed + f, saved + b
@@ -310,7 +310,7 @@ class WatchTab(Page):
         self.switch.setAccessibleDescription("on" if on else "off")
         if on:
             self.watcher.start(self.folder_paths(), self.recursive.isChecked())
-            self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')}")
+            self.status.setText(f"Watching {plural(len(self.folder_paths()), 'folder')}")
             self._log("Started watching")
         else:
             self.watcher.stop()
@@ -332,7 +332,7 @@ class WatchTab(Page):
                 self.switch.setChecked(False)
                 return
             self.watcher.start(self.folder_paths(), self.recursive.isChecked())
-            self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')}")
+            self.status.setText(f"Watching {plural(len(self.folder_paths()), 'folder')}")
 
     def ignore(self, paths) -> None:
         for p in paths:
@@ -355,7 +355,7 @@ class WatchTab(Page):
             return
         self._waiting_for_quiet = False
         batch, self.queue = self.queue[:200], self.queue[200:]
-        self._log(f"Compressing {count(len(batch), 'new file')}…")
+        self._log(f"Compressing {plural(len(batch), 'new file')}…")
         groups: dict[str, tuple[list[str], Settings]] = {}
         for path in batch:
             s = self.settings_for(path)
@@ -370,11 +370,11 @@ class WatchTab(Page):
     def _batch_done(self, outputs: list, done: int, failed: int, saved: int) -> None:
         self.ignore(outputs)
         self.saved_total += saved
-        self.status.setText(f"Watching {count(len(self.folder_paths()), 'folder')} · saved {human(self.saved_total)} "
+        self.status.setText(f"Watching {plural(len(self.folder_paths()), 'folder')} · saved {human(self.saved_total)} "
                             f"this session")
         self.win.history.refresh()
         if done or failed:
-            self.win.tray_message(f"Compressed {count(done, 'new file')}, saved {human(saved)}"
+            self.win.tray_message(f"Compressed {plural(done, 'new file')}, saved {human(saved)}"
                                   + (f"; {failed} failed" if failed else ""),
                                   actions=[("Show in History", "history")], launch="watch")
 

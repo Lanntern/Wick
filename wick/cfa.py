@@ -80,7 +80,6 @@ def _default_folders() -> list[Path]:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("cfa._default_folders")
-        pass
     return out
 
 

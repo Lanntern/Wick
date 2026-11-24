@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .formats import plural
 from . import tools
 from .probe import StreamInfo, VideoInfo
 
@@ -167,9 +168,9 @@ class FontPlan:
     def note(self) -> str:
         parts = []
         if self.cut:
-            parts.append(f"{self.cut} subtitle font{'s' if self.cut != 1 else ''} cut to the characters used")
+            parts.append(f"{plural(self.cut, 'subtitle font')} cut to the characters used")
         if self.dropped:
-            parts.append(f"{self.dropped} unused font{'s' if self.dropped != 1 else ''} left out")
+            parts.append(f"{plural(self.dropped, 'unused font')} left out")
         if self.pictures:
             parts.append(f"{'cover picture' if self.pictures == 1 else f'{self.pictures} cover pictures'} stored "
                          "smaller (same pixels)")

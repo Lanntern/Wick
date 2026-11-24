@@ -9,6 +9,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QCheckBox, QComboBox
 
+from ..formats import plural
 from .. import metaclean
 from ..engine import process_metadata
 from ..plan import Plan
@@ -294,7 +295,7 @@ class MetadataTab(FileJobPage):
         located = self._located
         cams = self._cameras
         n = self.selection_count()
-        parts = [f"{len(self.entries)} file{'s' if len(self.entries) != 1 else ''}"]
+        parts = [f"{plural(len(self.entries), 'file')}"]
         if self.summaries:
             parts.append(f"{located} with location" if located else "none with location")
             parts.append(f"{cams} with camera details")

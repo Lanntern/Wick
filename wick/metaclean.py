@@ -217,7 +217,6 @@ def _jxl_boxes(data: bytes) -> tuple[bytes | None, bytes | None, bool]:
             except Exception:  # noqa: BLE001
                 from wick.log import ignored
                 ignored("metaclean._jxl_boxes")
-                pass
     return exif, xmp, jbrd
 
 

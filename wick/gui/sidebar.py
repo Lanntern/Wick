@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
+from ..formats import plural
 from .style import Size, Space, Type, icon, ui_font
 from .widgets import ProgressBar, text
 
@@ -153,7 +154,7 @@ class Sidebar(QFrame):
         if not tasks:
             return
         self.activity_btn.setText(str(len(tasks)) if self.compact else
-                                 f"{len(tasks)} task{'s' if len(tasks) != 1 else ''} running")
+                                 f"{plural(len(tasks), 'task')} running")
         description = "\n".join(f"{t.name}: {t.stage}" for t in tasks)
         self.activity_box.setToolTip(description)
         self.activity_btn.setAccessibleDescription(description)

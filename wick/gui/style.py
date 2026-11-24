@@ -141,7 +141,6 @@ def high_contrast_active() -> bool:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("gui.style.high_contrast_active")
-        pass
     return False
 
 
@@ -837,7 +836,6 @@ def _native_round_corners(w: QWidget, small: bool = False) -> None:
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("gui.style._native_round_corners")
-        pass
 
 
 _style_obj = None
@@ -906,7 +904,6 @@ def _tint_title_bar(w: QWidget) -> None:
     except Exception:  # noqa: BLE001 - the default title bar is fine too
         from wick.log import ignored
         ignored("gui.style._tint_title_bar")
-        pass
 
 
 class _TipCard(QWidget):

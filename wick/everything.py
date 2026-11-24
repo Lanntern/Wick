@@ -171,7 +171,6 @@ def query(search: str, timeout: float = 30.0) -> list[tuple[str, bool, int, floa
         except Exception:  # noqa: BLE001 - older Windows: not needed
             from wick.log import ignored
             ignored("everything.query")
-            pass
         payload = build_query(int(hwnd), search)
         buf = ctypes.create_string_buffer(payload, len(payload))
         cds = COPYDATASTRUCT(_QUERY2W, len(payload), ctypes.cast(buf, ctypes.c_void_p))

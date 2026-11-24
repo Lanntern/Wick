@@ -630,7 +630,6 @@ def _decode_raw(ctx: Ctx) -> None:
     except Exception:  # noqa: BLE001 - CR3, RAF and others: no EXIF that Pillow reads
         from wick.log import ignored
         ignored("convert._decode_raw")
-        pass
     dec = ctx.tmp(".png", "-raw")
     img.save(dec, "PNG", compress_level=1)
     if exif:

@@ -339,7 +339,6 @@ def _installer_setup(args: list[str]) -> int:
             except Exception:  # noqa: BLE001 - the app's Settings can still turn it on
                 from wick.log import ignored
                 ignored("cli._installer_setup")
-                pass
     from .gui.main_window import carry_over_settings
 
     carry_over_settings()          # (before writing anything under the new name, which would stop the carry-over)
@@ -400,7 +399,6 @@ def main(argv: list[str] | None = None) -> int:
             except Exception:  # noqa: BLE001 - remove what can be removed
                 from wick.log import ignored
                 ignored("cli.main")
-                pass
         return 0
     if argv and argv[0] == "--installer-setup":   # the installer: apply the choices made on its options page
         return _installer_setup(argv[1:])

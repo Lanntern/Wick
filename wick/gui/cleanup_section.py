@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME, cfa
 from ..cleanup import actions, appcompress, duplicates
 from ..cleanup.common import Candidate, ScanResult, known_folder
-from ..formats import count, classify, human
+from ..formats import plural, classify, human
 from ..log import log
 from .dialogs import ask, choose, inform
 from .filelist import (
@@ -805,7 +805,7 @@ class ToolSection(QWidget):
             msg = "Nothing found. " + " ".join(self.result.notes)
         else:
             hidden = sum(1 for c in self.result.items if c.warning) if self.hide_unsuggested.isChecked() else 0
-            msg = (f"Found {len(all_items):,} item{'s' if len(all_items) != 1 else ''} ({human(total)}). "
+            msg = (f"Found {plural(len(all_items), 'item')} ({human(total)}). "
                    f"<b>{len(chosen):,} selected · {human(size)}</b>"
                    + (f" · {hidden:,} not suggested, hidden" if hidden else "")
                    + (f" · {' · '.join(self.result.notes)}" if self.result.notes else ""))
@@ -879,23 +879,23 @@ class ToolSection(QWidget):
             self.worker.start()
             return
         if action_id == actions.RENAME:
-            q = (f"Rename {n} file{'s' if n != 1 else ''} to match what {'they are' if n != 1 else 'it is'}?",
+            q = (f"Rename {plural(n, 'file')} to match what {'they are' if n != 1 else 'it is'}?",
                  "Only the extension changes, for example from photo.jpg to photo.png. You can undo this later.", "Rename")
         elif action_id == actions.HARDLINK:
             other_drive = [c for c in items if not c.extra.get("same_volume", True)]
             if other_drive:
                 n_other = len(other_drive)
-                inform(self, f"{count(n_other, 'duplicate')} {'is' if n_other == 1 else 'are'} on a different drive "
+                inform(self, f"{plural(n_other, 'duplicate')} {'is' if n_other == 1 else 'are'} on a different drive "
                        "than the copy that stays",
                        "Hard links only work within one drive. Those will be skipped.")
-            q = (f"Replace {n} duplicate{'s' if n != 1 else ''} with hard links?",
+            q = (f"Replace {plural(n, 'duplicate')} with hard links?",
                  "Every file stays where it is, but identical contents are only stored once. Editing one linked "
                  "file changes all of them. You can undo this later.", "Replace")
         elif action_id == actions.COMPACT:
             for candidate in items:
                 candidate.extra.update(self.app_options(candidate.path))
             admin = any(c.extra.get("admin") for c in items)
-            q = (f"Compress {n} folder{'s' if n != 1 else ''}?",
+            q = (f"Compress {plural(n, 'folder')}?",
                  "Programs and games keep working; Windows decompresses files on the fly. This can take a while "
                  "for large games. " + ("Windows will ask for administrator permission. " if admin else "")
                  + "You can undo this later.", "Compress")
@@ -906,12 +906,12 @@ class ToolSection(QWidget):
                  f"is gone, the folders it left behind go to the {BIN_NAME}, so you can restore them. The app "
                  "itself can only be installed again from its download.", "Uninstall")
         elif action_id == actions.DECOMPACT:
-            q = (f"Decompress {n} folder{'s' if n != 1 else ''}?",
+            q = (f"Decompress {plural(n, 'folder')}?",
                  "Files keep the same contents but may take more disk space. Close running games first. "
                  "To compress again afterward, choose an algorithm in Compress Apps.", "Decompress")
         elif any(c.extra.get("vdisk") for c in items) and not any(c.extra.get("vdisk") in ("wsl", "docker")
                                                                    for c in items):
-            q = (f"Compact {n} virtual machine disk{'s' if n != 1 else ''}?",
+            q = (f"Compact {plural(n, 'virtual machine disk')}?",
                  "Shut the virtual machines down first: a disk in use can't be compacted. Nothing inside the disks "
                  "changes. VirtualBox and VMware only give back space the machine has zeroed. Hyper-V disks ask for "
                  "administrator permission once, and large disks can take a while.", "Compact")
@@ -939,24 +939,24 @@ class ToolSection(QWidget):
         elif any(c.extra.get("system") for c in items):
             sysi = [c for c in items if c.extra.get("system")]
             files = n - len(sysi)
-            q = (f"Clean up {n} item{'s' if n != 1 else ''}?",
+            q = (f"Clean up {plural(n, 'item')}?",
                  f"Windows removes {len(sysi)} of them with its own cleanup (Disk Cleanup, DISM). They don't go to "
                  f"the {BIN_NAME} and can't be put back. Windows asks for administrator permission once, and this "
                  "can take several minutes."
-                 + (f" {files} other item{'s' if files != 1 else ''} go{'es' if files == 1 else ''} to the "
+                 + (f" {plural(files, 'other item')} go{'es' if files == 1 else ''} to the "
                     f"{BIN_NAME}." if files else ""), "Clean Up")
         elif any(c.extra.get("docker") for c in items):
             dk = [c for c in items if c.extra.get("docker")]
             files = n - len(dk)
-            q = (f"Clean up {n} item{'s' if n != 1 else ''} ({human(size)})?",
-                 (f"{files} folder{'s' if files != 1 else ''} go{'es' if files == 1 else ''} to the {BIN_NAME} "
+            q = (f"Clean up {plural(n, 'item')} ({human(size)})?",
+                 (f"{plural(files, 'folder')} go{'es' if files == 1 else ''} to the {BIN_NAME} "
                   "and can be put back. " if files else "")
-                 + f"{len(dk)} Docker item{'s' if len(dk) != 1 else ''} "
+                 + f"{plural(len(dk), 'Docker item')} "
                  f"({human(sum(c.size for c in dk))}) {'is' if len(dk) == 1 else 'are'} removed by Docker and can't "
                  f"be put back: Docker pulls or builds {'it' if len(dk) == 1 else 'them'} again when a project needs "
                  f"{'it' if len(dk) == 1 else 'them'}.", "Clean Up", )
         else:
-            q = (f"Move {n} item{'s' if n != 1 else ''} ({human(size)}) to the {BIN_NAME}?",
+            q = (f"Move {plural(n, 'item')} ({human(size)}) to the {BIN_NAME}?",
                  f"Empty the {BIN_NAME} to delete them for good.",
                  "Move to " + BIN_NAME)
         if q is not None and not ask(self, *q):
@@ -1028,11 +1028,11 @@ class ToolSection(QWidget):
         blocked = [o for o in failed if o.blocked]
         others = [o for o in failed if not o.blocked]
         if blocked:
-            n_b = f"{len(blocked)} item{'s' if len(blocked) != 1 else ''}"
+            n_b = f"{plural(len(blocked), 'item')}"
             info.append(f"{n_b} {'are' if len(blocked) != 1 else 'is'} in folders that Windows protects. "
                         + cfa.HOW)
         if others:
-            info.append(f"{count(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
+            info.append(f"{plural(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
                 f"• {o.item.title}: {o.message}" for o in others[:12]))
         if not ok:                           # nothing at all was done: say so, not "Freed 0 B from 0 items"
             title = (f"Nothing was changed: Windows' Controlled folder access blocked {APP_NAME}"
@@ -1046,17 +1046,17 @@ class ToolSection(QWidget):
         trashed = [o for o in ok if o.trashed_at]
         now = [o for o in ok if not o.trashed_at]
         if ok and not freed and not trashed:          # (renamed: nothing freed, nothing in the bin)
-            inform(self, f"Done: {len(ok)} file{'s' if len(ok) != 1 else ''} renamed.", "\n\n".join(info))
+            inform(self, f"Done: {plural(len(ok), 'file')} renamed.", "\n\n".join(info))
             return
         if not trashed:
-            n = f"{len(ok)} item{'s' if len(ok) != 1 else ''}"
+            n = f"{plural(len(ok), 'item')}"
             inform(self, f"Freed {human(freed)} from {n}.", "\n\n".join(info))
             return
         if now:
             info.insert(0, f"{human(sum(o.freed for o in now))} was freed right away "
-                           f"({len(now)} Docker item{'s' if len(now) != 1 else ''}).")
+                           f"({plural(len(now), 'Docker item')}).")
         freed = sum(o.freed for o in trashed)
-        n = f"{len(trashed)} item{'s' if len(trashed) != 1 else ''}"
+        n = f"{plural(len(trashed), 'item')}"
         # Moving to the bin frees nothing yet: say so, and offer to free exactly this space now.
         info.insert(0, f"The space comes back when they leave the {BIN_NAME}. Until then you can put them back "
                        "from the history. Freeing it now deletes only these items; everything else in the "
@@ -1089,7 +1089,7 @@ class ToolSection(QWidget):
 
     def _purge(self, outcomes) -> None:
         size = sum(o.freed for o in outcomes)
-        if not ask(self, f"Delete these {len(outcomes)} item{'s' if len(outcomes) != 1 else ''} permanently?",
+        if not ask(self, f"Delete these {plural(len(outcomes), 'item')} permanently?",
                    f"This frees {human(size)} now. They can't be put back afterwards; the rest of "
                    f"the {BIN_NAME} is left alone.", "Delete Permanently", destructive=True):
             return

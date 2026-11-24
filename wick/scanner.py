@@ -420,7 +420,6 @@ def preload_codecs(heif: bool = True) -> None:
             except Exception:  # noqa: BLE001 - reported when a file actually needs it
                 from wick.log import ignored
                 ignored("scanner.preload_codecs")
-                pass
     if heif and not _heif_loaded:
         _heif_loaded = True
         from .formats import register_heif

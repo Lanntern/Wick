@@ -26,6 +26,7 @@ from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Callable
 
+from .formats import plural
 from . import steps, tools
 from .fileops import remove_quietly
 from .probe import VideoInfo, probe_video
@@ -354,7 +355,7 @@ def encode(src: Path, out: Path, info: VideoInfo, s: Settings, encoder: str, gra
     notes = [f"encoded scene by scene in {len(parts)} parts" + (f", {resumed} carried over" if resumed else "")]
     kept = sum(1 for v in state.get("grain", {}).values() if grain and not int(v))
     if kept:
-        notes.append(f"grain kept in {kept} part{'s' if kept != 1 else ''} (needed for the quality target)")
+        notes.append(f"grain kept in {plural(kept, 'part')} (needed for the quality target)")
     if smart and state["q"]:
         qs = [int(v) for v in state["q"].values()]
         from .video import quality_label

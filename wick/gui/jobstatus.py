@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QW
 
 from ..engine import CANCELLED, DONE, FAILED
 from .. import report
-from ..formats import human
+from ..formats import human, plural
 from .style import Space, Type, tokens
 from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, text
 
@@ -265,7 +265,7 @@ class JobStatus(Card):
         self.bar.setVisible(True)
         self.bar.setRange(0, 0)
         self.detail.setVisible(True)
-        self.title.setText(f"{self.verb} {n_files} file{'s' if n_files != 1 else ''}…")
+        self.title.setText(f"{self.verb} {plural(n_files, 'file')}…")
         self.detail.setText("Starting…")
         self.setVisible(True)
         self._tick.start()
@@ -464,7 +464,7 @@ class JobStatus(Card):
             return
         lines, labels = [], []
         for key, label, why, n in found[:3]:
-            lines.append(f"{n} file{'s' if n != 1 else ''}: {why}")
+            lines.append(f"{plural(n, 'file')}: {why}")
             if label in labels:
                 continue
             labels.append(label)
@@ -617,7 +617,7 @@ class ResumeBanner(Card):
         when = time.strftime("%a %d %b, %H:%M", time.localtime(p.started))
         left, total = len(p.remaining), len(p.paths)
         self.title.setText(f"A job started {when} didn't finish")
-        self.detail.setText(f"{left:,} of {total:,} file{'s' if total != 1 else ''} weren't done yet (Wick "
+        self.detail.setText(f"{left:,} of {plural(total, 'file')} weren't done yet (Wick "
                             "was closed or the computer restarted). Resume continues with them, using the options "
                             "the job was started with. The files that were done are in the history.")
         self.setVisible(True)

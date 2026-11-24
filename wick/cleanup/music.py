@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 
 from .. import index, tools
-from ..formats import AUDIO_EXTS
+from ..formats import AUDIO_EXTS, plural
 if TYPE_CHECKING:
     import numpy as np
 
@@ -313,7 +313,7 @@ def find_same_music(roots: list[Path], *, by: str = "sound", min_size: int = 500
                 extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
                        "keeper_label": kq}))
     if sets:
-        result.notes.append(f"{len(sets)} song{'s' if len(sets) != 1 else ''} saved more than once. The best "
+        result.notes.append(f"{plural(len(sets), 'song')} saved more than once. The best "
                             "copy of each stays; right-click to keep a different one.")
     elif not files:
         result.notes.append("No music here.")

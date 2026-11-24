@@ -9,6 +9,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 PARTIAL = 64 * 1024
@@ -173,7 +174,7 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
                 extra={"same_volume": st.st_dev == g[k][1].st_dev, "mtime_ns": st.st_mtime_ns},
             ))
     if groups:
-        result.notes.append(f"{len(groups)} set{'s' if len(groups) != 1 else ''} of identical files")
+        result.notes.append(f"{plural(len(groups), 'set')} of identical files")
     return result
 
 

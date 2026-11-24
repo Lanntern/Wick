@@ -12,7 +12,7 @@ from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QMenu, QTreeWidget
 
 from .. import journal
-from ..formats import human
+from ..formats import human, plural
 from .settings_panel import BIN_NAME
 from .dialogs import ask, inform
 from .filelist import (ListPlaceholder, SortItem, file_menu, filling, keyboard_list, make_sortable, selected_or_clicked,
@@ -356,8 +356,8 @@ class HistoryTab(Page):
         everything = False
         n_files = sum(len(f) for f in files.values())
         what = ("the whole history" if everything else
-                " and ".join(x for x in (f"{len(runs)} run{'s' if len(runs) != 1 else ''}" if runs else "",
-                                         f"{n_files} file{'s' if n_files != 1 else ''}" if n_files else "") if x))
+                " and ".join(x for x in (f"{plural(len(runs), 'run')}" if runs else "",
+                                         f"{plural(n_files, 'file')}" if n_files else "") if x))
         if not ask(self, f"Delete {what}?",
                    "Their names and details are removed from this computer, and they can no longer be undone from "
                    f"here. Your files don't change, and originals stay in the {BIN_NAME} until it's emptied.",
@@ -405,10 +405,10 @@ class HistoryTab(Page):
                    f"The originals are gone because the {BIN_NAME} was emptied." if blocked else "")
             return
         count = sum(len(r) for _, r in jobs)
-        extra = (f"\n\n{blocked} other file{'s' if blocked != 1 else ''} can't be undone: "
+        extra = (f"\n\n{plural(blocked, 'other file')} can't be undone: "
                  f"{'their originals are' if blocked != 1 else 'its original is'} no longer in the {BIN_NAME}."
                  if blocked else "")
-        if not ask(self, f"Restore {count} original file{'s' if count != 1 else ''}?",
+        if not ask(self, f"Restore {plural(count, 'original file')}?",
                    "The compressed versions will be deleted." + extra, "Restore Originals"):
             return
         self._run_undo_jobs(jobs, [0, 0], [])
@@ -424,7 +424,7 @@ class HistoryTab(Page):
         if not recs:
             inform(self, "Nothing here can be undone.")
             return False
-        if not ask(self.window(), f"Restore {len(recs)} original file{'s' if len(recs) != 1 else ''}?",
+        if not ask(self.window(), f"Restore {plural(len(recs), 'original file')}?",
                    "The compressed versions will be deleted.", "Restore Originals"):
             return False
         self._run_undo_jobs([(run_id, recs)], [0, 0], [])
@@ -434,7 +434,7 @@ class HistoryTab(Page):
         if not jobs:
             self.refresh()
             self.undo_btn.setEnabled(True)
-            inform(self, f"Restored {totals[0]} file{'s' if totals[0] != 1 else ''}.",
+            inform(self, f"Restored {plural(totals[0], 'file')}.",
                    f"{totals[1]} could not be restored:\n\n" + "\n".join(failures[:15]) if totals[1] else "")
             return
         run_id, recs = jobs[0]
