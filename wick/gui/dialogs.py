@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtWidgets import QLabel, QMessageBox, QWidget
 
 from .. import APP_NAME
+from ..log import diagnostics
 from .style import Size, Space
 
 DIALOG_TEXT_WIDTH = Space.XXL * 12   # 384 px: comfortable line length
@@ -76,7 +77,6 @@ def report_problem(parent: QWidget | None) -> None:
     from PySide6.QtCore import QUrl
     from PySide6.QtGui import QDesktopServices, QGuiApplication
 
-    from ..log import diagnostics
     from ..updates import REPO
 
     QGuiApplication.clipboard().setText(diagnostics())

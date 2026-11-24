@@ -5,8 +5,16 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import threading
 import time
 from typing import cast
+
+from .. import APP_NAME
+from ..log import log_file
+from ..log import setup as setup_log
+from . import devmode, style
+from .main_window import MainWindow, app_icon, carry_over_settings, open_qsettings
+from .theme import apply_theme
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -19,7 +27,6 @@ def main(argv: list[str] | None = None) -> int:
     from PySide6.QtCore import QLockFile
     from PySide6.QtWidgets import QApplication
 
-    from .. import APP_NAME
     from . import integration, jumplist
 
     jumplist.set_process_app_id()        # (before any window: taskbar grouping, pinning and the jump list)
@@ -41,9 +48,6 @@ def main(argv: list[str] | None = None) -> int:
         if not lock.tryLock(1000):
             return 1  # another instance holds the lock but doesn't answer
 
-    from ..log import setup as setup_log
-    from .main_window import MainWindow, app_icon, carry_over_settings, open_qsettings
-    from .theme import apply_theme
 
     carry_over_settings()                 # (renamed from Compressor: its settings come along, once)
 
@@ -53,10 +57,8 @@ def main(argv: list[str] | None = None) -> int:
 
     crashed_before = resilience.install()
     app.setWindowIcon(app_icon())
-    from . import style
 
     style.set_system_accent(bool(open_qsettings().value("accent/system", False, bool)))
-    from . import devmode
 
     devmode.apply(open_qsettings())
     apply_theme(cast(str, open_qsettings().value("theme", "system", str)))
@@ -128,7 +130,6 @@ def quick_compress_on() -> bool:
     """Settings › Integration › "Compress right away from the context menu"."""
     from PySide6.QtCore import QSettings
 
-    from .. import APP_NAME
 
     path = os.environ.get("WICK_SETTINGS_FILE")
     qs = QSettings(path, QSettings.IniFormat) if path else QSettings(APP_NAME, APP_NAME)
@@ -150,8 +151,6 @@ def _mention_crash(win) -> None:
 def _report_unexpected_errors() -> None:
     """A mistake in a button's handler mustn't look like a button that does nothing: say so (once at a time),
     with the error, and where the log is. (The log already records it.)"""
-    import sys
-    import threading
 
     from PySide6.QtCore import QTimer
 
@@ -165,7 +164,6 @@ def _report_unexpected_errors() -> None:
 
         def show():
             nonlocal showing
-            from ..log import log_file
             from .dialogs import warn
 
             showing = True

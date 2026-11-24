@@ -1,5 +1,6 @@
 """Explicit scan scopes, edited as full paths before committing changes."""
 
+import os
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -17,14 +18,12 @@ from .widgets import button, dialog_buttons, dialog_layout, hbox
 
 def last_browse_dir(qs) -> str:
     """Where Add Folder / Add Files last were, on any page (else the home folder)."""
-    import os
 
     last = str(qs.value("browse/last_dir", "", str)) if qs is not None else ""
     return last if last and os.path.isdir(last) else str(Path.home())
 
 
 def remember_browse_dir(qs, picked: str) -> None:
-    import os
 
     if qs is not None:
         qs.setValue("browse/last_dir", picked if os.path.isdir(picked) else os.path.dirname(picked))

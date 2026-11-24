@@ -5,13 +5,14 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
-from .. import APP_NAME
+from .. import APP_NAME, formats, presets
 
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -63,7 +64,6 @@ def context_menu_installed() -> bool:
 
 def _menu_entries() -> list[tuple[str, list[str]]]:
     """(label, extra arguments) for each item of the right-click submenu."""
-    from .. import presets
 
     return [("With current options", [])] + [(name, ["--preset", name]) for name in presets.names()]
 
@@ -204,7 +204,6 @@ _PROGIDS = {"Wick.Picture": "Picture", "Wick.Video": "Video", "Wick.Audio": "Mus
 
 def _file_types() -> dict[str, str]:
     """extension -> Wick's ProgID for it."""
-    from .. import formats
 
     types = {ext: "Wick.Picture" for ext in formats.EXT_KIND}
     types.update({ext: "Wick.Video" for ext in formats.VIDEO_EXTS})
@@ -333,7 +332,6 @@ def _powershell(script: str, wait: bool) -> bool:
     """Run a PowerShell script hidden; ``wait`` for it (True if it succeeded), or start it and return True.
     The script is passed as plain text on standard input (readable by anything inspecting it, unlike an encoded
     command). Bypass is needed here: the Appx cmdlets load module files, which Windows' default policy blocks."""
-    import subprocess
 
     exe = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/WindowsPowerShell/v1.0/powershell.exe"
     text = "$ErrorActionPreference = 'Stop'\n" + script + "\n"

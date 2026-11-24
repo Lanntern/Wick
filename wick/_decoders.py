@@ -18,10 +18,18 @@ back data, which sandbox.py checks before using.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import sys
+import time
 from collections.abc import Callable
+from pathlib import Path
+
+from . import tools, winapi
+from .cleanup.similar import fingerprint, inspect
+from .formats import AUDIO, HEIC, VIDEO, register_heif
+from .icons import looks_same
 
 LOW_INTEGRITY_RID = 0x1000        # SECURITY_MANDATORY_LOW_RID
 
@@ -56,7 +64,6 @@ def _windows_job(memory_limit: int) -> bool:
     import ctypes
     from ctypes import wintypes
 
-    from . import winapi
 
     k32 = winapi.job_kernel32()
     # Its own process and the decoders it runs, never a process tree; ended with the app, and on a crash (no
@@ -163,7 +170,6 @@ def _rgba(img, max_pixels: int):
 
 
 def broken_check(path: str, size: int, thorough: bool):
-    from pathlib import Path
 
     from .cleanup.broken import check_file
 
@@ -172,18 +178,14 @@ def broken_check(path: str, size: int, thorough: bool):
 
 
 def similar_fingerprint(path: str):
-    from pathlib import Path
 
-    from .cleanup.similar import fingerprint
 
     found = fingerprint(Path(path))
     return {"result": list(found) if found else None}, None
 
 
 def similar_inspect(path: str, px: int):
-    from pathlib import Path
 
-    from .cleanup.similar import inspect
 
     sharp, gray = inspect(Path(path), int(px))
     if gray is None:
@@ -193,13 +195,9 @@ def similar_inspect(path: str, px: int):
 
 def thumbnail(path: str, kind: str, max_px: int):
     """A picture's or video's preview, at most max_px on its longer side (album art for music)."""
-    import io
-    from pathlib import Path
 
     from PIL import Image, ImageOps
 
-    from . import tools
-    from .formats import AUDIO, HEIC, VIDEO, register_heif
 
     p, max_px = Path(path), int(max_px)
     scale = f"scale={max_px}:{max_px}:force_original_aspect_ratio=decrease"
@@ -239,7 +237,6 @@ def thumbnail(path: str, kind: str, max_px: int):
 
 def display_image(path: str, max_pixels: int):
     """The first frame of a picture as it's shown (orientation applied), for the preview window."""
-    from pathlib import Path
 
     from .images import open_for_display
 
@@ -252,14 +249,12 @@ _GUI: list = []
 def svg_same(a: str, b: str):
     """Do two SVG drawings look the same (drawn at 256 and 1024 pixels)? Qt draws them here, in an off-screen
     application of the worker's own, so a hostile drawing can't harm the app (and no window is needed)."""
-    from pathlib import Path
 
     if not _GUI:
         from PySide6.QtGui import QGuiApplication
 
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         _GUI.append(QGuiApplication.instance() or QGuiApplication(["wick-decoder"]))
-    from .icons import looks_same
 
     x, y = Path(a).read_bytes(), Path(b).read_bytes()
     return {"result": bool(looks_same(x, y, 256) and looks_same(x, y, 1024))}, None
@@ -270,7 +265,6 @@ FUNCTIONS: dict[str, Callable] = {f.__name__: f for f in (broken_check, similar_
 
 
 def _test_sleep(seconds: float):
-    import time
 
     time.sleep(float(seconds))
     return {}, None

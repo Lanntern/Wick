@@ -12,6 +12,7 @@ from ..journal import FileRecord
 from ..plan import Plan
 from ..scanner import FileEntry, scan
 from ..settings import Settings
+from ..video import available_encoders
 
 
 class ScanThread(QThread):
@@ -113,7 +114,6 @@ class EncoderProbeThread(QThread):
     result = Signal(dict)
 
     def run(self) -> None:
-        from ..video import available_encoders
 
         try:
             self.result.emit(available_encoders())

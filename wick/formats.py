@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import struct
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -294,7 +295,6 @@ _MOTION_TAIL = (b"MotionPhoto_Data",)            # Samsung's trailer ("SEFT" alo
 def _heif_meta(path: Path) -> bytes:
     """The 'meta' box of a HEIF/AVIF file (its item list and properties), wherever it is: some phones write it
     after the picture data. Top-level boxes are walked by their sizes; nothing else is read."""
-    import struct
 
     with open(path, "rb") as f:
         size_total = path.stat().st_size
@@ -324,7 +324,6 @@ def heif_extras(path: Path) -> str:
         head = _heif_meta(path)
     except OSError:
         return ""
-    import re
 
     # (a 'tmap' item is declared in an item-info entry: 'infe', version and flags, item ID, protection, type)
     if b":aux:hdrgainmap" in head or re.search(rb"infe.{8,10}tmap", head, re.S):
@@ -521,7 +520,6 @@ def _jxl_codestream_info(cs: bytes) -> tuple[int, int, bool, int]:
 
 def read_jxl_info(path: Path) -> JxlInfo | None:
     """Size, animation and container boxes of a JPEG XL file, from its headers (nothing is decoded)."""
-    import struct
 
     try:
         with open(path, "rb") as f:

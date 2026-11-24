@@ -10,13 +10,16 @@ alone, as are HEIC Motion Photos.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import struct
 import tempfile
 from pathlib import Path
 
+from . import video
 from .fileops import remove_quietly, temp_name
 from .images import NotWorthIt, VerificationFailed
+from .plan import Plan
 
 _OFFSET = re.compile(rb'(GCamera:MicroVideoOffset=")(\d+)(")')
 _ITEM = re.compile(rb'(<Container:Item\b[^>]*?Item:Semantic="MotionPhoto"[^>]*?Item:Length=")(\d+)(")', re.S)
@@ -58,11 +61,8 @@ def _set_length(jpeg: bytes, new_length: int) -> bytes:
 
 def convert(src: Path, info, plan, s) -> Path:
     """A smaller Motion Photo next to ``src`` (checked), or NotWorthIt."""
-    import dataclasses
 
-    from . import video
     from .images import Ctx, jpeg_extras
-    from .plan import Plan
     from .probe import probe_video
 
     data = src.read_bytes()

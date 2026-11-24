@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,18 +27,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import APP_NAME, __version__, tools
+from .. import APP_NAME, FORMER_NAMES, __version__, scanner, tools, tradeoff
 from ..formats import human
-from ..log import log
+from ..log import diagnostics, log
 from ..settings import Settings
 from . import style
 from .compress_tab import CompressTab
-from .dialogs import ask
+from .dialogs import ask, inform
+from .filelist import set_all_checked
 from .home_tab import HomeTab
 from .sidebar import Sidebar
 from .style import Space, Type
 from .watch_tab import WatchTab
-from .widgets import Card, button, refresh_icons, text
+from .widgets import Card, button, keys, refresh_icons, text
 from .workers import EncoderProbeThread
 
 if TYPE_CHECKING:
@@ -92,7 +96,6 @@ def open_qsettings() -> QSettings:
 def carry_over_settings() -> int:
     """The app was renamed: copy the settings saved under its former name, once (only while there are none
     under the new name). Returns how many were copied."""
-    from .. import FORMER_NAMES
 
     if os.environ.get("WICK_SETTINGS_FILE"):
         return 0
@@ -141,7 +144,6 @@ def app_icon() -> QIcon:
 
 def native(seq: str) -> str:
     """A shortcut as this system writes it (⌘O on a Mac); also lists such as "Ctrl+A / Ctrl+Shift+A"."""
-    from .widgets import keys
 
     if sys.platform != "darwin" and len(seq) > 1 and "/" not in seq and " " not in seq:
         return QKeySequence(seq).toString(QKeySequence.NativeText)
@@ -314,7 +316,6 @@ class MainWindow(QMainWindow):
         return self.__dict__.get(name)
 
     def _build_page(self, name: str) -> QWidget:
-        import importlib
 
         module, cls = LAZY_PAGES[name]
         page = getattr(importlib.import_module(module, __package__), cls)(self)
@@ -410,7 +411,6 @@ class MainWindow(QMainWindow):
         add("Ctrl+R", self.home.analyze, self.home, page_ctx)
         add("Insert", c.include_selected, c.table, Qt.WidgetShortcut)
         # Home
-        from .filelist import set_all_checked
 
         h = self.home
         add("Ctrl+A", lambda: set_all_checked(h.tree, True, 0, h._update_send), h, page_ctx)
@@ -480,7 +480,6 @@ class MainWindow(QMainWindow):
 
     def _page_shortcuts(self, name: str, page: QWidget) -> None:
         """Shortcuts that belong to a page built on demand (installed when it's built)."""
-        from .filelist import set_all_checked
 
         add, page_ctx = self._shortcut, Qt.WidgetWithChildrenShortcut
         if name == "history":
@@ -536,8 +535,6 @@ class MainWindow(QMainWindow):
         def copy_diagnostics() -> None:
             from PySide6.QtGui import QGuiApplication
 
-            from ..log import diagnostics
-            from .dialogs import inform
 
             QGuiApplication.clipboard().setText(diagnostics())
             inform(self, "Diagnostics copied", "Paste them into an email or bug report.")
@@ -841,7 +838,6 @@ class MainWindow(QMainWindow):
     def check_low_space(self) -> list[Path]:
         """Drives that are almost full and haven't been mentioned today; mentions them (and clears caches in
         "clean" mode). Returns them."""
-        import shutil
 
         mode = str(self.qsettings.value("low_space", "notify", str))
         if mode == "off" or self._low_space_busy:
@@ -882,7 +878,6 @@ class MainWindow(QMainWindow):
                 ignored("gui.main_window.check_low_space")
             self._low_space_done.emit(name, int(free), int(freed))
 
-        import threading
 
         threading.Thread(target=clear, name="low-space-clean", daemon=True).start()
         return [d for d, _ in low]
@@ -899,7 +894,6 @@ class MainWindow(QMainWindow):
         from .. import power
 
         power.ENABLED = self.qsettings.value("keep_awake", True, bool)
-        from .. import scanner
 
         scanner.FAST_DRIVES = self.qsettings.value("fast_drive_scan", True, bool)
         from .. import everything
@@ -1020,7 +1014,6 @@ class MainWindow(QMainWindow):
         background (games that are running, use DirectStorage or need administrator rights are skipped)."""
         if not self.qsettings.value("appcompress/recompress", True, bool) or self.battery_pause():
             return
-        import threading
 
         from PySide6.QtCore import QThread, Signal
 
@@ -1028,7 +1021,6 @@ class MainWindow(QMainWindow):
         self._refresh_game_watcher()
         if self.qsettings.value("appcompress/idle_only", True, bool) and appcompress.idle_seconds() < 300:
             return
-        import json
 
         try:
             folder_preferences = json.loads(str(self.qsettings.value("appcompress/folder_options", "{}", str)))
@@ -1065,7 +1057,6 @@ class MainWindow(QMainWindow):
                     log.warning("Re-compressing updated games failed: %s", e)
 
         def finished(done, notes) -> None:
-            from ..formats import human
 
             if done:
                 saved = sum(b for _, b in done)
@@ -1264,7 +1255,6 @@ class MainWindow(QMainWindow):
         (both still in the compression options)."""
         if self.qsettings.value(self.TRADEOFF_ASKED, False, bool):
             return
-        from .. import tradeoff
         from .tradeoff_dialog import TradeoffDialog
 
         dlg = TradeoffDialog(self)

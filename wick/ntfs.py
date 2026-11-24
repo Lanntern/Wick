@@ -15,10 +15,15 @@ from __future__ import annotations
 import gzip
 import os
 import struct
+import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import winapi
+from .formats import classify
+from .scanner import PROGRAM_MARKER_EXTS
 
 ROOT = 5                    # the MFT record of the root folder
 _FILETIME_EPOCH = 116444736000000000
@@ -331,7 +336,6 @@ def dump(f, roots_parts: list[list[str]], keep: Callable[[str], bool], out: Path
     Lines: ``R\\t<record>\\t<root index>`` for each root found, ``D\\t<record>\\t<parent>\\t<attrs>\\t<marker>\\t<name>``
     for folders (marker: it holds a program library), ``F\\t<parent>\\t<size>\\t<mtime>\\t<attrs>\\t<name>``.
     """
-    from .scanner import PROGRAM_MARKER_EXTS
 
     tree = read_tree(f, progress)
     with gzip.open(out, "wt", encoding="utf-8", newline="\n") as w:
@@ -391,7 +395,6 @@ def load(path: Path) -> Listing:
 
 def helper_command(drive: str, out: Path, roots_parts: list[list[str]]) -> tuple[str, str]:
     """(program, arguments) that run ``dump`` for ``drive`` (the app itself when frozen)."""
-    import subprocess
 
     args = ["--ntfs-dump", drive, str(out), *("\\".join(p) for p in roots_parts)]
     if getattr(sys, "frozen", False):
@@ -402,7 +405,6 @@ def helper_command(drive: str, out: Path, roots_parts: list[list[str]]) -> tuple
 def run_elevated(program: str, params: str, cancel=None) -> int | None:
     """Run ``program params`` as administrator (Windows asks the user), hidden; wait. Exit code, or None if
     the user said no (or it couldn't start, or it was stopped)."""
-    from . import winapi
 
     try:
         return winapi.run_and_wait(program, params, admin=True, hidden=True, cancel=cancel, kill_on_cancel=True)
@@ -457,7 +459,6 @@ def main(argv: list[str]) -> int:
     if len(argv) < 3 or argv[0] != "--ntfs-dump":
         print("usage: python -m wick.ntfs --ntfs-dump C: OUT [ROOT ...]", file=sys.stderr)
         return 2
-    from .formats import classify
 
     drive, out = argv[1], Path(argv[2])
     roots = [[p for p in r.split("\\") if p] for r in argv[3:]] or [[]]

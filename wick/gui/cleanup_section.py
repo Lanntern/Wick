@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,7 +29,7 @@ from .. import APP_NAME, cfa
 from ..cleanup import actions, appcompress, duplicates
 from ..cleanup.common import Candidate, ScanResult, known_folder
 from ..formats import classify, human, plural
-from ..log import log
+from ..log import log, log_file
 from .dialogs import ask, choose, inform
 from .filelist import (
     ListPlaceholder,
@@ -45,7 +46,7 @@ from .filelist import (
 from .settings_panel import BIN_NAME
 from .style import Size, Space, Type, tokens, ui_font
 from .thumbs import HoverPreviewer
-from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, hbox, text
+from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, dialog_buttons, dialog_layout, hbox, text
 
 if TYPE_CHECKING:
     from .cleanup_tab import CleanupTab
@@ -94,7 +95,6 @@ class ScanWorker(QThread):
         self._lock = threading.RLock()
 
     def collect(self, key, items) -> None:
-        import time
 
         with self._lock:
             for item in items:
@@ -106,7 +106,6 @@ class ScanWorker(QThread):
                 self.flush()
 
     def flush(self) -> None:
-        import time
 
         with self._lock:
             for key, items in self._pending.items():
@@ -419,7 +418,6 @@ class ToolSection(QWidget):
         from PySide6.QtWidgets import QDialog
 
         from ..cleanup.common import available_drives
-        from .widgets import dialog_buttons, dialog_layout
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Drives to Scan")
@@ -1126,7 +1124,6 @@ class ToolSection(QWidget):
             self.status.setText("Stopping…")
 
     def _stopped(self, message: str) -> None:
-        from ..log import log_file
 
         inform(self, "The clean-up stopped", f"{message}\n\nDetails are in the log ({log_file()}).")
 

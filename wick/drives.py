@@ -8,6 +8,8 @@ device's ``queue/rotational``. Unknown counts as not spinning.
 from __future__ import annotations
 
 import os
+import re
+import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -107,8 +109,6 @@ NETWORK_FS = {"nfs", "nfs4", "cifs", "smb3", "smbfs", "fuse.sshfs", "sshfs", "9p
 @lru_cache(maxsize=1)
 def _mac_mounts() -> tuple[tuple[str, str], ...]:
     """(mount point, file system type) from macOS's ``mount``, longest mount point first."""
-    import re
-    import subprocess
 
     try:
         out = subprocess.run(["/sbin/mount"], capture_output=True, text=True, timeout=5).stdout

@@ -6,6 +6,7 @@ import os
 import threading
 from pathlib import Path
 
+from .. import walk
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 # Zero-byte files that mean something (package markers, placeholders, settings).
@@ -25,7 +26,6 @@ def _real_size(path: Path) -> int | None:
 
 def truly_empty(folder: Path) -> bool:
     """No files at all below ``folder``: hidden and system files count, links and junctions count."""
-    from .. import walk
 
     unreadable: list[Path] = []
     for d in walk.folders([folder], unreadable=unreadable.append):

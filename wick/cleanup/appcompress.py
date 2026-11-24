@@ -15,9 +15,11 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time as _time
 from collections.abc import Callable
 from pathlib import Path
 
+from .. import tools, walk
 from .caches import steam_libraries
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
@@ -142,7 +144,6 @@ def measure(folder: Path, cancel: threading.Event | None = None, seen: set[str] 
             by_extension: dict | None = None) -> tuple[int, int, int]:
     """(logical bytes, bytes on disk, file count). ``seen`` collects lower-case file names (to look for
     tell-tale files such as DirectStorage's)."""
-    from .. import walk
     from .common import cloud_only
 
     logical = disk = count = 0
@@ -248,7 +249,6 @@ def old_folders(roots: list[Path], cancel: threading.Event | None = None, now: f
                 months: int = OLD_FOLDER_MONTHS, min_size: int = OLD_FOLDER_MIN) -> list[Path]:
     """Folders right inside ``roots`` (Documents, Downloads...) that nothing in has changed for ``months`` months,
     of at least ``min_size``, and not mostly files that are compressed already (photos, videos, archives)."""
-    import time as _time
 
     cutoff = (now if now is not None else _time.time()) - months * 30 * 86400
     found: list[Path] = []
@@ -463,7 +463,6 @@ def run_compact(folder: Path, undo: bool = False, on_line: Callable[[str], None]
                 cancel: threading.Event | None = None, elevate: bool = False,
                 algorithm_name: str = DEFAULT_ALGORITHM, skip_extensions=(), changed_since: float = 0) -> int:
     """One explicit folder; skip links/cloud files and exclusions. Elevated work prompts once."""
-    from .. import tools
 
     selected = algorithm(algorithm_name)
     folder = folder.resolve()
@@ -565,7 +564,6 @@ def compressed_folders() -> list[tuple[Path, float]]:
 def uncompressed_since(folder: Path, since: float, cancel: threading.Event | None = None) -> int:
     """Bytes in files changed after ``since`` that aren't compressed (what an update added). Files Windows
     can't compress well are small anyway; anything at 95 % or more of its size counts as uncompressed."""
-    from .. import walk
 
     total = 0
     for d in walk.folders([folder], cancel=cancel):

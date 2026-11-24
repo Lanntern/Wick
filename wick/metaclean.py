@@ -13,6 +13,7 @@ HEIC/AVIF/TIFF can't be edited without re-encoding and are reported, not changed
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,7 +71,6 @@ class MetaSummary:
 
 def pretty_date(raw: str) -> str:
     """'2024:05:01 10:00:00' or '2025-07-14T12:00:00.000000Z' -> '2024-05-01 10:00'."""
-    import re
 
     m = re.match(r"(\d{4})[:-](\d{2})[:-](\d{2})[ T](\d{2}):(\d{2})", raw.strip())
     return f"{m[1]}-{m[2]}-{m[3]} {m[4]}:{m[5]}" if m else raw.strip()

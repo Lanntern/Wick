@@ -15,6 +15,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import winapi
 from .cleanup.common import folder_size
 
 IS_WINDOWS = sys.platform == "win32"
@@ -182,7 +183,6 @@ def measure(drive: Path) -> list[Hidden]:
 
 def run_elevated(program: str, args: str) -> bool:
     """Run a Windows command as administrator (Windows asks first) and wait. True if it ran and succeeded."""
-    from . import winapi
 
     try:
         return winapi.run_and_wait(program, args, admin=True, hidden=True, timeout=120) == 0

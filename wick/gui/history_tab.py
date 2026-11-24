@@ -11,8 +11,11 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QAbstractItemView, QFrame, QMenu, QTreeWidget
 
-from .. import journal
+from .. import journal, pending, report, trash_restore
+from .. import log as applog
+from ..engine import cannot_undo
 from ..formats import human, plural
+from .cleanup_tools import tools
 from .dialogs import ask, inform
 from .filelist import (
     ListPlaceholder,
@@ -24,7 +27,8 @@ from .filelist import (
     selected_or_clicked,
     set_sort_keys,
 )
-from .settings_panel import BIN_NAME
+from .jobstatus import save_report
+from .settings_panel import BIN_NAME, OUTPUT_CHOICES
 from .style import Size, Space, Type, tokens
 from .widgets import Card, Page, StatTile, button, hbox, set_compact, text
 from .workers import UndoThread
@@ -40,8 +44,6 @@ class _BinCheck(QThread):
         self.runs = runs
 
     def run(self) -> None:
-        from .. import trash_restore
-        from ..engine import cannot_undo
 
         records = [(run.run_id, rec) for run in self.runs for rec in run.files
                    if not rec.undone and rec.mode in ("replace", "removed", "deleted")]
@@ -59,8 +61,6 @@ class _BinCheck(QThread):
 
 def run_summary(run) -> str:
     """What a run was, in a few words: the page or tool, and where its results went."""
-    from .cleanup_tools import tools
-    from .settings_panel import OUTPUT_CHOICES
 
     s = run.settings or {}
     tool = s.get("tool") or "job"
@@ -330,8 +330,6 @@ class HistoryTab(Page):
         self.check_bin(force=True)
 
     def delete_everything(self) -> None:
-        from .. import log as applog
-        from .. import pending
 
         if self.undo_thread is not None and self.undo_thread.isRunning():
             return
@@ -382,8 +380,6 @@ class HistoryTab(Page):
         self.refresh(force=True)
 
     def export_report(self) -> None:
-        from .. import report
-        from .jobstatus import save_report
 
         runs = self._selected_runs()
         if not runs:

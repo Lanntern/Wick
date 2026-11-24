@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,7 +89,6 @@ def _plan_live(e: FileEntry, s: Settings) -> Plan:
     """Half of a Live Photo (a photo and a clip with the same name, linked by an ID in both). The photo is only
     made smaller losslessly as the same JPEG; the clip keeps its .mov name and the link. Anything that would
     rename either half (a suffix) or change the photo's format is skipped, so the two stay together."""
-    import dataclasses
 
     keep = "Part of a Live Photo, so the photo and its video stay together"
     if s.output_mode == "suffix":

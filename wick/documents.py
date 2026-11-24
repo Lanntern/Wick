@@ -14,6 +14,7 @@ Never changed: digitally signed documents (any change breaks the signature) and 
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import zipfile
 from pathlib import Path
@@ -34,7 +35,6 @@ class Unsupported(NotWorthIt):
 
 
 def pdf_available() -> bool:
-    import importlib.util
 
     return importlib.util.find_spec("pikepdf") is not None
 

@@ -10,6 +10,7 @@ from PySide6.QtCore import QThread
 
 from .. import metaclean, tools
 from ..formats import AUDIO, DOCUMENT, JPEG, ImageInfo, has_embedded_video
+from ..log import log
 from ..scanner import scan
 
 
@@ -55,7 +56,6 @@ class MetadataScan(QThread):
             self._flush()
 
     def run(self):
-        from ..log import log
 
         try:
             with tools.cancelling(self.cancel):

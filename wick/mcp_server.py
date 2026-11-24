@@ -29,10 +29,18 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
+from pathlib import Path as _Path
 from typing import Any
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, presets
+from .engine import DONE, FAILED, JobEvents, run_job, undo_run
 from .fileops import BIN_NAME
+from .formats import human
+from .log import log
+from .log import setup as setup_log
+from .plan import plan_entry
+from .scanner import scan
+from .settings import Settings
 
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 PLAN_LIFETIME = 30 * 60                 # seconds a plan can be carried out
@@ -187,8 +195,6 @@ class Server:
         return not self.keep_originals and self._history_on()
 
     def _settings(self, preset: str):
-        from . import presets
-        from .settings import Settings
 
         s = presets.apply(preset, Settings())
         s.output_mode = "replace" if self.replaces_originals() else "suffix"
@@ -202,7 +208,6 @@ class Server:
 
     # ---------------------------------------------------------------- tools
     def tools(self) -> list[dict]:
-        from . import presets
 
         names = presets.names()
         originals = (f"Originals are moved to the {BIN_NAME} (never deleted permanently) and the run can be undone "
@@ -275,7 +280,6 @@ class Server:
         ]
 
     def call_tool(self, name: str, args: dict, request_id=None, progress_token=None) -> dict:
-        from .log import log
 
         handlers = {"list_allowed_folders": self.t_list_allowed_folders, "plan_compression": self.t_plan,
                     "compress_planned_files": self.t_compress, "list_history": self.t_history,
@@ -327,7 +331,6 @@ class Server:
                                if self.refused else "."))
 
     def t_list_allowed_folders(self, args, **_) -> dict:
-        from . import presets
 
         out: dict[str, Any] = {"allowed_folders": [clean(a) for a in self.allowed],
                "originals": (f"moved to the {BIN_NAME}; undo with undo_run" if self.replaces_originals() else
@@ -342,10 +345,6 @@ class Server:
         return out
 
     def t_plan(self, args, **_) -> dict:
-        from . import presets
-        from .formats import human
-        from .plan import plan_entry
-        from .scanner import scan
 
         self._need_folders()
         paths = args.get("paths")
@@ -424,8 +423,6 @@ class Server:
             del self._plans[min(self._plans, key=lambda k: self._plans[k].created)]
 
     def t_compress(self, args, request_id=None, progress_token=None, **_) -> dict:
-        from .engine import DONE, FAILED, JobEvents, run_job
-        from .formats import human
 
         plan_id = args.get("plan_id")
         if not isinstance(plan_id, str):
@@ -498,10 +495,8 @@ class Server:
             self._job_lock.release()
 
     def t_find_cleanup(self, args, **_) -> dict:
-        from pathlib import Path as _Path
 
         from .cleanup import apps, broken, caches, duplicates, empties, installers, largefiles, proxies, similar
-        from .formats import human
 
         kind = args.get("kind")
         if kind not in CLEANUP_KINDS:
@@ -544,7 +539,6 @@ class Server:
 
     def t_history(self, args, **_) -> dict:
         from . import journal
-        from .formats import human
 
         limit = args.get("limit", 5)
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
@@ -557,8 +551,6 @@ class Server:
 
     def t_undo(self, args, request_id=None, progress_token=None, **_) -> dict:
         from . import journal
-        from .engine import undo_run
-        from .formats import human
 
         run_id = args.get("run_id")
         if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", run_id):
@@ -807,7 +799,6 @@ def parse_args(argv: list[str]) -> tuple[list[str], bool, int]:
 
 
 def main(argv: list[str]) -> int:
-    from .log import setup as setup_log
 
     stdin, stdout = _std_streams()
     sys.stdout = sys.stderr if sys.stderr is not None else open(os.devnull, "w")  # noqa: SIM115 - protocol only

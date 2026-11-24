@@ -22,6 +22,8 @@ import zlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .formats import JPEG, PNG, WEBP
+
 EXIF_HEADER = b"Exif\x00\x00"
 XMP_JPEG_HEADER = b"http://ns.adobe.com/xap/1.0/\x00"
 ICC_JPEG_HEADER = b"ICC_PROFILE\x00"
@@ -295,7 +297,6 @@ def webp_write_meta(data: bytes, meta: Meta) -> bytes:
 
 def rewrite_file_meta(src: Path, dst: Path, kind: str, policy: str) -> bool:
     """Write ``src`` to ``dst`` with filtered metadata (lossless). Returns False if unsupported."""
-    from .formats import JPEG, PNG, WEBP
 
     data = src.read_bytes()
     drop_other = policy in ("strip_all", "strip_all_keep_date", "strip_private")

@@ -6,16 +6,19 @@ with ``cwd`` there), so non-ASCII folder/user names never reach the encoders.
 
 from __future__ import annotations
 
+import dataclasses
 import filecmp
 import hashlib
 import io
+import math
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import metadata as md
 from . import steps, tools
 from .fileops import link_or_copy, remove_quietly, temp_name
-from .formats import BMP, GIF, HEIC, JPEG, PNG, TIFF, WEBP, ImageInfo, register_heif
+from .formats import BMP, GIF, HEIC, JPEG, PNG, TIFF, WEBP, ImageInfo, human, register_heif
 from .plan import Plan
 from .settings import Settings
 
@@ -111,10 +114,7 @@ FIT_QUALITIES = [95, 92, 90, 87, 85, 82, 80, 77, 75, 72, 70, 65, 60, 55, 50, 45,
 
 def _convert_to_fit(src: Path, kind: str, info, plan: Plan, s: Settings, limit: int) -> Path:
     """The best quality that fits under ``limit`` bytes; if even low quality doesn't, smaller dimensions too."""
-    import dataclasses
-    import math
 
-    from .formats import human
 
     outputs: list[Path] = []
     try:
@@ -162,7 +162,6 @@ def _convert_to_fit(src: Path, kind: str, info, plan: Plan, s: Settings, limit: 
 
 
 def _convert_smart(src: Path, kind: str, info, plan: Plan, s: Settings) -> Path:
-    import dataclasses
 
     from . import quality
 
@@ -794,7 +793,6 @@ def open_for_display(path: Path):
     """The first frame of any supported image as shown (orientation applied), as an RGBA Pillow image.
     (JPEG XL goes through djxl, with its temporary file in the temp folder: the decoder worker may only write
     there.)"""
-    import tempfile
 
     from PIL import Image, ImageOps
 

@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import index
-from ..formats import IMAGE_KINDS, classify, plural
+from ..formats import HEIC, IMAGE_KINDS, classify, plural, register_heif
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
 
 STRICTNESS = {"very": 3, "similar": 6}   # max differing bits of 64
@@ -45,7 +45,6 @@ def fingerprint(path: Path) -> tuple[int, int, int] | None:
     """(dHash, width, height), or None for unreadable or nearly uniform images (blank, all black...)."""
     from PIL import Image, ImageOps, ImageStat
 
-    from ..formats import HEIC, register_heif
 
     if classify(path) == HEIC:
         register_heif()
@@ -228,7 +227,6 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
                 prints[i] = tuple(cached)
         else:
             todo.append(i)
-    from ..formats import HEIC
 
     if any(classify(files[i][0]) == HEIC for i in todo):
         from ..scanner import preload_codecs

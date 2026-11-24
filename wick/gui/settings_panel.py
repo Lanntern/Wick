@@ -22,8 +22,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import presets
+from ..compat import jxl_note
 from ..fileops import BIN_NAME  # noqa: F401  (others import it from here too)
 from ..settings import Settings
+from ..video import GPU_ENCODERS
+from .dialogs import ask, inform
+from .language_dialog import LanguageDialog
 from .style import Size, Space, Type, text_scale
 from .widgets import Section, SizeInput, button, text
 
@@ -180,7 +185,6 @@ class SettingsPanel(QWidget):
         self.quality = _spin(1, 100, tip="Quality for lossy images. 85-90 is visually near-identical for photos.")
         self.effort = _spin(1, 9, tip="Higher JPEG XL effort makes smaller files more slowly. 7 is a good balance.")
         f.addRow("Convert to", self.image_format)
-        from ..compat import jxl_note
 
         self.jxl_note = _muted(jxl_note())
         f.addRow(self.jxl_note)
@@ -597,7 +601,6 @@ class SettingsPanel(QWidget):
 
     def _choose_languages(self) -> None:
         from .. import languages
-        from .language_dialog import LanguageDialog
 
         dlg = LanguageDialog(languages.parse(self._languages) or languages.detect(), self)
         if dlg.exec():
@@ -825,7 +828,6 @@ class SettingsPanel(QWidget):
 
     # ---- presets
     def refresh_presets(self) -> None:
-        from .. import presets
 
         current = presets.matching(self.settings()) if hasattr(self, "audio") else None
         self.preset.blockSignals(True)
@@ -849,7 +851,6 @@ class SettingsPanel(QWidget):
 
     def apply_preset(self, name: str) -> bool:
         """Load a preset's options into the panel. False if there is no such preset."""
-        from .. import presets
 
         if presets.get(name) is None:
             return False
@@ -864,8 +865,6 @@ class SettingsPanel(QWidget):
     def _preset_save(self) -> None:
         from PySide6.QtWidgets import QInputDialog
 
-        from .. import presets
-        from .dialogs import inform
 
         name, ok = QInputDialog.getText(self, "Save preset", "Name for these options:")
         if not ok or not name.strip():
@@ -879,8 +878,6 @@ class SettingsPanel(QWidget):
         self.presets_changed.emit()
 
     def _preset_delete(self) -> None:
-        from .. import presets
-        from .dialogs import ask
 
         name = self.preset.currentData()
         if name and not presets.is_builtin(name) and ask(self, f"Delete the preset “{name}”?", "", "Delete Preset",
@@ -890,7 +887,6 @@ class SettingsPanel(QWidget):
             self.presets_changed.emit()
 
     def show_encoders(self, enc: dict) -> None:
-        from ..video import GPU_ENCODERS
 
         def maker(encoder: str) -> str:
             return {"nvenc": "NVIDIA", "qsv": "Intel", "amf": "AMD", "videotoolbox": "Apple"}[encoder.rsplit("_", 1)[1]]

@@ -18,8 +18,10 @@ import html
 import io
 import posixpath
 import re
+import tempfile
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import unquote
 
 from .formats import plural
@@ -352,8 +354,6 @@ ADOBE = "http://ns.adobe.com/pdf/enc#RC"
 
 def epub_fonts(pkg: Package) -> int:
     """Cut an e-book's fonts to the characters in its text. Returns how many."""
-    import tempfile
-    from pathlib import Path
 
     from .subfonts import BASE, subset
 

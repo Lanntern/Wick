@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
     QWidgetItem,
 )
 
-from .style import Radius, Size, Space, Type, icon, icon_pixmap, keyboard_focus, text_scale, tokens, ui_font
+from .style import Radius, Size, Space, Type, hide_tip, icon, icon_pixmap, keyboard_focus, text_scale, tokens, ui_font
 
 # ---------------------------------------------------------------- text
 
@@ -724,7 +724,6 @@ class HelpTip(QAbstractButton):
         self._hover_timer.timeout.connect(lambda: self.open(sticky=False))
 
     def open(self, sticky: bool = True) -> None:
-        from .style import hide_tip
 
         self._hover_timer.stop()
         if self._popover is not None and self.is_open():

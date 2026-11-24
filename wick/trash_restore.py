@@ -11,6 +11,8 @@ send2trash can delete but not restore, so this reads the bins directly:
 from __future__ import annotations
 
 import os
+import shutil
+import stat
 import struct
 import sys
 import time
@@ -298,8 +300,6 @@ def restore(item: TrashedItem) -> None:
 
 def purge(item: TrashedItem) -> None:
     """Delete one item we put in the bin for good (frees its space without emptying the whole bin)."""
-    import shutil
-    import stat
 
     def force(func, path, _exc):   # read-only files (Go's module cache, git objects): make writable, retry
         os.chmod(path, stat.S_IWRITE | stat.S_IREAD)

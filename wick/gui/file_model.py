@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -482,8 +483,6 @@ def _open_folder(folder: str) -> None:
 
 
 def open_in_file_manager(path: str) -> None:
-    import subprocess
-    import sys
 
     if sys.platform == "win32":
         # Through the shell, not "explorer /select,PATH": Explorer splits its arguments at commas, even inside

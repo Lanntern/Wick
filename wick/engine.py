@@ -5,17 +5,19 @@ from __future__ import annotations
 import dataclasses
 import functools
 import hashlib
+import json
 import os
 import re
 import shutil
 import threading
 import time
+import time as _time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import journal, steps, tools, trash_restore
+from . import APP_NAME, cfa, journal, steps, tools, trash_restore
 from .fileops import (
     BIN_NAME,
     copy_times,
@@ -33,7 +35,7 @@ from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABE
 from .images import NotWorthIt, VerificationFailed, convert_image
 from .log import log
 from .plan import Plan
-from .scanner import FileEntry
+from .scanner import FileEntry, preload_codecs
 from .settings import Settings
 from .video import convert_video
 
@@ -95,8 +97,6 @@ def output_name(src: Path, template: str, now: float | None = None) -> str:
     """The new file's name (without extension). Plain text is a suffix ("_compressed" → photo_compressed);
     with placeholders it's a pattern ("%name% %date%" → photo 2026-11-06). Never contains characters a file
     name can't have."""
-    import re
-    import time as _time
 
     if "%" not in template:
         return src.stem + template
@@ -232,7 +232,6 @@ def _clean_svg(src: Path) -> Path:
     """An SVG without editor data, metadata, comments and excess digits (icons.optimize_svg), next to ``src``,
     checked in the decoder worker to draw the same."""
     from . import icons, sandbox
-    from .fileops import remove_quietly, temp_name
     from .images import NotWorthIt, VerificationFailed
 
     original = src.read_bytes()
@@ -356,7 +355,6 @@ def _guarded(entry: FileEntry, fn) -> FileResult:
 
 def _why(e: BaseException, path: Path) -> str:
     """An error as people should read it: Controlled folder access named, not "access denied"."""
-    from . import APP_NAME, cfa
 
     return f"{cfa.SHORT} (allow {APP_NAME} in Windows Security to change files here)" if cfa.blocked(e, path) \
         else str(e)
@@ -470,7 +468,6 @@ _NOT_OUTPUT = {"workers", "encoder_threads", "video_jobs", "low_priority", "outp
 
 def tried_key(s: Settings, plan: Plan) -> str:
     """Names the settings and conversion a file was tried with; any change to them means trying again."""
-    import json
 
     d = {k: v for k, v in s.to_dict().items() if k not in _NOT_OUTPUT}
     blob = json.dumps([d, plan.route, plan.target_ext, plan.resize], sort_keys=True, default=str)
@@ -596,7 +593,6 @@ def run_job(
     events = events or JobEvents()
     cancel = cancel or threading.Event()
     tools.LOW_PRIORITY = s.low_priority
-    from .scanner import preload_codecs
 
     preload_codecs(heif=any(e.kind == "heic" or p.route == "heic" or p.target_ext == ".heic" for e, p in items))
     writer = journal.RunWriter(root, {**s.to_dict(), "tool": tool} if tool else s.to_dict())

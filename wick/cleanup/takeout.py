@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO
 
+from ..fileops import set_windows_creation_time, temp_name
 from ..formats import classify, plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled
 
@@ -295,7 +296,6 @@ class MergeResult:
 
 def _write(m: Member, dest: Path) -> int:
     """Copy one member to ``dest`` (through a temporary name) and return its CRC32."""
-    from ..fileops import temp_name
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = temp_name(dest.parent, dest.suffix, "-takeout")
@@ -327,7 +327,6 @@ def _file_crc(path: Path) -> int:
 
 
 def _set_times(path: Path, ts: float) -> None:
-    from ..fileops import set_windows_creation_time
 
     os.utime(path, (ts, ts))
     if sys.platform == "win32":
@@ -443,7 +442,6 @@ def _same_file(a: Path, b: Path) -> bool:
 
 def _relink(primary: Path, dest: Path) -> bool:
     """Replace ``dest`` (identical content) with a hard link to ``primary``."""
-    from ..fileops import temp_name
 
     tmp = temp_name(dest.parent, dest.suffix, "-link")
     try:

@@ -84,6 +84,28 @@ wick/
 scripts/fetch_tools.py   download Windows encoders
 ```
 
+### Code conventions
+
+The lint job checks most of these; the rest are here so a change doesn't have to learn them in review.
+
+- **Checks:** `ruff check .`, `vulture`, and mypy once per system:
+  `mypy wick --platform linux --always-false IS_WINDOWS --always-false IS_MAC` (then `win32` with
+  `--always-true IS_WINDOWS`, and `darwin` with `--always-true IS_MAC`). Each run skips the other systems'
+  branches, so system checks are written `sys.platform == "win32"` (or the module's `IS_WINDOWS` / `IS_MAC`),
+  never `os.name`, and a Windows-only helper starts with `if sys.platform != "win32": return ...`.
+- **Imports at the top of the module**, except:
+  - heavy libraries (Pillow, numpy, pikepdf, fontTools, Qt outside `gui/`, the encoders' Python bindings),
+    loaded where they're used so the window opens quickly;
+  - `ctypes`, `winreg` and other system modules used only on one system;
+  - pages and dialogs built when they're first opened, and modules that would close an import cycle;
+  - names the tests replace on their module (`patch.object(video, "verify_video")`): imported where they're
+    called, they pick up the replacement.
+- **Private names stay private:** `_name` is for its own module. If another module needs it, give it a
+  public name (`tests/test_code_rules.py` checks).
+- **Functions under 25 branches** (ruff C901). The few older ones over it are marked `noqa: C901 (to split up)`.
+- **Folder walks** go through `wick/walk.py`, so links, junctions and unreadable folders are handled the same way
+  everywhere.
+
 ## How bundled components are kept up to date
 
 Wick opens files with decoders it bundles (FFmpeg, libjxl, Pillow with its WebP/JPEG libraries, libheif,

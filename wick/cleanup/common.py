@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import walk
 from ..protected import cloud_only, inside_library, is_hidden, is_library
 from ..scanner import EXCLUDED_DIR_NAMES, PROGRAM_MARKER_EXTS
 
@@ -146,7 +147,6 @@ def _walk_files(roots: list[Path], *, skip_program_folders: bool = True, include
                cancel: threading.Event | None = None, dirs_out: list[Path] | None = None,
                into_packages: bool = False) -> Iterator[tuple[Path, os.stat_result]]:
     """All regular files under ``roots`` (no symlinks, no system/program folders, no cloud-only files)."""
-    from .. import walk
 
     def enter(c: os.DirEntry) -> bool:
         if c.name.lower() in EXCLUDED_DIR_NAMES or (not include_hidden and is_hidden(c)):
@@ -187,7 +187,6 @@ def _walk_files(roots: list[Path], *, skip_program_folders: bool = True, include
 
 def folder_size(path: Path, cancel: threading.Event | None = None) -> tuple[int, int]:
     """(bytes, file count) of everything under ``path`` (links not followed)."""
-    from .. import walk
 
     total = count = 0
     for folder in walk.folders([path], cancel=cancel):
@@ -202,7 +201,6 @@ def folder_size(path: Path, cancel: threading.Event | None = None) -> tuple[int,
 
 def newest_mtime(path: Path, skip_names: set[str] | frozenset[str] = frozenset(), limit: int = 20000) -> float:
     """Most recent modification time inside ``path`` (bounded walk; skips heavy dependency folders)."""
-    from .. import walk
 
     newest = 0.0
     seen = 0

@@ -17,9 +17,12 @@ from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from .. import report
+from .. import fixes, report
 from ..engine import CANCELLED, DONE, FAILED
+from ..eta import TimeLeft, say
 from ..formats import human, plural
+from ..log import log_file
+from .filelist import open_file
 from .style import Space, Type, tokens
 from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, text
 
@@ -242,7 +245,6 @@ class JobStatus(Card):
 
     # ---------------------------------------------------------------- a job
     def start(self, n_files: int, total_bytes: int) -> None:
-        from ..eta import TimeLeft
 
         self._n, self._bytes, self._bytes_done, self._finished = n_files, max(1, total_bytes), 0, 0
         self._saved = 0
@@ -328,7 +330,6 @@ class JobStatus(Card):
             self.title.setText(f"{paused}{self.verb} {self._n} files · {self._finished} done{saved}")
         partial = sum(size * f for _n, size, _s, f in running if f is not None)
         known = self._bytes_done + partial
-        from ..eta import say
 
         whole = "" if self._paused_reason else say(self._eta.update(known, self._bytes, spent))
         left = ""
@@ -446,7 +447,6 @@ class JobStatus(Card):
                 lines.append(f"{len(skipped):,} left as they were: {why}.")
             self._color("danger" if failed and not done else "warning" if failed else "success" if done else None)
         self.detail.setText("\n".join(lines))
-        from .. import fixes
 
         self._show_fixes(fixes.suggest([r.message for r in failed + skipped]))
         self._set_buttons(show=bool(self._outputs), copy=bool(failed or skipped), log=bool(failed), close=True,
@@ -559,8 +559,6 @@ class JobStatus(Card):
         QTimer.singleShot(1500, lambda: self.copy_btn.setText("Copy Details"))
 
     def _open_log(self) -> None:
-        from ..log import log_file
-        from .filelist import open_file
 
         open_file(log_file())
 

@@ -17,12 +17,14 @@ import os
 import re
 import shlex
 import struct
+import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .. import walk, winapi
 from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
@@ -270,7 +272,6 @@ def still_installed(app: App) -> bool:
 def _run_and_wait(program: str, args: str, cancel: threading.Event | None) -> None:
     """Start the uninstaller the way Explorer would (Windows asks for permission when it needs it) and wait for
     it to finish."""
-    from .. import winapi
 
     try:
         winapi.run_and_wait(program, args, cancel=cancel)
@@ -344,7 +345,6 @@ def leftovers_of(app: App, others: list[App]) -> list[Path]:
 
 def _newest_change(path: Path, limit: int = 2000) -> float:
     """The latest modified time in a folder (looking at up to ``limit`` entries: enough to tell a used folder)."""
-    from .. import walk
 
     newest = path.stat().st_mtime
     seen = 0
@@ -364,7 +364,6 @@ def _running_folders() -> set[str]:
     """Folders of programs running now (lower case), from Windows' process list."""
     if not IS_WINDOWS:
         return set()
-    import subprocess
 
     try:
         out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command",

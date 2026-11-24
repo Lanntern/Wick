@@ -11,9 +11,13 @@ from PySide6.QtWidgets import QAbstractItemView, QDialog, QFrame, QHBoxLayout, Q
 
 from .. import APP_NAME, __version__
 from ..about import CREDITS, LICENSE_NOTE, PRIVACY, PRIVACY_URL
+from ..components import report, versions
+from ..tools import app_dir
+from . import devmode
 from .devmode import CLICKS
 from .filelist import SortItem, make_sortable
-from .style import Size, Space, Type
+from .main_window import app_icon, open_qsettings
+from .style import Size, Space, Type, show_tip
 from .widgets import button, text
 
 KIND = {"library": "Built in", "tool": "Separate tool", "code": "Adapted code", "download": "Downloaded when needed"}
@@ -57,9 +61,6 @@ class AboutDialog(QDialog):
         return super().eventFilter(obj, e)
 
     def _toggle_dev(self) -> None:
-        from . import devmode
-        from .main_window import open_qsettings
-        from .style import show_tip
 
         qs = open_qsettings()
         on = devmode.toggle(qs)
@@ -85,7 +86,6 @@ class AboutDialog(QDialog):
         head = QHBoxLayout()
         head.setSpacing(Space.L)
         logo = QLabel()
-        from .main_window import app_icon
 
         logo.setPixmap(app_icon().pixmap(Size.ICON_L, Size.ICON_L))
         logo.setAccessibleName(f"{APP_NAME} icon")
@@ -118,7 +118,6 @@ class AboutDialog(QDialog):
         self.tree.setAlternatingRowColors(True)
         self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tree.setStyleSheet(f"QTreeView::item {{ height: {Size.ROW}px; }}")
-        from ..components import versions
 
         found = versions()
         for c in CREDITS:
@@ -162,13 +161,11 @@ class AboutDialog(QDialog):
     def _copy_versions() -> None:
         from PySide6.QtGui import QGuiApplication
 
-        from ..components import report
 
         QGuiApplication.clipboard().setText(f"{report()}\nPython {platform.python_version()} · {platform.platform()}")
 
     @staticmethod
     def _license_folder() -> Path | None:
-        from ..tools import app_dir
 
         folder = app_dir() / "tools"
         return folder if folder.is_dir() and any(folder.glob("LICENSE*")) else None

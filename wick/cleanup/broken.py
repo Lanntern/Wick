@@ -17,6 +17,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from .. import tools
 from ..formats import AUDIO, AUDIO_EXTS, AVIF, DOCUMENT, EXT_KIND, HEIC, IMAGE_KINDS, VIDEO, VIDEO_EXTS, sniff
 from .common import Candidate, ScanResult, cancelled, walk_files
 
@@ -162,7 +163,6 @@ def _check_pdf(path: Path, size: int) -> tuple[str, str] | None:
 
 
 def _check_media(path: Path, thorough: bool) -> tuple[str, str] | None:
-    from .. import tools
 
     ffprobe, ffmpeg = tools.find_tool("ffprobe"), tools.find_tool("ffmpeg")
     if not ffprobe or not ffmpeg:

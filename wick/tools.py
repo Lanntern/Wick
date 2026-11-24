@@ -21,6 +21,8 @@ from contextlib import contextmanager
 from functools import cache, lru_cache
 from pathlib import Path
 
+from .log import log
+
 TOOL_NAMES = ("ffmpeg", "ffprobe", "cjxl", "djxl", "cjpegli", "gifsicle", "ssimulacra2", "butteraugli_main")
 # Optional: cjpegli (better lossy JPEG; else Pillow + mozjpeg), ssimulacra2 (Smart quality; else SSIM).
 OPTIONAL_TOOLS = ("cjpegli", "ssimulacra2", "butteraugli_main")
@@ -250,7 +252,6 @@ def _log_run(cmd: list[str], seconds: float, code: int | None, stderr: str | byt
     """One log line per tool run that's worth reading later: failed (with its arguments and the end of what it
     said) or slow. Quick successful runs (most of them, hundreds per scan) aren't logged: they used to fill the
     log and push out what came before a problem."""
-    from .log import log
 
     name = Path(cmd[0]).name
     if code not in (0, None):
@@ -270,7 +271,6 @@ def run(
     check: bool = True,
     text: bool = True,
 ) -> subprocess.CompletedProcess:
-    from .log import log
 
     cancel = getattr(_cancel_context, "event", None)
     if cancel is not None and cancel.is_set():

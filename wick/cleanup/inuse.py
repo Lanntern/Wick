@@ -9,6 +9,7 @@ parameters (what Task Manager's "command line" column shows); processes of other
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -162,7 +163,6 @@ def parse_mac(ps_out: str, args_out: str, lsof_out: str) -> list[Proc]:
 
 
 def _mac() -> list[Proc]:
-    import subprocess
 
     def run(*cmd: str) -> str:
         try:

@@ -4,22 +4,46 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import threading
+import time as _time
 from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import Qt, QThread
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLineEdit, QSpinBox, QWidget
 
-from .. import convert
-from ..engine import process_convert
-from ..formats import ARCHIVE, COMIC, DOC, DOCUMENT, FONT, KIND_LABEL, PANDOC_INPUTS, PDF, PICTURE, SVG, human, plural
+from .. import addons, convert, icons, tools
+from ..compat import jxl_note
+from ..engine import process_convert, unique_path
+from ..fileops import move_to_trash, remove_quietly, temp_name
+from ..formats import (
+    ARCHIVE,
+    AUDIO,
+    COMIC,
+    DOC,
+    DOCUMENT,
+    FONT,
+    ICO,
+    IMAGE_KINDS,
+    KIND_LABEL,
+    PANDOC_INPUTS,
+    PDF,
+    PICTURE,
+    PSD,
+    SVG,
+    VIDEO,
+    classify,
+    human,
+    plural,
+)
 from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
+from .dialogs import ask, inform
 from .filejob_page import ROLE_ROW, FileJobPage, option_row, set_visible
-from .settings_panel import BIN_NAME, METADATA_CHOICES
-from .style import Space
-from .widgets import Card, button, dialog_buttons, dialog_layout
+from .settings_panel import BIN_NAME, METADATA_CHOICES, NAME_TIP
+from .style import Space, Type
+from .widgets import Card, button, dialog_buttons, dialog_layout, text
 
 OUTPUT_CHOICES = [("Next to originals", "beside"), ("Save with a new name", "suffix"),
                   ("Save to another folder", "folder"), (f"Replace originals ({BIN_NAME})", "replace")]
@@ -109,7 +133,6 @@ class ConvertTab(FileJobPage):
         self.output = _combo(OUTPUT_CHOICES, qs.value("convert/output", "beside", str))
         self.suffix = QLineEdit(qs.value("convert/suffix", "_converted", str))
         self.suffix.setMaximumWidth(Space.XXL * 5)
-        from .settings_panel import NAME_TIP
 
         self.suffix.setToolTip(NAME_TIP)
         self.suffix.setAccessibleName("New name")
@@ -138,14 +161,10 @@ class ConvertTab(FileJobPage):
         self.smaller.setChecked(qs.value("convert/smaller", True, bool))
         card.lay.addLayout(option_row(("", self.dates), ("", self.smaller), ("", self.more_btn),
                                       ("", self._presets_button())))
-        from ..compat import jxl_note
-        from .style import Type
-        from .widgets import text
 
         self.jxl_note = text(jxl_note(), Type.FOOTNOTE, secondary=True, wrap=True)
         card.lay.addWidget(self.jxl_note)
         # Documents need Pandoc: downloaded on request (Windows), else installed from the system's packages.
-        from .. import addons
 
         self.pandoc_note = text("", Type.FOOTNOTE, wrap=True)
         self.pandoc_btn = button(f"Download Pandoc ({addons.PANDOC.size / 1e6:.0f} MB)…", "", None,
@@ -173,7 +192,6 @@ class ConvertTab(FileJobPage):
         self._visibility()
 
     def accepts(self, path: Path) -> bool:
-        from ..formats import DOCUMENT, PANDOC_INPUTS, classify
         from ..office import OFFICE_EXTS
 
         return classify(path) != DOCUMENT or path.suffix.lower() in (*PANDOC_INPUTS, *OFFICE_EXTS, ".pdf")
@@ -181,7 +199,6 @@ class ConvertTab(FileJobPage):
     # ---- Pandoc, for documents
 
     def _show_pandoc(self) -> None:
-        from .. import addons, tools
 
         missing = tools.find_tool("pandoc") is None and any(
             e.kind in (DOC, DOCUMENT) and (t := self.opts_for(e).target_for(e.kind)) is not None
@@ -196,8 +213,6 @@ class ConvertTab(FileJobPage):
     def _get_pandoc(self) -> None:
         from PySide6.QtCore import Signal
 
-        from .. import addons
-        from .dialogs import ask, inform
 
         a = addons.PANDOC
         if not ask(self, f"Download Pandoc {a.version}?", f"{a.what} It's {a.size / 1e6:.0f} MB, downloaded from "
@@ -285,7 +300,6 @@ class ConvertTab(FileJobPage):
         assert self._quick is not None
         target, keys = self._quick
         self._quick = None
-        from ..formats import AUDIO, VIDEO
         from . import convert_presets
 
         chosen = set()
@@ -463,7 +477,6 @@ class ConvertTab(FileJobPage):
         from PySide6.QtWidgets import QInputDialog
 
         from . import convert_presets
-        from .dialogs import ask
 
         name, ok = QInputDialog.getText(self, "Save as Preset", "Name in Explorer's menu:")
         name = name.strip()
@@ -534,7 +547,6 @@ class ConvertTab(FileJobPage):
 
     # ---- format and settings: the page's, and a file's own
     def _page_settings(self) -> None:
-        from ..formats import AUDIO, VIDEO
         from .convert_settings import ARCHIVES, COMICS, DOCS, FONTS, IMAGE, PDFS, ConvertSettingsDialog
 
         dlg = ConvertSettingsDialog(self.opts(), {IMAGE, VIDEO, AUDIO, DOCS, PDFS, FONTS, COMICS, ARCHIVES},
@@ -616,7 +628,6 @@ class ConvertTab(FileJobPage):
                 self._set_own(entries, lambda o: dataclasses.replace(o, **{k: getattr(chosen, k) for k in fields}))
 
         out.append(("Format and Settings…", edit))
-        from ..formats import AUDIO, VIDEO
 
         if len(entries) == 1 and entries[0].kind not in (VIDEO, AUDIO, DOC, DOCUMENT, PDF):
             out.append(("Make Website Icons…", lambda: self._web_icons(entries[0])))
@@ -624,7 +635,6 @@ class ConvertTab(FileJobPage):
             out.append(("Trim…", lambda: self._trim(entries[0])))
         if len(entries) > 1 and len({e.kind for e in entries}) == 1 and entries[0].kind in (VIDEO, AUDIO):
             out.append(("Join Into One File…", lambda: self._join(entries)))
-        from ..formats import ICO, IMAGE_KINDS, PSD
 
         if all(e.kind in (*IMAGE_KINDS, ICO, PSD, PICTURE, PDF) for e in entries):
             out.append(("Combine Into One PDF…", lambda: self._combine_pdf(entries)))
@@ -731,8 +741,6 @@ class ConvertTab(FileJobPage):
 
     def _trim(self, e: FileEntry) -> None:
         from .. import cutjoin
-        from ..engine import unique_path
-        from ..formats import VIDEO
         from .trim_dialog import TrimDialog, clock
 
         duration = e.video.duration if e.video is not None else e.audio.duration if e.audio is not None else 0.0
@@ -749,8 +757,6 @@ class ConvertTab(FileJobPage):
 
     def _join(self, entries: list[FileEntry]) -> None:
         from .. import cutjoin
-        from ..formats import VIDEO
-        from .dialogs import ask
 
         entries = self._ordered(entries)
         paths = [e.path for e in entries]
@@ -774,13 +780,10 @@ class ConvertTab(FileJobPage):
     def run_made(self, dest: Path, work, inputs: list[Path], method: str, busy: str) -> None:
         """Make one new file from several (``work(temp, progress, cancel)``) in the background, then put it at
         ``dest`` (a file already there goes to the Recycle Bin first) and record it in History."""
-        import threading
-        import time as _time
 
         from PySide6.QtCore import Signal
 
         from .. import journal
-        from ..fileops import move_to_trash, remove_quietly, temp_name
         from .dialogs import choose, inform
 
         if self.busy():
@@ -891,7 +894,6 @@ class ConvertTab(FileJobPage):
     @staticmethod
     def _turn_problem(e: FileEntry, opts: convert.ConvertOptions, t: tuple[str, str]) -> str:
         """Why this file can't be turned or flipped as chosen ("" when it can, or nothing is to turn)."""
-        from ..formats import VIDEO
 
         if t[0] == "keep" and not (opts.turn or opts.flip):
             return "Nothing to change yet. Choose a format, or rotate or flip the file."
@@ -939,7 +941,6 @@ class ConvertTab(FileJobPage):
         next to the picture; the lines for the page's <head> go to the clipboard."""
         from PySide6.QtWidgets import QApplication
 
-        from .. import icons
         from .dialogs import choose, inform
         from .file_model import open_in_file_manager
 

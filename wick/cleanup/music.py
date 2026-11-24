@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING
 
 from .. import index, tools
 from ..formats import AUDIO_EXTS, plural
+from ..probe import probe_audio
+from .extensions import TYPE_NAMES
 
 if TYPE_CHECKING:
     import numpy as np
@@ -153,7 +155,6 @@ def _norm(s: str) -> str:
 
 
 def describe(path: Path) -> dict | None:
-    from ..probe import probe_audio
 
     info = probe_audio(path)
     if info is None or info.duration <= 0:
@@ -166,7 +167,6 @@ def describe(path: Path) -> dict | None:
 
 
 def quality_label(d: dict, path: Path) -> str:
-    from .extensions import TYPE_NAMES
 
     ext = path.suffix.lower()
     fmt = TYPE_NAMES.get(ext, ext.lstrip(".").upper())

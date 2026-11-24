@@ -11,11 +11,14 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import tempfile
 import threading
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import tools
 
 
 @dataclass(frozen=True)
@@ -68,10 +71,8 @@ class Cancelled(Exception):
 def download(addon: Addon, progress: Callable[[int, int], None] | None = None,
              cancel: threading.Event | None = None, url: str | None = None) -> Path:
     """Download, check the fingerprint, and unpack the program. Returns its path."""
-    import tempfile
     import urllib.request
 
-    from . import tools
 
     dest = folder()
     exe = dest / Path(addon.member).name

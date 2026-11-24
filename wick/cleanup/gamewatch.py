@@ -6,6 +6,8 @@ import threading
 import time
 from pathlib import Path
 
+from ..log import log
+
 
 class GameWatcher:
     def __init__(self, folders):
@@ -24,7 +26,6 @@ class GameWatcher:
             return
         from ctypes import wintypes
 
-        from ..log import log
 
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         first = k32.FindFirstChangeNotificationW

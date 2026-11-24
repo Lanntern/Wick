@@ -7,6 +7,9 @@ When Windows High Contrast is on, no custom styling is applied at all.
 
 from __future__ import annotations
 
+import dataclasses
+import functools
+import hashlib
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -95,7 +98,6 @@ def _mix(a: QColor, b: QColor, t: float) -> str:
 def with_accent(t: Tokens, accent: str) -> Tokens:
     """``t`` with every accent color derived from ``accent``, each nudged until it meets the same contrast
     rules as the app's own blue (AA: 4.5:1 for text on buttons, and for accent-colored text on cards)."""
-    import dataclasses
 
     base = QColor(accent)
     on = "#FFFFFF"                  # as Windows does with light accents: a deeper shade behind white text
@@ -451,7 +453,6 @@ def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
 # Qt stylesheets need files for arrows/indicators; they're generated per theme.
 
 def _asset(name: str, svg: str) -> str:
-    import hashlib
 
     from ..journal import data_dir
 
@@ -695,7 +696,6 @@ QSlider[kbfocus="true"]::handle:horizontal:focus {{ border: 2px solid {t.accent}
 def safe_filter(fn):
     """Event filters can still receive events while Qt tears objects down at exit; ignore those quietly
     instead of printing 'already deleted' errors."""
-    import functools
 
     @functools.wraps(fn)
     def wrapper(self, obj, ev):

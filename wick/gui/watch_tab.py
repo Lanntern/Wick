@@ -27,6 +27,7 @@ from ..formats import human, plural
 from ..plan import plan_entry
 from ..scanner import scan
 from ..settings import Settings
+from ..suggest import watch_suggestions
 from .filelist import ListPlaceholder
 from .style import Size, Space, Type, icon
 from .watcher import FolderWatcher
@@ -273,7 +274,6 @@ class WatchTab(Page):
             self._restart()
 
     def refresh_suggestions(self) -> None:
-        from ..suggest import watch_suggestions
 
         while self.suggest_row.count():
             w = self.suggest_row.takeAt(0).widget()

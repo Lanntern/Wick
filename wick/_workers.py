@@ -4,13 +4,13 @@ process imports only this module."""
 
 from __future__ import annotations
 
+import os
 import sys
 
 
 def set_low_priority(low: bool) -> None:
     if not low:
         return
-    import os
 
     try:
         if sys.platform == "win32":

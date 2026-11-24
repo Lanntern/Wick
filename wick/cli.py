@@ -5,11 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
+import tempfile
 import threading
+import time
 from pathlib import Path
 
-from . import __version__, journal, tools
+from . import __version__, journal, presets, tools
 from .engine import DONE, FAILED, FileResult, JobEvents, run_job, undo_run
 from .formats import human
 from .plan import plan_entry
@@ -30,6 +33,7 @@ from .settings import (
     VIDEO_QUALITIES,
     Settings,
 )
+from .video import available_encoders
 
 
 def _add_settings_args(p: argparse.ArgumentParser) -> None:
@@ -266,7 +270,6 @@ def cmd_history(a: argparse.Namespace) -> int:
     if not runs:
         print("No runs yet.")
         return 0
-    import time
     for r in runs:
         when = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.started))
         print(f"{r.run_id}  {when}  {r.active_files:>4} files  saved {human(r.saved_bytes):>9}  {r.root}")
@@ -290,7 +293,6 @@ def cmd_undo(a: argparse.Namespace) -> int:
 
 
 def cmd_presets(a: argparse.Namespace) -> int:
-    from . import presets
 
     for name in presets.names():
         print(f"{name}\n    {presets.description(name)}")
@@ -298,7 +300,6 @@ def cmd_presets(a: argparse.Namespace) -> int:
 
 
 def cmd_tools(a: argparse.Namespace) -> int:
-    from .video import available_encoders
 
     for name, path in tools.tool_status().items():
         print(f"{name:8} {path or 'MISSING'}")
@@ -310,8 +311,6 @@ def cmd_tools(a: argparse.Namespace) -> int:
 
 def _decoder_check(report: Path) -> int:
     """Decode a picture in a decoder worker; write {"ok", "applied", "unavailable"} as JSON to ``report``."""
-    import json
-    import tempfile
 
     from PIL import Image
 
@@ -365,7 +364,6 @@ def _installer_setup(args: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    import os
 
     args = sys.argv[1:] if argv is None else argv
     if args and args[0] == "mcp":       # an AI agent's connection (stdio): before anything touches stdout
@@ -395,8 +393,6 @@ def main(argv: list[str] | None = None) -> int:
         from .gui import integration, jumplist, toasts
 
         def old_temp_files() -> None:          # (versions before 0.2.0 kept their UI images in %TEMP%)
-            import shutil
-            import tempfile
 
             shutil.rmtree(os.path.join(tempfile.gettempdir(), "wick-ui"), ignore_errors=True)
 

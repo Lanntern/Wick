@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QDialog, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout
 
 from .. import APP_NAME
+from .main_window import app_icon
 from .settings_panel import BIN_NAME
 from .style import Size, Space, Type, icon_pixmap, tokens
 from .widgets import button, text
@@ -34,7 +35,6 @@ class WelcomeDialog(QDialog):
         lay.setSpacing(Space.L)
 
         logo = QLabel()
-        from .main_window import app_icon
 
         logo.setPixmap(app_icon().pixmap(Size.ICON_L * 3 // 2, Size.ICON_L * 3 // 2))
         logo.setAccessibleName(f"{APP_NAME} icon")

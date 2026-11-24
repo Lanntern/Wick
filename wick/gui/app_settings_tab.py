@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 from typing import cast
 
 from PySide6.QtCore import QSettings, Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QComboBox, QFrame, QHBoxLayout, QVBoxLayout, QWidget
 
-from .. import APP_NAME, __version__, index, tools
+from .. import APP_NAME, __version__, index, scanner, tools
+from .. import log as applog
 from ..fileops import BIN_NAME
 from ..formats import human
+from ..log import diagnostics
 from . import devmode, integration
+from . import style as _style
 from .dialogs import ask, inform, warn
+from .main_window import MainWindow
+from .scroll_effects import EdgeScrollArea
 from .style import Space, Type
 from .theme import THEMES
 from .widgets import Card, Page, ToggleSwitch, button, text
@@ -87,7 +94,6 @@ class AppSettingsTab(Page):
         self.theme.setCurrentIndex(max(0, self.theme.findData(self.qs.value("theme", "system", str))))
         self.theme.currentIndexChanged.connect(self._theme_changed)
         card.lay.addWidget(setting_row("Theme", "", self.theme))
-        from . import style as _style
 
         if _style.windows_accent() is not None:
             card.lay.addWidget(separator())
@@ -115,7 +121,6 @@ class AppSettingsTab(Page):
         card.lay.addWidget(setting_row("Check for savings once a month",
                                        "Lets you know when 1 GB or more could be freed.", self.monthly))
         card.lay.addWidget(separator())
-        from .main_window import MainWindow
 
         self.low_space = QComboBox()
         self.low_space.setAccessibleName("When a drive is almost full")
@@ -361,7 +366,6 @@ class AppSettingsTab(Page):
         hl.setContentsMargins(Space.XXL, 0, Space.XXL, 0)
         hl.addWidget(content, 1)
         hl.addStretch(0)
-        from .scroll_effects import EdgeScrollArea
 
         holder.setObjectName("inspectorBody")
         self.settings_scroll = EdgeScrollArea(holder)
@@ -374,7 +378,6 @@ class AppSettingsTab(Page):
         everything.ENABLED = on
 
     def _fast_drives_toggled(self, on: bool) -> None:
-        from .. import scanner
 
         self.qs.setValue("fast_drive_scan", on)
         scanner.FAST_DRIVES = on
@@ -411,7 +414,6 @@ class AppSettingsTab(Page):
                 n, size = 0, 0
             self.index_counted.emit(n, size)
 
-        import threading
 
         threading.Thread(target=count, daemon=True, name="index-stats").start()
 
@@ -430,7 +432,6 @@ class AppSettingsTab(Page):
 
     def _history_toggled(self, on: bool) -> None:
         from .. import journal, pending
-        from .. import log as applog
 
         self.qs.setValue("history_enabled", on)
         journal.ENABLED = on
@@ -460,7 +461,6 @@ class AppSettingsTab(Page):
             self._update_index_stats()
 
     def show_update_status(self, message: str = "") -> None:
-        import time
 
         self.update_status.setVisible(True)
         if message:
@@ -547,7 +547,6 @@ class AppSettingsTab(Page):
         report_problem(self)
 
     def _copy_diagnostics(self) -> None:
-        from ..log import diagnostics
 
         QGuiApplication.clipboard().setText(diagnostics())
         inform(self, "Diagnostics copied", "Paste them into an email or bug report.")
@@ -557,19 +556,16 @@ class AppSettingsTab(Page):
         self.win.taskbar._apply()             # show or hide it at once (during a job)
 
     def update_dev_section(self) -> None:
-        from . import devmode
 
         self.dev_section.setVisible(devmode.enabled(self.qs))
 
     def _fluent_toggled(self, on: bool) -> None:
-        from . import devmode
 
         self.qs.setValue("dev/fluent_icons", on)
         devmode.apply(self.qs)
         self.win.refresh_colors()
 
     def _accent_toggled(self, on: bool) -> None:
-        from . import style as _style
 
         self.qs.setValue("accent/system", on)
         _style.set_system_accent(on)

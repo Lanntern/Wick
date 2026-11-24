@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QSizePolicy, QStack
 
 from .cleanup_section import ScanWorker, ToolSection
 from .cleanup_tools import tools
+from .dialogs import inform
 from .style import Space
 from .widgets import Page, button, dialog_buttons, dialog_layout
 
@@ -150,7 +151,6 @@ class CleanupTab(Page):
 
     def scan_common(self) -> None:
         from ..cleanup.common import ScanResult, shared_inventory
-        from .dialogs import inform
 
         if self.busy():
             inform(self, "Wait for the current cleanup operation to finish, or stop it first.")

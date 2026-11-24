@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 import threading
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
@@ -63,7 +65,6 @@ class _Analyze(QThread):
         self.cancel = threading.Event()
 
     def run(self) -> None:
-        from contextlib import nullcontext
 
         from .. import power
 
@@ -337,7 +338,6 @@ class HomeTab(Page):
                                           "Looking through your folders…")
 
     def _show_drive(self) -> None:
-        import shutil
 
         from ..space import anchor
 

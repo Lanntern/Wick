@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import queue
+import time
 from pathlib import Path
 from typing import cast
 
@@ -11,7 +13,7 @@ from PySide6.QtWidgets import QCheckBox, QComboBox
 
 from .. import metaclean
 from ..engine import process_metadata
-from ..formats import plural
+from ..formats import AUDIO, DOCUMENT, plural
 from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
@@ -122,7 +124,6 @@ class MetadataTab(FileJobPage):
                         output_suffix="_clean", preserve_dates=self.dates.isChecked(), metadata="keep")
 
     def accepts(self, path: Path) -> bool:
-        from ..formats import AUDIO, DOCUMENT
 
         kind = metaclean.kind_of(path)   # about photos and videos; music tags aren't private data
         return kind not in (AUDIO, DOCUMENT)
@@ -216,8 +217,6 @@ class MetadataTab(FileJobPage):
                 row.setToolTip(self.STATUS_COL, summary.error)
 
     def _drain(self) -> None:
-        import queue
-        import time
 
         worker = cast(MetadataScan, self.scan_thread)
         self.selection_count()  # incorporate any user checkbox changes before appending

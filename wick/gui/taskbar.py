@@ -13,6 +13,8 @@ import ctypes
 import sys
 
 from ..log import log
+from ..macobjc import Pool, cls, nsstring, sel, send
+from .style import icon_pixmap
 
 IS_WINDOWS = sys.platform == "win32"
 IS_MAC = sys.platform == "darwin"
@@ -41,7 +43,6 @@ def _hicon(name: str, size: int, light_taskbar: bool):
 
     from PySide6.QtGui import QImage
 
-    from .style import icon_pixmap
 
     img = icon_pixmap(name, "#202020" if light_taskbar else "#FFFFFF", size, 1.0, 2.0).toImage() \
         .convertToFormat(QImage.Format_ARGB32)
@@ -183,7 +184,6 @@ class Taskbar:
     def _apply_mac(self) -> None:
         import ctypes as c
 
-        from ..macobjc import Pool, cls, nsstring, sel, send
 
         label = self.badge()
         if label == getattr(self, "_shown_badge", None):

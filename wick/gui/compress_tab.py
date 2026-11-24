@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import html
 import os
+from collections import Counter
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
@@ -24,9 +26,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import pending, tools
+from .. import pending, summary, tools
 from ..engine import DONE
 from ..formats import AUDIO, DOCUMENT, KIND_LABEL, VIDEO, human, plural, type_label
+from ..mediainfo import describe
 from ..plan import plan_entry
 from ..settings import Settings
 from .dialogs import ask, inform, warn
@@ -543,9 +546,7 @@ class CompressTab(QWidget):
         self.update_summary()
 
     def _update_breakdown(self) -> None:
-        import html
 
-        from .. import summary
 
         rows = [r for r in self.model.rows if r.checked and r.plan.convert
                 and not (r.result and r.result.status == DONE)]
@@ -734,7 +735,6 @@ class CompressTab(QWidget):
             path, size = r.result.output, r.result.new_size
         if not path.exists():
             return None
-        from ..mediainfo import describe
 
         meta = [KIND_LABEL.get(e.kind, e.kind), human(size), describe(e)]
         return path, e.kind, path.name, " · ".join(m for m in meta if m)
@@ -842,7 +842,6 @@ class CompressTab(QWidget):
         p = getattr(self, "_pending", None)
         if p is None or self.busy():
             return
-        from ..settings import Settings
 
         self.resume_banner.hide()
         self.panel.load(Settings.from_dict(p.settings))     # the options the job was started with
@@ -891,7 +890,6 @@ class CompressTab(QWidget):
 
     def _why_nothing(self) -> str:
         """Every file was skipped: say why (the commonest reasons), not just that."""
-        from collections import Counter
 
         rows = self.model.rows
         reasons = Counter(r.plan.reason for r in rows if not r.plan.convert)

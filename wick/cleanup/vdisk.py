@@ -27,6 +27,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from ..fileops import remove_quietly, temp_name
 from .common import Candidate, cancelled
 
 IS_WINDOWS = sys.platform == "win32"
@@ -318,7 +319,6 @@ def _wsl_and_docker(items: list[Candidate], say, cancel) -> list[tuple[Candidate
 
 
 def _diskpart(items: list[Candidate], say) -> list[tuple[Candidate, bool, str, int]]:
-    from ..fileops import remove_quietly, temp_name
 
     before = {c.path: c.path.stat().st_size for c in items if c.path.is_file()}
     script = temp_name(Path(os.environ.get("TEMP") or "."), ".txt", "-diskpart")

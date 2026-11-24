@@ -16,6 +16,7 @@ import threading
 import time
 from pathlib import Path
 
+from ..fileops import remove_quietly, temp_name
 from .common import Candidate, ProgressFn, ScanResult, cancelled, folder_size
 
 IS_WINDOWS = sys.platform == "win32"
@@ -344,7 +345,6 @@ def run_system(keys: list[str], cancel: threading.Event | None = None,
     """Run the batch elevated (one UAC prompt) and wait. (ok, message)."""
     if not keys:
         return True, ""
-    from ..fileops import remove_quietly, temp_name
 
     ps1 = temp_name(Path(_env("TEMP") or "."), ".ps1", "-winclean")
     ps1.write_text(script(keys, files), encoding="utf-8-sig")

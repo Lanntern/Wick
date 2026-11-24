@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 
+from .. import walk
 from ..formats import TEMP_PREFIX, classify
 
 POLL_SECONDS = 3.0
@@ -67,7 +68,6 @@ class FolderWatcher(QObject):
 
     # ---- internals
     def _iter_files(self):
-        from .. import walk
 
         def visible(e: os.DirEntry) -> bool:
             return not (e.name.startswith(".") or e.name.startswith(TEMP_PREFIX))

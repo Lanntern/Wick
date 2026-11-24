@@ -7,7 +7,7 @@ from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QAbstractScrollArea, QHeaderView, QWidget
 
-from .style import Size, Space, Type, tokens, ui_font
+from .style import Size, Space, Type, assets, tokens, ui_font
 
 
 class _HeaderCap(QWidget):
@@ -344,7 +344,6 @@ class Header(QHeaderView):
         from PySide6.QtCore import QByteArray
         from PySide6.QtSvg import QSvgRenderer
 
-        from .style import assets
 
         if self._check is None:
             return 0

@@ -15,6 +15,8 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from . import tools
+
 # Each Homebrew package and the programs Wick uses from it.
 FORMULAE = {"ffmpeg": ("ffmpeg", "ffprobe"), "jpeg-xl": ("cjxl", "djxl"), "gifsicle": ("gifsicle",)}
 BREW_LOCATIONS = (Path("/opt/homebrew/bin/brew"), Path("/usr/local/bin/brew"))
@@ -31,7 +33,6 @@ def brew() -> Path | None:
 
 def missing_formulae() -> list[str]:
     """The Homebrew packages that would provide the encoders Wick can't find."""
-    from . import tools
 
     return [f for f, programs in FORMULAE.items() if any(tools.find_tool(p) is None for p in programs)]
 
@@ -65,7 +66,6 @@ def install(formulae: list[str], progress: Callable[[str], None] | None = None,
             raise InstallFailed("Stopped")
     if proc.wait() != 0:
         raise InstallFailed("\n".join(tail) or f"brew exited with {proc.returncode}")
-    from . import tools
 
     tools.find_tool.cache_clear()          # (look again: the new programs are in Homebrew's folder now)
 

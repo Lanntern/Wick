@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from pathlib import Path
@@ -13,7 +14,8 @@ from PySide6.QtCore import QEvent, QObject, QPoint, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import QApplication, QMenu, QTreeWidget, QTreeWidgetItem, QWidget
 
-from .style import safe_filter
+from .header import Header
+from .style import Space, Type, safe_filter, tokens, ui_font
 
 SORT_ROLE = Qt.UserRole + 50   # optional per-cell sort key (numbers, timestamps); otherwise the text sorts
 
@@ -47,7 +49,6 @@ def set_sort_keys(item: QTreeWidgetItem, keys: dict[int, object]) -> None:
 
 def make_sortable(tree: QTreeWidget, column: int = 0, order: Qt.SortOrder = Qt.AscendingOrder):
     """Clickable, sortable headers drawn in the app style. Returns the header."""
-    from .header import Header
 
     old = tree.header()
     widths = [old.sectionSize(i) for i in range(old.count())]
@@ -295,7 +296,6 @@ class ListPlaceholder(QWidget):
     def _ring_rect(self):
         from PySide6.QtCore import QRect
 
-        from .style import Space
 
         r = Space.L + 3
         cx, cy = self.width() // 2, self.height() // 2 - Space.L
@@ -314,7 +314,6 @@ class ListPlaceholder(QWidget):
         from PySide6.QtCore import QRectF
         from PySide6.QtGui import QColor, QPainter, QPen
 
-        from .style import Space, Type, tokens, ui_font
 
         t = tokens()
         p = QPainter(self)
@@ -412,7 +411,6 @@ def format_date(ts: float | None) -> str:
     """2026-11-06 14:05 (ISO order: sorts and reads the same everywhere)."""
     if not ts:
         return ""
-    import time
 
     return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 

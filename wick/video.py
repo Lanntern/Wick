@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
 import sys
+import tempfile
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cache, lru_cache
 from pathlib import Path
 
+from . import audio as audio_mod
 from . import steps, tools
+from .audio import SPEECH_KBPS
 from .fileops import remove_quietly, temp_name
-from .formats import plural
+from .formats import human, plural
 from .images import NotWorthIt, VerificationFailed
+from .log import log
 from .plan import Plan
-from .probe import StreamInfo, VideoInfo, probe_video
-from .settings import Settings
+from .probe import NOT_MEASURED, AudioInfo, StreamInfo, VideoInfo, detect_cadence, is_camera_original, probe_video
+from .settings import Settings, my_languages
 
 # GPU encoders, tried in this order: NVIDIA (NVENC), Intel (Quick Sync), AMD (AMF), Apple (VideoToolbox: Macs have
 # no AV1 encoder). Each is used only if a short test encode with its real settings works on this computer
@@ -273,8 +281,6 @@ def check_quality_budget(score, info: VideoInfo, s: Settings, encoder: str) -> N
 
 def _encoder_cache(ffmpeg: str) -> tuple[Path, str, dict]:
     """Saved test results for this exact ffmpeg build (so each launch doesn't re-test the GPU)."""
-    import json
-    import os
 
     from .journal import data_dir
 
@@ -296,8 +302,6 @@ def encoder_works(encoder: str) -> bool:
     """Try a tiny test encode; NVENC is only usable with a supported NVIDIA GPU + driver.
     Results are remembered for a week per ffmpeg build (a GPU that stops working still falls back to the
     CPU encoder on Auto)."""
-    import json
-    import time
 
     ffmpeg = tools.find_tool("ffmpeg")
     if not ffmpeg:
@@ -408,7 +412,6 @@ def codec_for(info: VideoInfo | None, s: Settings) -> str:
     smooth too much; and more devices play it), AV1 for everything else."""
     if s.video_codec != "auto":
         return s.video_codec
-    from .probe import is_camera_original
 
     if info is not None and is_camera_original(info):
         return "hevc"
@@ -426,7 +429,6 @@ def select_tracks(info: VideoInfo, s: Settings) -> tuple[list, list, list]:
     default track, else the first), so a film always keeps its original audio. Nothing is dropped when
     the option is off."""
     from .languages import track_codes
-    from .settings import my_languages
 
     audio, subs = info.audio_streams(), info.subtitle_streams()
     keep_a, keep_s = audio, subs
@@ -497,7 +499,6 @@ _TEXT_SUBTITLES = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text", "text"}
 def find_duplicate_subtitles(src: Path, info: VideoInfo) -> None:
     """Mark text subtitle tracks that repeat another one in the same language (same lines at the same times,
     styling aside). Of each set, a styled (ASS) track is kept over a plain one, else the first."""
-    import hashlib
 
     seen: dict[tuple, StreamInfo] = {}
     tracks = sorted((t for t in info.subtitle_streams() if t.codec in _TEXT_SUBTITLES),
@@ -519,8 +520,6 @@ def find_duplicate_subtitles(src: Path, info: VideoInfo) -> None:
 def analyse_audio(src: Path, info: VideoInfo, s: Settings, mp4: bool) -> None:
     """Listen to the soundtracks where the answer changes what's done: silent ones (when they may be left out),
     stereo with identical channels (stored as mono when the track is encoded), and talk (a lower bitrate)."""
-    from . import audio as audio_mod
-    from .probe import AudioInfo
 
     if s.video_dup_audio:
         try:
@@ -634,7 +633,6 @@ def crop_filter(info: VideoInfo) -> str:
 def detect_bars(src: Path, info: VideoInfo, cancel: threading.Event | None = None) -> tuple[int, int, int, int] | None:
     """Black bars around the picture, found at several points of the video (the area kept is the union of what
     every point shows, so nothing that's ever on screen is cut). None if there are none worth removing."""
-    import re
 
     ffmpeg = tools.require("ffmpeg")
     seconds = max(1.0, info.duration)
@@ -1114,7 +1112,6 @@ _MKV_SUBTITLES = {"ass", "ssa", "subrip", "srt", "webvtt", "hdmv_pgs_subtitle", 
 
 
 def _speech_kbps(mp4: bool) -> int:
-    from .audio import SPEECH_KBPS
 
     return SPEECH_KBPS["aac" if mp4 else "opus"]["balanced"]
 
@@ -1288,7 +1285,6 @@ def preview_video(src: Path, info: VideoInfo, s: Settings, cancel: threading.Eve
                   start: float | None = None, frame_count: int = 12) -> VideoPreview:
     """Encode a short sample (from the middle, or from ``start``), measure it, estimate the full result,
     and extract matching frames from the original and the sample for a side-by-side comparison."""
-    import tempfile
 
     from . import quality
 
@@ -1374,9 +1370,7 @@ def convert_video(
     cancel: threading.Event | None = None,
 ) -> tuple[Path, str]:
     """Encode to a temp file next to ``src``; verify; return (temp path, encoder used)."""
-    import tempfile
 
-    from .probe import NOT_MEASURED, detect_cadence
 
     if plan.route == "video" and s.video_fix_cadence and info.cadence == NOT_MEASURED:
         # (left until now for videos that are re-encoded whatever it finds: see scanner.probe_entries)
@@ -1564,7 +1558,6 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
 def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Settings, codec: str, encoder: str,
                    audio_tracks: int, on_progress, cancel, fonts=None) -> tuple[Path, str]:
     """Encode at the bitrate that fits ``s.fit_under_kb``; if the encoder overshoots, again a little lower."""
-    from .formats import human
 
     limit = s.fit_under_kb * 1024
     try:
@@ -1628,7 +1621,6 @@ def verify_video(src: VideoInfo, out: Path, codec: str,
     if (got.width, got.height) != tuple(expected_size):
         raise VerificationFailed(f"Output is {got.width}×{got.height}, expected {expected_size[0]}×{expected_size[1]}")
     # Decode the start and the end to catch truncated or corrupt output.
-    from .log import log
 
     for seek in (["-t", "3"], ["-sseof", "-3"]):
         code, messages = _decode_check(out, seek)

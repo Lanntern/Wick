@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 import sys
 
+from . import style
+
 KEY = "dev/enabled"
 CLICKS = 7
 
@@ -22,7 +24,6 @@ def toggle(qs) -> bool:
 
 def apply(qs) -> None:
     """Apply the developer settings at start-up."""
-    from . import style
 
     # Windows' own icons (Segoe Fluent / MDL2) by default on Windows; the app's drawn icons elsewhere, or when
     # turned off in the developer settings.

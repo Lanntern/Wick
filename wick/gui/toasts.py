@@ -9,6 +9,7 @@ Off in Settings, off Windows, or if anything fails, the caller falls back to the
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from xml.sax.saxutils import escape, quoteattr
@@ -29,7 +30,6 @@ def link(target: str) -> str:
 
 def target_from_link(url: str) -> str:
     """``wick:open/history`` -> ``history`` ("" for anything else)."""
-    import re
 
     prefix = f"{SCHEME}:open/"
     url = url.strip().strip('"')

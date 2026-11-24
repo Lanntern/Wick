@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import dataclasses
 import io
+import json as _json
 import re
+import re as _re
+import shutil
+import tempfile
 import threading
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import audio, icons, steps, tools
 from . import metadata as md
-from . import steps, tools
 from .fileops import link_or_copy, remove_quietly, temp_name
 from .formats import (
     ARCHIVE,
@@ -32,7 +38,7 @@ from .formats import (
 )
 from .images import Ctx, VerificationFailed, decoded_path, filtered_meta, load_frames, load_static, open_image
 from .plan import Plan
-from .probe import VideoInfo, probe_video
+from .probe import VideoInfo, probe_audio, probe_video
 from .settings import Settings
 
 # id: (label, extension, supports animation, supports lossless, lossy quality applies)
@@ -516,7 +522,6 @@ def _turn_jpeg(src: Path, opts: ConvertOptions) -> Path:
 
 def video_rotation(path: Path) -> int:
     """The video's display rotation in degrees counter-clockwise (what ffmpeg's -display_rotation takes)."""
-    import json as _json
 
     ffprobe = tools.require("ffprobe")
     p = tools.run([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream_side_data=rotation",
@@ -569,7 +574,6 @@ def _make_icon_or_svg(ctx: Ctx, target: str, opts: ConvertOptions) -> None:
     """An .ico with the chosen sizes (an SVG drawn at each size), or an optimized copy of an SVG; both checked."""
     from PIL import Image
 
-    from . import icons
 
     if target == "svg":
         if ctx.kind != SVG:
@@ -613,7 +617,6 @@ def _make_icon_or_svg(ctx: Ctx, target: str, opts: ConvertOptions) -> None:
 def _decode_raw(ctx: Ctx) -> None:
     """A camera RAW photo developed by LibRaw with the camera's white balance (as the camera's own JPEG would
     be), turned upright, to an 8-bit PNG. Its EXIF comes along when the RAW keeps it TIFF-style (most do)."""
-    import dataclasses
 
     import rawpy
     from PIL import Image
@@ -642,7 +645,6 @@ def _decode_raw(ctx: Ctx) -> None:
 def _draw_svg(ctx: Ctx, size: int) -> None:
     """Draw an SVG to a PNG: at its own size, or with its longest side ``size`` pixels (a drawing scales up
     as sharply as it scales down)."""
-    import dataclasses
 
     from PySide6.QtCore import QRectF, Qt
     from PySide6.QtGui import QImage, QPainter
@@ -892,7 +894,6 @@ def video_to_animation(src: Path, info: VideoInfo, target: str, opts: ConvertOpt
                        cancel: threading.Event | None = None) -> Path:
     """A video as a GIF (its own 256-color palette, made for this video) or an animated WebP. Unless chosen
     otherwise: at most 480 pixels on the short side and 15 (GIF) or 24 (WebP) frames a second."""
-    import dataclasses
 
     from PIL import Image
 
@@ -994,7 +995,6 @@ def extract_audio(src: Path, target: str, opts: ConvertOptions, s: Settings,
                   cancel: threading.Event | None = None) -> tuple[Path, str]:
     """A video's sound as an audio file: (temp file, what was done). Copied untouched when it's already in
     the chosen format and nothing about it is to change; otherwise encoded like Convert's audio."""
-    from .probe import probe_audio
 
     info = probe_audio(src, allow_video=True)
     if info is None:
@@ -1029,7 +1029,6 @@ def convert_pdf(src: Path, target: str, opts: ConvertOptions,
                 cancel: threading.Event | None = None) -> Path:
     """A PDF's pages as images or single-page PDFs (a temp folder), or a copy with its pages turned or its
     password added or removed (a temp file). Every result is checked."""
-    import shutil
 
     from . import pdftools
 
@@ -1094,9 +1093,7 @@ def convert_font(src: Path, target: str, opts: ConvertOptions) -> Path:
 def comic_pages(src: Path, folder: Path) -> list[Path]:
     """A comic book's pictures, in reading order (natural: 2 before 10), written to ``folder`` under plain
     names (the archive's own names are never used as paths)."""
-    import re as _re
     import tarfile
-    import zipfile
 
     from PIL import Image
 
@@ -1155,8 +1152,6 @@ def comic_pages(src: Path, folder: Path) -> list[Path]:
 def convert_comic(src: Path, opts: ConvertOptions, on_progress: Callable[[float], None] | None = None,
                   cancel: threading.Event | None = None) -> Path:
     """A comic book as one PDF, a page per picture (JPEGs as they are)."""
-    import shutil
-    import tempfile
 
     from . import pdftools
 
@@ -1252,9 +1247,7 @@ def convert_audio(src: Path, info, target: str, s: Settings,
                   on_progress: Callable[[float], None] | None = None,
                   cancel: threading.Event | None = None, opts: ConvertOptions | None = None) -> Path:
     """Audio to MP3/AAC/Opus/FLAC (high quality, channels unchanged unless ``opts`` say otherwise) or WAV."""
-    import dataclasses
 
-    from . import audio
 
     o = opts or ConvertOptions()
     channels = o.channels if o.channels and o.channels != info.channels else 0

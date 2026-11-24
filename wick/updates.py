@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import __version__
 
@@ -43,8 +45,6 @@ PACKAGE_MANAGERS: dict[str, tuple[str, str]] = {      # source -> (name, update 
 def install_source(exe: str | None = None) -> str:
     """"scoop", "winget", "homebrew" or "" (the installer, zip or disk image from the download page, or running from
     source)."""
-    import sys
-    from pathlib import Path
 
     if exe is None:
         if not getattr(sys, "frozen", False):

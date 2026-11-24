@@ -11,6 +11,7 @@ from pathlib import Path
 
 from ..formats import plural
 from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
+from .similar import format_pair, live_companion
 
 PARTIAL = 64 * 1024
 HASH_READERS = 4               # files read and hashed at once on SSDs (one on hard drives: see drives.readers)
@@ -186,7 +187,6 @@ def switch_keeper(items: list[Candidate], new_keeper: Path) -> list[Candidate]:
         kst = os.stat(new_keeper)
     except OSError:
         return items
-    from .similar import format_pair, live_companion
 
     similar = str(items[0].group).startswith("sim")
     # Copies that differ (another encoding of the same song or video) carry a description of each copy.

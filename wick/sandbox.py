@@ -18,8 +18,11 @@ import atexit
 import json
 import os
 import sys
+import tempfile
 import threading
 from pathlib import Path
+
+from .log import log
 
 START_TIMEOUT = 30.0          # a new worker must be ready within this (antivirus scans the first start)
 MAX_IDLE = 8                  # workers kept for later calls
@@ -47,7 +50,6 @@ def tmp_dir() -> str:
     if sys.platform == "win32":
         base = Path(os.environ.get("USERPROFILE") or Path.home()) / "AppData" / "LocalLow"
         return str(base / "Wick" / "decode")
-    import tempfile
 
     return str(Path(tempfile.gettempdir()) / "wick-decode")
 
@@ -194,7 +196,6 @@ def call(fn: str, *args, timeout: float = 120.0, max_bytes: int = 0) -> tuple[di
 def _log_failure(fn: str, args: tuple, failure: DecoderFailed, exitcode: int | None) -> None:
     """A worker that crashed, hung or misbehaved: which file, doing what, and how it ended (an exit code like
     0xC0000005, an access violation, points at a decoder bug; repeated ones at a crafted file)."""
-    from .log import log
 
     path = next((a for a in args if isinstance(a, str) and ("/" in a or "\\" in a)), "")
     # (Windows reports a crash as a large status like 0xC0000005; elsewhere -N means signal N.)

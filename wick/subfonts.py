@@ -9,6 +9,7 @@ checked. Nothing is decided by guessing: when a subtitle track can't be read, ev
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,7 +116,6 @@ def _may_subset(font) -> bool:
 
 def quiet_fonttools() -> None:
     """fontTools reports each table it can't cut ("FFTM NOT subset"): routine, not for the user's console."""
-    import logging
 
     for name in ("fontTools.subset", "fontTools.ttLib", "fontTools"):
         logging.getLogger(name).setLevel(logging.ERROR)

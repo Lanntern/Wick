@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -281,7 +282,6 @@ def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  #
     """
     if info.fps < 29 or info.duration < 3 or info.vfr or info.interlaced or is_camera_original(info):
         return 0
-    import re
     import statistics
 
     start = max(0.0, info.duration * 0.4 - seconds / 2)

@@ -17,12 +17,13 @@ import threading
 import time
 from pathlib import Path
 
+from .macobjc import Pool, cls, nsstring_path, sel, send, text_of
+
 _lock = threading.Lock()
 
 
 def trash_item(path: Path) -> Path:
     """Move ``path`` to the Trash; returns where it is now. Raises OSError if macOS refused."""
-    from .macobjc import Pool, cls, nsstring_path, sel, send, text_of
 
     with Pool():
         url = send(ctypes.c_void_p, ctypes.c_void_p)(cls("NSURL"), sel("fileURLWithPath:"), nsstring_path(path))

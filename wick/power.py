@@ -16,6 +16,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from .macobjc import cls, nsstring, sel, send
+
 _ES_CONTINUOUS = 0x80000000
 _ES_SYSTEM_REQUIRED = 0x00000001
 
@@ -37,7 +39,6 @@ def _mac_begin() -> bool:
     global _activity
     import ctypes
 
-    from .macobjc import cls, nsstring, sel, send
 
     try:
         info = send(ctypes.c_void_p)(cls("NSProcessInfo"), sel("processInfo"))
@@ -57,7 +58,6 @@ def _mac_end() -> None:
     global _activity
     import ctypes
 
-    from .macobjc import cls, sel, send
 
     if _activity is None:
         return

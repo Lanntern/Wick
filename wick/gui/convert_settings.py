@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 
 from .. import convert
 from ..formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, PDF, VIDEO
+from ..icons import ICO_PRESETS, preset_of
 from .style import Size, Space, Type
 from .widgets import dialog_buttons, dialog_layout, text
 
@@ -238,7 +239,6 @@ class ConvertSettingsDialog(QDialog):
         self._enable()
 
     def _ico_preset_chosen(self) -> None:
-        from ..icons import ICO_PRESETS
 
         key = self.ico_preset.currentData()
         if key in ICO_PRESETS:
@@ -248,7 +248,6 @@ class ConvertSettingsDialog(QDialog):
                 b.blockSignals(False)
 
     def _ico_ticked(self) -> None:
-        from ..icons import preset_of
 
         self.ico_preset.blockSignals(True)
         self.ico_preset.setCurrentIndex(self.ico_preset.findData(preset_of(self._ico_sizes())))

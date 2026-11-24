@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -35,8 +36,10 @@ from ..cleanup import (
 from ..cleanup import apps as apps_mod
 from ..cleanup.common import Candidate
 from ..fileops import BIN_NAME
+from .app_controls import FileTypePicker, algorithm_picker
 from .cleanup_section import Tool, ToolSection, existing_folders
-from .widgets import SizeInput, button, dialog_buttons, dialog_layout
+from .dialogs import inform
+from .widgets import SizeInput, button, dialog_buttons, dialog_layout, hbox
 
 # ---------------------------------------------------------------- tool definitions
 
@@ -187,13 +190,9 @@ def _days_option(key: str, default: int, label: str, tip: str):
 
 
 def _appcompress_options(sec: ToolSection):
-    import json
 
     from PySide6.QtWidgets import QCheckBox, QDialog, QWidget
 
-    from .app_controls import FileTypePicker, algorithm_picker
-    from .dialogs import inform
-    from .widgets import hbox
 
     group, algorithm = algorithm_picker(sec.qs.value('appcompress/algorithm', appcompress.DEFAULT_ALGORITHM, str))
     algorithm.setAccessibleName('App and game compression algorithm')

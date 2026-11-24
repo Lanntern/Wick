@@ -33,6 +33,7 @@ from .formats import plural
 from .probe import VideoInfo, probe_video
 from .scanner import PARTS_PREFIX
 from .settings import Settings
+from .video import drops_repeats, has_filter, is_gpu
 
 PARTS_VERSION = 2
 PARTS_KEEP_DAYS = 14
@@ -44,7 +45,6 @@ SCENE_THRESHOLD = 12          # ffmpeg scdet: how different two frames must be t
 
 
 def applies(info: VideoInfo, s: Settings, encoder: str) -> bool:
-    from .video import drops_repeats, is_gpu
 
     return (s.video_chunked and not is_gpu(encoder) and info.duration >= MIN_VIDEO_SECONDS
             and info.fps > 0 and not drops_repeats(info, s))
@@ -53,7 +53,6 @@ def applies(info: VideoInfo, s: Settings, encoder: str) -> bool:
 # ---------------------------------------------------------------- where the cuts go
 def scene_cuts(src: Path, info: VideoInfo, cancel: threading.Event | None = None) -> list[float]:
     """Times (seconds) of the first frame of each new scene, found on a small copy of the picture."""
-    from .video import has_filter
 
     if not has_filter("scdet"):
         return []

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable, Iterable
@@ -11,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import walk
 from .formats import (
     ARCHIVE,
     AUDIO,
@@ -38,7 +40,7 @@ from .formats import (
     read_image_info,
     sniff,
 )
-from .probe import AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
+from .probe import NOT_MEASURED, AudioInfo, VideoInfo, detect_cadence, probe_audio, probe_video
 from .protected import cloud_only, inside_library, is_hidden, is_library
 from .settings import Settings
 
@@ -274,7 +276,6 @@ def _fast_listing(root: Path, progress: ProgressFn | None, cancel: threading.Eve
             return listing
     if not (FAST_DRIVES and _is_drive_root(root)):
         return None
-    import tempfile
 
     from . import ntfs
 
@@ -348,7 +349,6 @@ def walk_listing(result: ScanResult, root: Path, listing, root_index: int, setti
 def _walk(result: ScanResult, root: Path, settings: Settings, progress: ProgressFn | None,
           cancel: threading.Event | None, seen: set[str],
           found: Callable[[FileEntry], None] | None = None) -> None:
-    from . import walk
 
     def enter(c: os.DirEntry) -> bool:
         if c.name.lower() in EXCLUDED_DIR_NAMES or c.name.startswith(PARTS_PREFIX):
@@ -445,7 +445,6 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
                   ready: Callable[[list[FileEntry]], None] | None = None) -> None:
     """Read image headers and video info (in parallel). Repeated frames in videos are only looked for when
     the option to remove them is on (one FFmpeg run per video saved otherwise)."""
-    from .probe import NOT_MEASURED
 
     cadence = settings is None or settings.video_fix_cadence
     from . import index

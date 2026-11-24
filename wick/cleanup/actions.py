@@ -10,11 +10,22 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .. import cfa, journal
-from ..fileops import BIN_NAME, copy_times, move_to_trash, remove_quietly, temp_name, trash_available
+from .. import cfa, journal, trash_restore
+from ..fileops import (
+    BIN_NAME,
+    clone_file,
+    copy_times,
+    move_to_trash,
+    remove_quietly,
+    supports_block_clone,
+    temp_name,
+    trash_available,
+)
 from ..formats import human, plural
 from . import appcompress
 from .common import Candidate, folder_size
+from .empties import still_empty
+from .extensions import corrected
 
 TRASH, HARDLINK, COMPACT, TAKEOUT, RENAME = "trash", "hardlink", "compact", "takeout", "rename"
 DECOMPACT, UNINSTALL = "decompact", "uninstall"
@@ -150,7 +161,6 @@ def uninstall_item(item: Candidate, writer: journal.RunWriter, others: list, can
 
 def windows_items(items: list[Candidate], writer: journal.RunWriter, cancel=None) -> list[Outcome]:
     """Windows' own leftovers, removed by Windows in one batch (one administrator prompt)."""
-    import shutil
 
     from . import winclean
 
@@ -222,7 +232,6 @@ def empty_from_trash(outcomes: list[Outcome], progress: Callable[[str, int, int]
                      cancel: threading.Event | None = None) -> tuple[int, int, list[str]]:
     """Permanently delete just the items these outcomes moved to the Recycle Bin, leaving everything else in
     it alone. Returns (items deleted, bytes freed, problems)."""
-    from .. import trash_restore
 
     todo = [o for o in outcomes if o.ok and o.trashed_at]
     count = freed = 0
@@ -265,7 +274,6 @@ def hardlink_item(item: Candidate, writer: journal.RunWriter) -> Outcome:
         return Outcome(item, False, "On a different drive: hard links only work within one drive")
     if ks.st_size != ds.st_size:
         return Outcome(item, False, "Files changed since the scan")
-    from ..fileops import clone_file, supports_block_clone
 
     tmp = temp_name(dup.parent, dup.suffix, "-link")
     # ReFS (e.g. a Dev Drive): a block clone stores the data once too, but stays a separate file, so changing
@@ -324,7 +332,6 @@ def compact_item(item: Candidate, writer: journal.RunWriter, on_line=None,
 
 
 def _still_empty(item: Candidate) -> bool:
-    from .empties import still_empty
 
     return still_empty(item.path, item.is_dir)
 
@@ -430,7 +437,6 @@ def apply(items: list[Candidate], action: str, tool: str, root: Path,
 
 def rename_item(item: Candidate, writer: journal.RunWriter) -> Outcome:
     """Give a file the extension that matches its contents (recorded, so it can be renamed back)."""
-    from .extensions import corrected
 
     real = item.extra.get("real_ext")
     if not real or not item.path.is_file():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import html
 import re
+import shutil
 import threading
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import steps, tools
-from ..engine import preview_file
+from ..engine import preview_file, unique_path
 from ..fileops import remove_quietly
 from ..formats import KIND_LABEL, VIDEO, human
 from ..images import NotWorthIt, measure_quality
@@ -32,8 +33,9 @@ from ..log import log
 from ..plan import plan_entry
 from ..scanner import FileEntry
 from ..settings import Settings
-from ..video import VideoPreview
-from .settings_panel import BIN_NAME
+from ..steps import format_name
+from ..video import VideoPreview, preview_video
+from .settings_panel import BIN_NAME, VIDEO_CRF_TIP
 from .style import Radius, Space, Type, tokens, ui_font
 from .widgets import ElidedLabel, button, text
 
@@ -122,7 +124,6 @@ class PreviewThread(QThread):
             remove_quietly(out)
 
     def _video(self, plan) -> None:
-        from ..video import preview_video
 
         assert self.entry.video is not None
         r = preview_video(self.entry.path, self.entry.video, self.settings, self.cancel, start=self.sample_start)
@@ -132,7 +133,6 @@ class PreviewThread(QThread):
         self.video_ready.emit(r, desc)
 
     def discard_video(self) -> None:
-        import shutil
 
         if self._video_result is not None and self._video_result.folder is not None:
             shutil.rmtree(self._video_result.folder, ignore_errors=True)
@@ -596,7 +596,6 @@ class PreviewDialog(QDialog):
         self._describe(r.est_size, size, desc)
 
     def _drop_frames(self) -> None:
-        import shutil
 
         if self.is_video:
             self.timer.stop()
@@ -637,7 +636,6 @@ class PreviewDialog(QDialog):
                      ("Smallest", "small"), ("Custom", "custom"))
 
     def _build_quality(self, bottom: QHBoxLayout, settings: Settings) -> None:
-        from .settings_panel import VIDEO_CRF_TIP
 
         self.quality = QComboBox()
         self.quality.setAccessibleName("Quality")
@@ -730,8 +728,6 @@ class PreviewDialog(QDialog):
     def _save_as(self) -> None:
         from PySide6.QtWidgets import QFileDialog
 
-        from ..engine import unique_path
-        from ..steps import format_name
 
         s = self._chosen_settings()
         ext = plan_entry(self.entry, s).target_ext or self.entry.path.suffix

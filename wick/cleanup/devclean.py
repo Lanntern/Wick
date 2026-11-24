@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -21,7 +22,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+from .. import walk
 from ..formats import human, plural
+from ..walk import is_link
 from .caches import IS_WINDOWS
 from .common import Candidate, ProgressFn, ScanResult, cancelled, newest_mtime
 from .devrules import (  # noqa: F401 - the tables, used here and by the page
@@ -64,7 +67,6 @@ def _listing(d: Path) -> list[os.DirEntry] | None:
 
 def _is_link(e: os.DirEntry) -> bool:
     """Symlinks and Windows junctions/mount points: never followed, never removed through (see walk.is_link)."""
-    from ..walk import is_link
 
     return is_link(e)
 
@@ -263,7 +265,6 @@ class Measure:
 
 
 def measure(path: Path, cancel: threading.Event | None = None) -> Measure:
-    from .. import walk
 
     m = Measure()
     # Windows only reports link counts through a full stat (a directory listing says 0). Do that for every file
@@ -616,7 +617,6 @@ def _other_sources(result: ScanResult, shared: bool, docker: bool, kinds_off, pr
 
 def _compose_name(project: Path) -> str:
     """The name Docker Compose gives a project by default: its folder name, lower case, letters and digits."""
-    import re
 
     return re.sub(r"[^a-z0-9_-]", "", project.name.lower())
 
