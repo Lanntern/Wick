@@ -70,34 +70,35 @@ def dedupe_streams(pdf) -> int:
             first[key] = obj
     if not replace:
         return 0
-
-    def fix(container, depth: int = 0) -> None:
-        if depth > 32:
-            return
-        if isinstance(container, (pikepdf.Dictionary, pikepdf.Stream)):
-            for k in list(container.keys()):
-                v = container[k]
-                if not isinstance(v, pikepdf.Object):
-                    continue                    # (numbers and booleans come back as Python values)
-                if v.is_indirect and v.objgen in replace:
-                    container[k] = replace[v.objgen]
-                elif not v.is_indirect and isinstance(v, (pikepdf.Dictionary, pikepdf.Array)):
-                    fix(v, depth + 1)
-        elif isinstance(container, pikepdf.Array):
-            for i in range(len(container)):
-                v = container[i]
-                if not isinstance(v, pikepdf.Object):
-                    continue
-                if v.is_indirect and v.objgen in replace:
-                    container[i] = replace[v.objgen]
-                elif not v.is_indirect and isinstance(v, (pikepdf.Dictionary, pikepdf.Array)):
-                    fix(v, depth + 1)
-
     for obj in list(pdf.objects):
         if isinstance(obj, (pikepdf.Dictionary, pikepdf.Stream, pikepdf.Array)):
-            fix(obj)
-    fix(pdf.trailer)
+            _point_at_copies(obj, replace)
+    _point_at_copies(pdf.trailer, replace)
     return len(replace)
+
+
+def _point_at_copies(container, replace: dict, depth: int = 0) -> None:
+    """References in ``container`` (and the direct dictionaries and arrays inside it) to a replaced stream point
+    at the copy that stays."""
+    import pikepdf
+
+    if depth > 32:
+        return
+    slots: list[str] | range
+    if isinstance(container, (pikepdf.Dictionary, pikepdf.Stream)):
+        slots = list(container.keys())
+    elif isinstance(container, pikepdf.Array):
+        slots = range(len(container))
+    else:
+        return
+    for k in slots:
+        v = container[k]
+        if not isinstance(v, pikepdf.Object):
+            continue                    # (numbers and booleans come back as Python values)
+        if v.is_indirect and v.objgen in replace:
+            container[k] = replace[v.objgen]
+        elif not v.is_indirect and isinstance(v, (pikepdf.Dictionary, pikepdf.Array)):
+            _point_at_copies(v, replace, depth + 1)
 
 
 def _group4(img) -> bytes | None:

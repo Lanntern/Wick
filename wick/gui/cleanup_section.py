@@ -1030,83 +1030,94 @@ class ToolSection(QWidget):
         failed = [o for o in outcomes if not o.ok]
         if self.tool.key == "takeout":
             self.page.win.history.refresh()
-            if ok:
-                out = Path(ok[0].item.extra.get("takeout_out", ""))
-                if choose(self, "Your photos are merged.", ok[0].message + f".\n\nThey're in {out}.", "Done",
-                          "Show Folder"):
-                    from .file_model import open_in_file_manager
-
-                    open_in_file_manager(str(out))
-            elif failed:
-                inform(self, "The photos couldn't be merged.", failed[0].message)
+            self._merged(ok, failed)
             return
-        done_ids = {id(o.item) for o in ok}
         self._remember_checks()
-        if self.tool.key == "appcompress" and self.result is not None:
+        self._show_outcomes(outcomes, ok)
+        self.page.win.history.refresh()
+        if self.tool.key == "appcompress":
+            self.page.win._refresh_game_watcher()
+            inform(self, "App/game compression finished", "\n".join(f"{o.item.title}: {o.message}" for o in outcomes))
+            return
+        self._tell_what_was_done(ok, failed)
+
+    def _merged(self, ok, failed) -> None:
+        """Google Takeout: where the merged photos are."""
+        if ok:
+            out = Path(ok[0].item.extra.get("takeout_out", ""))
+            if choose(self, "Your photos are merged.", ok[0].message + f".\n\nThey're in {out}.", "Done",
+                      "Show Folder"):
+                from .file_model import open_in_file_manager
+
+                open_in_file_manager(str(out))
+        elif failed:
+            inform(self, "The photos couldn't be merged.", failed[0].message)
+
+    def _show_outcomes(self, outcomes, ok) -> None:
+        """The list after the action: app rows show their new state, folder sizes are counted again, and
+        removed items leave the list."""
+        if self.result is None:
+            return
+        if self.tool.key == "appcompress":
+            decompacted = getattr(self.worker, "action", "") == actions.DECOMPACT
             for outcome in outcomes:
                 item = outcome.item
                 if "disk_after" in item.extra:
                     if item.extra.get("before_first") is None:
                         item.extra["before_first"] = item.extra["before_this_run"]
                     item.extra.update(disk=item.extra["disk_after"], checked=False, outcome=outcome.message,
-                                      state=("Decompressed" if getattr(self.worker, "action", "") == actions.DECOMPACT else
-                                             "Compressed") if outcome.ok else "Check result")
+                                      state=("Decompressed" if decompacted else "Compressed") if outcome.ok
+                                      else "Check result")
                     item.extra["estimate_pending"] = True
                     item.selected, item.size = False, 0
             self._fill(self.result)
-        elif self.result is not None and self.result.rebuild is not None:
+        elif self.result.rebuild is not None:
             for o in ok:
                 if o.item.extra.get("forget"):
                     o.item.extra["forget"]()                     # (sizes above it shrink)
             self._refill_tree()
-        elif self.result is not None:
+        else:
+            done_ids = {id(o.item) for o in ok}
             self.result.items = [c for c in self.result.items if id(c) not in done_ids]
             self._fill(self.result)
-        self.page.win.history.refresh()
-        if self.tool.key == "appcompress":
-            self.page.win._refresh_game_watcher()
-            inform(self, "App/game compression finished", "\n".join(f"{o.item.title}: {o.message}" for o in outcomes))
-            return
-        freed = sum(o.freed for o in ok)
+
+    def _tell_what_was_done(self, ok, failed) -> None:
+        """What was freed (or moved to the bin, with an offer to free it now), and what was skipped and why."""
         info = []
         blocked = [o for o in failed if o.blocked]
         others = [o for o in failed if not o.blocked]
         if blocked:
-            n_b = f"{plural(len(blocked), 'item')}"
-            info.append(f"{n_b} {'are' if len(blocked) != 1 else 'is'} in folders that Windows protects. "
-                        + cfa.HOW)
+            info.append(f"{plural(len(blocked), 'item')} {'are' if len(blocked) != 1 else 'is'} in folders that "
+                        "Windows protects. " + cfa.HOW)
         if others:
             info.append(f"{plural(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
                 f"• {o.item.title}: {o.message}" for o in others[:12]))
         if not ok:                           # nothing at all was done: say so, not "Freed 0 B from 0 items"
             title = (f"Nothing was changed: Windows' Controlled folder access blocked {APP_NAME}"
                      if blocked and not others else "Nothing was changed")
-            if blocked:
-                if choose(self, title, "\n\n".join(info), "OK", "Open Windows Security"):
-                    cfa.open_settings()
-            else:
+            if not blocked:
                 inform(self, title, "\n\n".join(info))
+            elif choose(self, title, "\n\n".join(info), "OK", "Open Windows Security"):
+                cfa.open_settings()
             return
         trashed = [o for o in ok if o.trashed_at]
         now = [o for o in ok if not o.trashed_at]
-        if ok and not freed and not trashed:          # (renamed: nothing freed, nothing in the bin)
-            inform(self, f"Done: {plural(len(ok), 'file')} renamed.", "\n\n".join(info))
-            return
         if not trashed:
-            n = f"{plural(len(ok), 'item')}"
-            inform(self, f"Freed {human(freed)} from {n}.", "\n\n".join(info))
+            freed = sum(o.freed for o in ok)
+            # (renamed: nothing freed, nothing in the bin)
+            inform(self, f"Done: {plural(len(ok), 'file')} renamed." if not freed else
+                   f"Freed {human(freed)} from {plural(len(ok), 'item')}.", "\n\n".join(info))
             return
         if now:
             info.insert(0, f"{human(sum(o.freed for o in now))} was freed right away "
                            f"({plural(len(now), 'Docker item')}).")
         freed = sum(o.freed for o in trashed)
-        n = f"{plural(len(trashed), 'item')}"
         # Moving to the bin frees nothing yet: say so, and offer to free exactly this space now.
         info.insert(0, f"The space comes back when they leave the {BIN_NAME}. Until then you can put them back "
                        "from the history. Freeing it now deletes only these items; everything else in the "
                        f"{BIN_NAME} stays.")
-        if choose(self, f"Moved {human(freed)} ({n}) to the {BIN_NAME}.", "\n\n".join(info), "Done",
-                  f"Free {human(freed)} Now…"):
+        if choose(self, f"Moved {human(freed)} ({plural(len(trashed), 'item')}) to the {BIN_NAME}.",
+                  "\n\n".join(info), "Done", f"Free {human(freed)} Now…"):
             self._purge(trashed)
 
     def _refill_tree(self) -> None:

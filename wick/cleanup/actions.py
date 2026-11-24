@@ -357,82 +357,97 @@ def decompress_item(item: Candidate, writer, on_line=None, cancel=None) -> Outco
 def apply(items: list[Candidate], action: str, tool: str, root: Path,
           progress: Callable[[Outcome, int, int], None] | None = None,
           cancel: threading.Event | None = None, on_line=None) -> tuple[list[Outcome], str | None]:
+    """Do ``action`` to ``items`` (found by ``tool``), each change written to a new run in the history (so it
+    can be undone there). Returns the outcomes and the run's id (None when nothing changed)."""
     writer = journal.RunWriter(root, {"tool": tool, "action": action})
-    outcomes: list[Outcome] = []
-    labels = {"duplicates": f"Duplicate → {BIN_NAME}", "archives": f"Extracted archive → {BIN_NAME}",
-              "caches": f"Cache → {BIN_NAME}", "devclean": f"Rebuildable folder → {BIN_NAME}",
-              "installers": f"Old installer → {BIN_NAME}", "empty": f"Empty item → {BIN_NAME}",
-              "similar": f"Similar photo → {BIN_NAME}", "winclean": f"Windows leftover → {BIN_NAME}",
-              "large": f"Large file → {BIN_NAME}", "leftovers": f"App leftover → {BIN_NAME}"}
     if action == TAKEOUT:
-        outcomes = takeout_items(items, writer, cancel, on_line)
+        merged = takeout_items(items, writer, cancel, on_line)
         if progress:
-            for i, o in enumerate(outcomes):
-                progress(o, i + 1, len(outcomes))
-        writer.close()
-        if not writer.run.files:
-            remove_quietly(writer.path)
-            return outcomes, None
-        return outcomes, writer.run.run_id
-    disks = [c for c in items if c.extra.get("vdisk")]
-    if disks and action == TRASH and not (cancel is not None and cancel.is_set()):
-        from . import vdisk
+            for i, o in enumerate(merged):
+                progress(o, i + 1, len(merged))
+        return merged, _close(writer)
+    outcomes: list[Outcome] = []
+    stopped = lambda: cancel is not None and cancel.is_set()  # noqa: E731
 
-        for c, ok, msg, freed in vdisk.compact(disks, on_line, cancel):
-            if ok:
-                writer.add(journal.FileRecord(
-                    original=f"Virtual disk: {c.title}", output=str(c.path), original_size=freed, output_size=0,
-                    kind="cleanup", method="Compacted (nothing inside changed)", reversible=False,
-                    trashed_at=time.time(), mode="vdisk"))
-            o = Outcome(c, ok, msg, freed)
-            outcomes.append(o)
-            if progress:
-                progress(o, len(outcomes), len(items))
-        items = [c for c in items if not c.extra.get("vdisk")]
-    system = [c for c in items if c.extra.get("system")]
-    if system and action == TRASH and not (cancel is not None and cancel.is_set()):
-        for o in windows_items(system, writer, cancel):
-            outcomes.append(o)
-            if progress:
-                progress(o, len(outcomes), len(items))
-    items = [c for c in items if not c.extra.get("system")]
-    done_before = len(outcomes)
-    for i, item in enumerate(items):
-        if cancel is not None and cancel.is_set():
-            break
-        if item.extra.get("paths") is not None and action == TRASH:
-            o = trash_paths(item, writer, labels.get(tool, f"Moved to the {BIN_NAME}"))
-            outcomes.append(o)
-            if progress:
-                progress(o, done_before + i + 1, done_before + len(items))
-            continue
-        if action == UNINSTALL:
-            from . import apps as apps_mod
-
-            others = [a for a in apps_mod.installed() if a.name != item.extra["app"].name]
-            o = uninstall_item(item, writer, others, cancel)
-        elif action == RENAME:
-            o = rename_item(item, writer)
-        elif action == HARDLINK:
-            o = hardlink_item(item, writer)
-        elif action == COMPACT:
-            o = compact_item(item, writer, on_line, cancel)
-        elif action == DECOMPACT:
-            o = decompress_item(item, writer, on_line, cancel)
-        elif item.extra.get("docker"):
-            o = docker_item(item, writer)
-        elif tool == "empty" and not _still_empty(item):
-            o = Outcome(item, False, "Not empty any more; left alone")
-        else:
-            o = trash_item(item, writer, labels.get(tool, f"Moved to the {BIN_NAME}"))
+    def report(o: Outcome, total: int) -> None:
         outcomes.append(o)
         if progress:
-            progress(o, done_before + i + 1, done_before + len(items))
+            progress(o, len(outcomes), total)
+
+    disks = [c for c in items if c.extra.get("vdisk")]
+    if disks and action == TRASH and not stopped():
+        for o in _compact_disks(disks, writer, on_line, cancel):
+            report(o, len(items))
+        items = [c for c in items if not c.extra.get("vdisk")]
+    system = [c for c in items if c.extra.get("system")]
+    if system and action == TRASH and not stopped():
+        for o in windows_items(system, writer, cancel):
+            report(o, len(items))
+    items = [c for c in items if not c.extra.get("system")]
+    total = len(outcomes) + len(items)
+    for item in items:
+        if stopped():
+            break
+        report(_apply_one(item, action, tool, writer, on_line, cancel), total)
+    return outcomes, _close(writer)
+
+
+def _close(writer: journal.RunWriter) -> str | None:
+    """The run's id, or None (and no run kept) when nothing changed."""
     writer.close()
     if not writer.run.files:
         remove_quietly(writer.path)
-        return outcomes, None
-    return outcomes, writer.run.run_id
+        return None
+    return writer.run.run_id
+
+
+def _compact_disks(disks: list[Candidate], writer: journal.RunWriter, on_line, cancel) -> list[Outcome]:
+    from . import vdisk
+
+    out = []
+    for c, ok, msg, freed in vdisk.compact(disks, on_line, cancel):
+        if ok:
+            writer.add(journal.FileRecord(
+                original=f"Virtual disk: {c.title}", output=str(c.path), original_size=freed, output_size=0,
+                kind="cleanup", method="Compacted (nothing inside changed)", reversible=False,
+                trashed_at=time.time(), mode="vdisk"))
+        out.append(Outcome(c, ok, msg, freed))
+    return out
+
+
+_TRASHED_KIND = {"duplicates": "Duplicate", "archives": "Extracted archive", "caches": "Cache",
+                 "devclean": "Rebuildable folder", "installers": "Old installer", "empty": "Empty item",
+                 "similar": "Similar photo", "winclean": "Windows leftover", "large": "Large file",
+                 "leftovers": "App leftover"}
+
+
+def _trash_label(tool: str) -> str:
+    """How a removal shows in the history."""
+    kind = _TRASHED_KIND.get(tool)
+    return f"{kind} → {BIN_NAME}" if kind else f"Moved to the {BIN_NAME}"
+
+
+def _apply_one(item: Candidate, action: str, tool: str, writer: journal.RunWriter, on_line, cancel) -> Outcome:
+    if item.extra.get("paths") is not None and action == TRASH:
+        return trash_paths(item, writer, _trash_label(tool))
+    if action == UNINSTALL:
+        from . import apps as apps_mod
+
+        others = [a for a in apps_mod.installed() if a.name != item.extra["app"].name]
+        return uninstall_item(item, writer, others, cancel)
+    if action == RENAME:
+        return rename_item(item, writer)
+    if action == HARDLINK:
+        return hardlink_item(item, writer)
+    if action == COMPACT:
+        return compact_item(item, writer, on_line, cancel)
+    if action == DECOMPACT:
+        return decompress_item(item, writer, on_line, cancel)
+    if item.extra.get("docker"):
+        return docker_item(item, writer)
+    if tool == "empty" and not _still_empty(item):
+        return Outcome(item, False, "Not empty any more; left alone")
+    return trash_item(item, writer, _trash_label(tool))
 
 
 def rename_item(item: Candidate, writer: journal.RunWriter) -> Outcome:

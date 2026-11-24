@@ -448,25 +448,10 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
                   ready: Callable[[list[FileEntry]], None] | None = None) -> None:
     """Read image headers and video info (in parallel). Repeated frames in videos are only looked for when
     the option to remove them is on (one FFmpeg run per video saved otherwise)."""
-
-    cadence = settings is None or settings.video_fix_cadence
     from . import index
 
-    todo = []
-    for e in entries:
-        if e.info is not None or e.kind in (DOCUMENT, DOC, PDF, FONT, COMIC, ARCHIVE):     # (nothing to read ahead)
-            continue
-        cached = index.lookup(e.path, e.size, e.mtime, e.kind)
-        if cached is None:
-            todo.append(e)
-        elif e.kind == VIDEO and cadence and cached.cadence == NOT_MEASURED and cadence_at_scan(cached):
-            todo.append(e)                        # (scanned with the option off: look for repeated frames now)
-        elif e.kind == VIDEO:
-            e.video = cached
-        elif e.kind == AUDIO:
-            e.audio = cached
-        else:
-            e.image = cached
+    cadence = settings is None or settings.video_fix_cadence
+    todo = _not_in_index(entries, cadence)
     waiting = {id(e) for e in todo}
     batch: list[FileEntry] = [e for e in entries if id(e) not in waiting] if ready is not None else []
     last_sent = [time.monotonic()]
@@ -506,35 +491,7 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
         nonlocal done
         if cancel is not None and cancel.is_set():
             return
-        if e.kind not in (VIDEO, AUDIO, *CONVERT_ONLY_KINDS):   # (a RAW photo is a TIFF inside, and so on)
-            # Images are named by whoever saved them (phones save HEIC as .jpg, sites PNGs as .jpg): read what
-            # the file really is, so it's decoded and compressed as that. The file is opened once for both.
-            read = True
-            try:
-                f = open(e.path, "rb")
-            except OSError:
-                f = None
-            if f is not None:
-                with f:
-                    real = sniff(e.path, f.read(64))
-                    if real is not None and real[0] != e.kind and real[0] in (*IMAGE_KINDS, VIDEO, AUDIO):
-                        e.kind, e.real_ext = real
-                    read = e.kind not in (VIDEO, AUDIO)
-                    if read:
-                        e.image = read_image_info(e.path, e.kind, f)
-        else:
-            read = False
-        if read:
-            pass                                # (a picture: read above, or unreadable)
-        elif e.kind == VIDEO:
-            e.video = probe_video(e.path)
-            if e.video is not None:
-                e.video.cadence = (detect_cadence(e.path, e.video) if cadence and cadence_at_scan(e.video)
-                                   else NOT_MEASURED)
-        elif e.kind == AUDIO:
-            e.audio = probe_audio(e.path)
-        else:
-            e.image = read_image_info(e.path, e.kind)
+        _read_info(e, cadence)
         with lock:
             done += 1
             unsaved.append(e)
@@ -550,3 +507,58 @@ def probe_entries(entries: list[FileEntry], progress: ProgressFn | None = None,
     with lock:
         send(True)
     save(force=True)
+
+
+def _not_in_index(entries: list[FileEntry], cadence: bool) -> list[FileEntry]:
+    """Fill in what the index remembers (unchanged files); returns the files still to read."""
+    from . import index
+
+    todo = []
+    for e in entries:
+        if e.info is not None or e.kind in (DOCUMENT, DOC, PDF, FONT, COMIC, ARCHIVE):     # (nothing to read ahead)
+            continue
+        cached = index.lookup(e.path, e.size, e.mtime, e.kind)
+        if cached is None:
+            todo.append(e)
+        elif e.kind == VIDEO and cadence and cached.cadence == NOT_MEASURED and cadence_at_scan(cached):
+            todo.append(e)                        # (scanned with the option off: look for repeated frames now)
+        elif e.kind == VIDEO:
+            e.video = cached
+        elif e.kind == AUDIO:
+            e.audio = cached
+        else:
+            e.image = cached
+    return todo
+
+
+def _read_info(e: FileEntry, cadence: bool) -> None:
+    """Read one file's picture, video or audio details into ``e``."""
+    if e.kind not in (VIDEO, AUDIO, *CONVERT_ONLY_KINDS) and _read_picture(e):   # (a RAW photo is a TIFF inside...)
+        return
+    if e.kind == VIDEO:
+        e.video = probe_video(e.path)
+        if e.video is not None:
+            e.video.cadence = (detect_cadence(e.path, e.video) if cadence and cadence_at_scan(e.video)
+                               else NOT_MEASURED)
+    elif e.kind == AUDIO:
+        e.audio = probe_audio(e.path)
+    else:
+        e.image = read_image_info(e.path, e.kind)
+
+
+def _read_picture(e: FileEntry) -> bool:
+    """Images are named by whoever saved them (phones save HEIC as .jpg, sites PNGs as .jpg): read what the file
+    really is, so it's decoded and compressed as that, and its header (the file is opened once for both).
+    False if it turned out to be a video or a song, to be read as one."""
+    try:
+        f = open(e.path, "rb")
+    except OSError:
+        return True                    # (unreadable: nothing to read)
+    with f:
+        real = sniff(e.path, f.read(64))
+        if real is not None and real[0] != e.kind and real[0] in (*IMAGE_KINDS, VIDEO, AUDIO):
+            e.kind, e.real_ext = real
+        if e.kind in (VIDEO, AUDIO):
+            return False
+        e.image = read_image_info(e.path, e.kind, f)
+    return True

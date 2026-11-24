@@ -294,8 +294,18 @@ def optimize_svg(data: bytes) -> bytes:
         raise ValueError(f"The SVG can't be read ({e})") from e
     if etree.QName(root).localname != "svg":
         raise ValueError("Not an SVG drawing")
+    _drop_editor_data(root)
+    _drop_unused_ids(root)
+    _round_coordinates(root)
+    _drop_layout_space(root)
+    etree.cleanup_namespaces(root, top_nsmap={None: _SVG, "xlink": _XLINK} if root.nsmap.get("xlink") else None)
+    return etree.tostring(root, encoding="utf-8", xml_declaration=False)
 
-    # Editor data: elements and attributes in editors' namespaces, and <metadata>.
+
+def _drop_editor_data(root) -> None:
+    """Elements and attributes in editors' namespaces (Inkscape, Illustrator...), and <metadata>."""
+    from lxml import etree
+
     for el in list(root.iter()):
         if not isinstance(el.tag, str):
             continue
@@ -309,18 +319,25 @@ def optimize_svg(data: bytes) -> bytes:
             if etree.QName(attr).namespace in _EDITOR_NS:
                 del el.attrib[attr]
 
-    # IDs nothing refers to (kept when a stylesheet or script might use them).
-    has_style_or_script = any(isinstance(el.tag, str) and etree.QName(el).localname in ("style", "script")
-                              for el in root.iter())
-    if not has_style_or_script:
-        text = etree.tostring(root).decode("utf-8", "replace")
-        used = set(re.findall(r"#([A-Za-z_][\w.:-]*)", text))
-        used |= set(re.findall(r"(?:begin|end)=\"([A-Za-z_][\w.:-]*)\.", text))
-        for el in root.iter():
-            if isinstance(el.tag, str) and el.get("id") is not None and el.get("id") not in used:
-                del el.attrib["id"]
 
-    # Numbers: as precise as the drawing's size needs.
+def _drop_unused_ids(root) -> None:
+    """IDs nothing refers to (all kept when a stylesheet or script might use them)."""
+    from lxml import etree
+
+    if any(isinstance(el.tag, str) and etree.QName(el).localname in ("style", "script") for el in root.iter()):
+        return
+    text = etree.tostring(root).decode("utf-8", "replace")
+    used = set(re.findall(r"#([A-Za-z_][\w.:-]*)", text))
+    used |= set(re.findall(r"(?:begin|end)=\"([A-Za-z_][\w.:-]*)\.", text))
+    for el in root.iter():
+        if isinstance(el.tag, str) and el.get("id") is not None and el.get("id") not in used:
+            del el.attrib["id"]
+
+
+def _round_coordinates(root) -> None:
+    """Numbers as precise as the drawing's size needs."""
+    from lxml import etree
+
     vb = (root.get("viewBox") or "").replace(",", " ").split()
     try:
         size = max(float(vb[2]), float(vb[3])) if len(vb) == 4 else \
@@ -340,7 +357,11 @@ def optimize_svg(data: bytes) -> bytes:
                     max(decimals, 3) if name == "offset" else decimals
                 el.attrib[attr] = _round_numbers(el.attrib[attr], d)
 
-    # Layout whitespace between tags (not inside text, styles or xml:space="preserve").
+
+def _drop_layout_space(root) -> None:
+    """Whitespace between tags (not inside text, styles or xml:space="preserve")."""
+    from lxml import etree
+
     def keep_space(el) -> bool:
         while el is not None:
             if el.get("{http://www.w3.org/XML/1998/namespace}space") == "preserve" or \
@@ -357,9 +378,6 @@ def optimize_svg(data: bytes) -> bytes:
         for child in el:
             if child.tail is not None and not child.tail.strip():
                 child.tail = None
-
-    etree.cleanup_namespaces(root, top_nsmap={None: _SVG, "xlink": _XLINK} if root.nsmap.get("xlink") else None)
-    return etree.tostring(root, encoding="utf-8", xml_declaration=False)
 
 
 def looks_same(a: bytes, b: bytes, size: int = 256) -> bool:

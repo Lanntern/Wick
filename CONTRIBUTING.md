@@ -106,7 +106,8 @@ The lint job checks most of these; the rest are here so a change doesn't have to
   (`except Exception`) is for code that reads untrusted files or third-party libraries that can raise anything;
   it carries `# noqa: BLE001 - why`, and writes the error to the log (`log.ignored("where")`), re-raises, or
   hands it on as a message. A silent one fails `tests/test_code_rules.py`.
-- **Functions under 25 branches** (ruff C901). The few older ones over it are marked `noqa: C901 (to split up)`.
+- **Functions under 20 branches** (ruff C901). A long function becomes named steps (or a small class when the
+  steps share state), not a `noqa`.
 - **Tests that fake another system** change `sys.platform` (`monkeypatch.setattr(sys, "platform", "linux")`);
   changing `os.name` does nothing, and `tests/test_code_rules.py` rejects it.
 - **Tests never open a real dialog.** Anything that waits for an answer (`exec()`, `QFileDialog.get...`,
