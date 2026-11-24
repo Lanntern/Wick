@@ -275,7 +275,7 @@ NOT_MEASURED = -1
 _hw_decode_ok = True       # cleared once GPU decoding fails, so later videos skip straight to the processor
 
 
-def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  # noqa: C901
+def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:
     """Find frames that were repeated to pad the frame rate (e.g. a 24 fps film uploaded as 30 fps).
 
     Measures how much each frame differs from the previous one in a short sample. A repeat shows up as a

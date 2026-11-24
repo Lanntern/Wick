@@ -367,7 +367,7 @@ def fps_label(fps: float) -> str:
     return f"{fps:.2f}".rstrip("0").rstrip(".")
 
 
-def _plan_video(e: FileEntry, s: Settings) -> Plan:  # noqa: C901 (to split up)
+def _plan_video(e: FileEntry, s: Settings) -> Plan:
     if s.video_codec == "none":
         return _skip("Video conversion is off")
     if _too_small(e, s.min_video_mb * 1024 * 1024):
@@ -375,60 +375,84 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:  # noqa: C901 (to split up)
     v = e.video
     if v is None:
         return _skip("Couldn't read video info")
-    from .video import codec_for, dolby_vision_base, drops_repeats, output_fps, packs_as_flac, select_tracks
-    from .video import tracks_note as tracks_note_of
-
-    resized = s.video_target_size(v.width, v.height) != (v.width - v.width % 2, v.height - v.height % 2)
-    capped = output_fps(v, s) is not None
-    repeats = drops_repeats(v, s)
     if v.duration <= 0:
         return _skip("Unknown duration")
+    from .video import dolby_vision_base, drops_repeats, output_fps, select_tracks
+    from .video import tracks_note as tracks_note_of
+
     base = dolby_vision_base(v) if s.video_dolby_vision else ""
     dv_skip = ("Dolby Vision video. Re-encoding would lose its Dolby Vision layer"
                if v.hdr == "Dolby Vision" and not base else "")
     kept_audio, _subs, dropped = select_tracks(v, s)
-    dropped_audio = sum(1 for st in dropped if st.kind == "audio")
     tracks_note = tracks_note_of(v, s).replace(" left out", "")
     tracks_note = f"leaves out {tracks_note}" if tracks_note else ""
     limit = s.fit_under_kb * 1024
-    fit = bool(limit) and e.size > limit
-    if fit and dv_skip:
-        return _skip(dv_skip)
-    if fit:
-        from .formats import human
-
-        codec = codec_for(v, s)
-        target = video_output_ext(e.path.suffix, codec)
-        return Plan(True, f"{v.codec.upper()} → {'AV1' if codec == 'av1' else 'HEVC'}, made to fit under "
-                    f"{human(limit)}", target, min(limit, int(e.size * 0.95)), route="video")
+    if limit and e.size > limit:
+        return _skip(dv_skip) if dv_skip else _plan_video_fit(e, v, s, limit)
+    resized = s.video_target_size(v.width, v.height) != (v.width - v.width % 2, v.height - v.height % 2)
+    capped = output_fps(v, s) is not None
+    repeats = drops_repeats(v, s)
     if v.codec in EFFICIENT_VIDEO_CODECS and not (resized or capped or repeats or v.interlaced):
-        from . import subfonts
-        from .video import made_by_wick
-
-        ext = video_output_ext(e.path.suffix, v.codec)
-        made = made_by_wick(v)
-        fonts = subfonts.font_bytes(v) if s.video_fonts and ext == ".mkv" and "fonts cut" not in made else 0
-        fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
-        pcm = [a for a in kept_audio if packs_as_flac(a, ext in (".mp4", ".mov"))]
-        stereo = [a for a in kept_audio if s.video_stereo and a.channels > 2]
-        broadcast = v.container == "mpegts" and ext == ".mkv"        # (TV recordings: padding, teletext...)
-        if not (dropped or fonts or pcm or stereo or broadcast):
-            return _skip("Already compressed with Wick" if made
-                         else f"Already uses an efficient codec ({v.codec.upper()})")
-        pcm_bytes = sum(a.bit_rate or 1_536_000 for a in pcm) / 8 * v.duration
-        stereo_bytes = sum(a.bit_rate or 640_000 for a in stereo if a not in pcm) / 8 * v.duration
-        saved = (dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7 + pcm_bytes * 0.45
-                 + stereo_bytes * 0.6 + (e.size * 0.08 if broadcast else 0))
-        est = max(int(e.size * 0.3), int(e.size - saved)) if saved else int(e.size * 0.99)
-        why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "",
-                                    "uncompressed audio packed as FLAC" if pcm else "",
-                                    "surround mixed down to stereo" if stereo else "",
-                                    "broadcast padding removed" if broadcast else "") if x)
-        return Plan(True, f"{v.codec.upper()} kept as it is; {why}", ext, est, lossless=True, route="video_remux")
+        return _plan_video_remux(e, v, s, kept_audio, dropped, tracks_note)
     if dv_skip:
         return _skip(dv_skip)
-    codec = codec_for(v, s)
+    from .video import codec_for
 
+    codec = codec_for(v, s)
+    ratio = _video_ratio(v, s, codec, resized, capped, repeats)
+    label = "AV1" if codec == "av1" else "HEVC"
+    if s.video_codec == "auto" and codec == "hevc":
+        label += " (camera video)"
+    extra = _video_changes(v, s, base, resized, capped, repeats) + ([tracks_note] if tracks_note else [])
+    desc = f"{v.codec.upper()} → {label}" + (f", {', '.join(extra)}" if extra else "")
+    est = int(e.size * ratio)
+    dropped_audio = sum(1 for st in dropped if st.kind == "audio")
+    if dropped_audio:
+        est = max(int(est * 0.5), int(est - dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration * ratio))
+    return Plan(True, desc, video_output_ext(e.path.suffix, codec), est, route="video")
+
+
+def _plan_video_fit(e: FileEntry, v, s: Settings, limit: int) -> Plan:
+    """Made to fit under a size limit (Settings › Fit under)."""
+    from .formats import human
+    from .video import codec_for
+
+    codec = codec_for(v, s)
+    target = video_output_ext(e.path.suffix, codec)
+    return Plan(True, f"{v.codec.upper()} → {'AV1' if codec == 'av1' else 'HEVC'}, made to fit under "
+                f"{human(limit)}", target, min(limit, int(e.size * 0.95)), route="video")
+
+
+def _plan_video_remux(e: FileEntry, v, s: Settings, kept_audio: list, dropped: list, tracks_note: str) -> Plan:
+    """Already an efficient codec: the video stays as it is, and only what's around it gets smaller (left-out
+    tracks, subtitle fonts, uncompressed or surround audio, broadcast padding) — or nothing is done."""
+    from . import subfonts
+    from .video import made_by_wick, packs_as_flac
+
+    ext = video_output_ext(e.path.suffix, v.codec)
+    made = made_by_wick(v)
+    fonts = subfonts.font_bytes(v) if s.video_fonts and ext == ".mkv" and "fonts cut" not in made else 0
+    fonts = fonts if fonts >= subfonts.MIN_FONT_BYTES else 0
+    pcm = [a for a in kept_audio if packs_as_flac(a, ext in (".mp4", ".mov"))]
+    stereo = [a for a in kept_audio if s.video_stereo and a.channels > 2]
+    broadcast = v.container == "mpegts" and ext == ".mkv"        # (TV recordings: padding, teletext...)
+    if not (dropped or fonts or pcm or stereo or broadcast):
+        return _skip("Already compressed with Wick" if made else f"Already uses an efficient codec ({v.codec.upper()})")
+    dropped_audio = sum(1 for st in dropped if st.kind == "audio")
+    pcm_bytes = sum(a.bit_rate or 1_536_000 for a in pcm) / 8 * v.duration
+    stereo_bytes = sum(a.bit_rate or 640_000 for a in stereo if a not in pcm) / 8 * v.duration
+    saved = (dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration + fonts * 0.7 + pcm_bytes * 0.45
+             + stereo_bytes * 0.6 + (e.size * 0.08 if broadcast else 0))
+    est = max(int(e.size * 0.3), int(e.size - saved)) if saved else int(e.size * 0.99)
+    why = "; ".join(x for x in (tracks_note, "smaller subtitle fonts" if fonts else "",
+                                "uncompressed audio packed as FLAC" if pcm else "",
+                                "surround mixed down to stereo" if stereo else "",
+                                "broadcast padding removed" if broadcast else "") if x)
+    return Plan(True, f"{v.codec.upper()} kept as it is; {why}", ext, est, lossless=True, route="video_remux")
+
+
+def _video_ratio(v, s: Settings, codec: str, resized: bool, capped: bool, repeats: bool) -> float:
+    """The re-encoded size as a share of the original's."""
     av1_r, hevc_r = _VIDEO_BASE.get(v.codec, _LEGACY_RATIO)
     ratio = (av1_r if codec == "av1" else hevc_r) * _quality_factor(s, codec)
     # Low-bitrate sources have less to gain.
@@ -438,20 +462,21 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:  # noqa: C901 (to split up)
         ratio *= 1 + (0.05 - bpp) / 0.05
     if v.codec in EFFICIENT_VIDEO_CODECS:
         ratio = 0.85  # only gains from resizing / frame rate below
-    tw, th = s.video_target_size(v.width, v.height)
     if resized:
+        tw, th = s.video_target_size(v.width, v.height)
         ratio *= ((tw * th) / max(1, v.width * v.height)) ** 0.75
     if capped:
         ratio *= (s.video_max_fps / max(1.0, v.content_fps if repeats else v.fps)) ** 0.5
     if repeats:
         ratio *= 0.95  # repeats are cheap to encode anyway; the main win is smooth motion
-    ratio = min(0.95, ratio)
-    target = video_output_ext(e.path.suffix, codec)
-    label = "AV1" if codec == "av1" else "HEVC"
-    if s.video_codec == "auto" and codec == "hevc":
-        label += " (camera video)"
+    return min(0.95, ratio)
+
+
+def _video_changes(v, s: Settings, base: str, resized: bool, capped: bool, repeats: bool) -> list[str]:
+    """What re-encoding changes besides the codec, for the plan's description."""
     extra = []
     if resized:
+        tw, th = s.video_target_size(v.width, v.height)
         extra.append(f"{min(tw, th)}p")
     if v.interlaced:
         extra.append("deinterlaced")
@@ -469,13 +494,7 @@ def _plan_video(e: FileEntry, s: Settings) -> Plan:  # noqa: C901 (to split up)
         extra.append(f"quality {s.video_crf} (custom)")
     elif s.smart_quality:
         extra.append("smart quality")
-    if tracks_note:
-        extra.append(tracks_note)
-    desc = f"{v.codec.upper()} → {label}" + (f", {', '.join(extra)}" if extra else "")
-    est = int(e.size * ratio)
-    if dropped_audio:
-        est = max(int(est * 0.5), int(est - dropped_audio * _DROPPED_AUDIO_BPS / 8 * v.duration * ratio))
-    return Plan(True, desc, target, est, route="video")
+    return extra
 
 
 def _plan_document(e: FileEntry, s: Settings) -> Plan:
