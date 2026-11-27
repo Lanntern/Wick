@@ -136,7 +136,7 @@ def test_tooltips_are_cards_under_the_control():
     tips = style._Tooltips()
     pointer = b.mapToGlobal(QPoint(290, 5))                    # near the button's right edge
     assert tips.eventFilter(b, QHelpEvent(QEvent.ToolTip, QPoint(290, 5), pointer)) is True
-    card = style._tip_card
+    card = style._state.tip_card
     assert card.isVisible() and card.label.text() == "Home analysis: Working..."
     below = b.mapToGlobal(QPoint(0, b.height()))
     assert card.y() >= below.y()                               # under the button, not over it

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import have
-from wick import chunked, quality, tools, video
+from wick import chunked, detected, quality, tools, video
 from wick.plan import Plan
 from wick.probe import probe_video
 from wick.settings import Settings
@@ -200,8 +200,7 @@ def test_nvenc_uses_the_best_tuning_the_gpu_takes(monkeypatch):
 
     monkeypatch.setattr(video, "_test_encode", fake)
     for accepted_now, want in (({"uhq", "hq", "split"}, "uhq"), ({"hq"}, "hq")):
-        video.nvenc_tuning.cache_clear()
-        video.nvenc_split.cache_clear()
+        detected.forget()
         accepted.clear()
         accepted.update(accepted_now)
         args = video._gpu_quality_args("av1_nvenc", 30, pixels=3840 * 2160)
@@ -209,6 +208,5 @@ def test_nvenc_uses_the_best_tuning_the_gpu_takes(monkeypatch):
         assert ("-split_encode_mode" in args) == ("split" in accepted_now)
         assert "-split_encode_mode" not in video._gpu_quality_args("av1_nvenc", 30, pixels=1920 * 1080)
     assert video._gpu_quality_args("av1_nvenc", 30, tuned=False)[:4] == list(video.NVENC_BASIC)
-    video.nvenc_tuning.cache_clear()
-    video.nvenc_split.cache_clear()
+    detected.forget()
 

@@ -24,11 +24,21 @@ _ES_SYSTEM_REQUIRED = 0x00000001
 ENABLED = True            # Settings › "Keep the computer awake while working"
 
 _lock = threading.Lock()
-_holders = 0
-_inhibitor: subprocess.Popen | None = None
 
 
-_activity = None          # macOS: the NSProcessInfo activity token while work runs
+class _State:
+    """What's keeping the computer awake (and how many jobs asked for it), and the energy-saving mode."""
+
+    def __init__(self) -> None:
+        self.activity = None          # macOS: the NSProcessInfo activity token while work runs
+        self.holders = 0
+        self.inhibitor: subprocess.Popen | None = None
+        self.efficiency = False
+
+
+_state = _State()
+
+
 
 # NSActivityUserInitiated: work the person started. macOS then neither naps the app (App Nap slows hidden windows
 # to a crawl) nor lets the computer idle to sleep; the display may still sleep.
@@ -36,7 +46,6 @@ _NS_ACTIVITY_USER_INITIATED = 0x00FFFFFF
 
 
 def _mac_begin() -> bool:
-    global _activity
     import ctypes
 
 
@@ -46,7 +55,7 @@ def _mac_begin() -> bool:
             info, sel("beginActivityWithOptions:reason:"), _NS_ACTIVITY_USER_INITIATED, nsstring("Compressing files"))
         if not token:
             return False
-        _activity = send(ctypes.c_void_p)(token, sel("retain"))     # (kept until the work ends)
+        _state.activity = send(ctypes.c_void_p)(token, sel("retain"))     # (kept until the work ends)
         return True
     except Exception:  # noqa: BLE001 - then caffeinate, as before
         from wick.log import ignored
@@ -55,24 +64,22 @@ def _mac_begin() -> bool:
 
 
 def _mac_end() -> None:
-    global _activity
     import ctypes
 
 
-    if _activity is None:
+    if _state.activity is None:
         return
     try:
         info = send(ctypes.c_void_p)(cls("NSProcessInfo"), sel("processInfo"))
-        send(None, ctypes.c_void_p)(info, sel("endActivity:"), _activity)
-        send(None)(_activity, sel("release"))
+        send(None, ctypes.c_void_p)(info, sel("endActivity:"), _state.activity)
+        send(None)(_state.activity, sel("release"))
     except Exception:  # noqa: BLE001
         from wick.log import ignored
         ignored("power._mac_end")
-    _activity = None
+    _state.activity = None
 
 
 def _hold_other() -> None:
-    global _inhibitor
     if sys.platform == "darwin" and _mac_begin():
         return
     cmd = None
@@ -83,29 +90,27 @@ def _hold_other() -> None:
                "--mode=block", "sleep", "infinity"]
     if cmd:
         try:
-            _inhibitor = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                          stderr=subprocess.DEVNULL)
+            _state.inhibitor = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL)
         except OSError:
-            _inhibitor = None
+            _state.inhibitor = None
 
 
 def _release_other() -> None:
-    global _inhibitor
     _mac_end()
-    if _inhibitor is not None:
+    if _state.inhibitor is not None:
         try:
-            _inhibitor.terminate()
-            _inhibitor.wait(5)
+            _state.inhibitor.terminate()
+            _state.inhibitor.wait(5)
         except Exception:  # noqa: BLE001
             from wick.log import ignored
             ignored("power._release_other")
-        _inhibitor = None
+        _state.inhibitor = None
 
 
 @contextmanager
 def awake(enabled: bool = True) -> Iterator[None]:
     """Don't let the computer sleep until the block ends (nested and parallel uses are fine)."""
-    global _holders
     if not (enabled and ENABLED):
         yield
         return
@@ -120,8 +125,8 @@ def awake(enabled: bool = True) -> Iterator[None]:
             win = None
     else:
         with _lock:
-            _holders += 1
-            if _holders == 1:
+            _state.holders += 1
+            if _state.holders == 1:
                 _hold_other()
     try:
         yield
@@ -134,8 +139,8 @@ def awake(enabled: bool = True) -> Iterator[None]:
                 ignored("power.awake")
         elif sys.platform != "win32":
             with _lock:
-                _holders -= 1
-                if _holders == 0:
+                _state.holders -= 1
+                if _state.holders == 0:
                     _release_other()
 
 
@@ -230,19 +235,17 @@ def background():
                 ignored("power.background")
 
 
-_efficiency = False
 
 
 def efficiency_mode() -> bool:
     """Whether the app is in Windows' efficiency mode right now (hidden in the tray, only watching)."""
-    return bool(_efficiency)
+    return bool(_state.efficiency)
 
 
 def set_efficiency_mode(on: bool) -> bool:
     """Windows 11's efficiency mode for the whole app (EcoQoS: efficient cores, lower clock; idle priority),
     for while it runs hidden in the tray with nothing you started. Returns whether it changed."""
-    global _efficiency
-    if sys.platform != "win32" or on == _efficiency:
+    if sys.platform != "win32" or on == _state.efficiency:
         return False
     try:
         import ctypes
@@ -255,7 +258,7 @@ def set_efficiency_mode(on: bool) -> bool:
         state = _Throttle(1, 0x1, 0x1 if on else 0x0)           # PROCESS_POWER_THROTTLING_EXECUTION_SPEED
         k.SetProcessInformation(proc, 4, ctypes.byref(state), ctypes.sizeof(state))   # ProcessPowerThrottling
         k.SetPriorityClass(proc, 0x40 if on else 0x20)          # IDLE / NORMAL_PRIORITY_CLASS
-        _efficiency = on
+        _state.efficiency = on
         return True
     except Exception:  # noqa: BLE001 - older Windows: nothing to do
         from wick.log import ignored

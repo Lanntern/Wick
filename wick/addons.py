@@ -18,7 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import tools
+from . import detected
 
 
 @dataclass(frozen=True)
@@ -104,7 +104,7 @@ def download(addon: Addon, progress: Callable[[int, int], None] | None = None,
                 (dest / f"LICENSE-{addon.tool}.txt").write_bytes(z.read(addon.license))
             except KeyError:
                 pass
-        tools.find_tool.cache_clear()
+        detected.forget()          # (look again: a new tool can change which encoders work)
         return exe
     finally:
         tmp.unlink(missing_ok=True)

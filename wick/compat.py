@@ -5,14 +5,15 @@ from __future__ import annotations
 import glob
 import os
 import sys
-from functools import lru_cache
+
+from .detected import detected
 
 # Programs known to open JPEG XL (current versions). Kept short and conservative.
 JXL_OPENS = "Safari, Photoshop, Lightroom, Affinity Photo, GIMP, Krita, darktable, XnView, IrfanView"
 JXL_DOESNT = "most other browsers, websites, social media and chat apps, and older software"
 
 
-@lru_cache(maxsize=1)
+@detected
 def jxl_viewable_here() -> bool | None:
     """Can this computer show JPEG XL files in its own photo viewer and file thumbnails?
     True / False, or None when it can't be told."""

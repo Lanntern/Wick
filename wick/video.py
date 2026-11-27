@@ -14,13 +14,13 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
 from . import audio as audio_mod
 from . import steps, tools
 from .audio import SPEECH_KBPS
+from .detected import detected
 from .fileops import remove_quietly, temp_name
 from .formats import human, plural
 from .images import NotWorthIt, VerificationFailed
@@ -71,7 +71,7 @@ NVENC_TUNINGS = (("-preset", "p7", "-tune", "uhq", "-rc-lookahead", "32"),
 SPLIT_FROM_PIXELS = 3840 * 2160 * 0.9   # 4K and up: both encoders of a two-encoder GPU work on each frame
 
 
-@cache
+@detected
 def nvenc_tuning(encoder: str) -> tuple[str, ...]:
     """The best NVENC settings this computer takes (each tried once with a tiny encode)."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -81,7 +81,7 @@ def nvenc_tuning(encoder: str) -> tuple[str, ...]:
     return NVENC_BASIC
 
 
-@cache
+@detected
 def nvenc_split(encoder: str) -> bool:
     """Whether split-frame encoding works here (GPUs with two or more encoders, recent drivers): tried once
     with a 4K frame, the size it's used for."""
@@ -104,7 +104,7 @@ NVENC_EXTRAS: tuple[tuple[str, ...], ...] = (("-multipass", "fullres"), ("-tempo
 QSV_EXTRAS: tuple[tuple[str, ...], ...] = (("-extbrc", "1", "-look_ahead_depth", "40"),)
 
 
-@cache
+@detected
 def gpu_extras(encoder: str) -> tuple[str, ...]:
     """The extra settings (NVENC_EXTRAS, QSV_EXTRAS) this GPU takes, each tried once with a tiny encode."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -147,7 +147,7 @@ def _qvbr(level: int, extras: tuple[str, ...]) -> list[str]:
     return ["-quality", "quality", "-rc", "qvbr", "-qvbr_quality_level", str(level), *extras]
 
 
-@cache
+@detected
 def amf_extras(encoder: str) -> tuple[str, ...] | None:
     """The pre-analysis settings this AMD GPU takes with QVBR, or None if it doesn't do QVBR."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -157,7 +157,7 @@ def amf_extras(encoder: str) -> tuple[str, ...] | None:
     return None
 
 
-@cache
+@detected
 def amf_qvbr_level(encoder: str, qp: int) -> int | None:
     """The QVBR level that makes about the same size as constant QP ``qp`` on the test clip (None: use the QP)."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -181,7 +181,7 @@ def amf_qvbr_level(encoder: str, qp: int) -> int | None:
     return lo
 
 
-@cache
+@detected
 def svt_tuning() -> str:
     """SVT-AV1's visual-quality tuning (instead of its default, which aims at the PSNR number) and variance boost
     (protects dark and flat areas), where the bundled build has them; tried once."""
@@ -300,7 +300,7 @@ def _encoder_cache(ffmpeg: str) -> tuple[Path, str, dict]:
     return path, stamp, data
 
 
-@cache
+@detected
 def encoder_works(encoder: str) -> bool:
     """Try a tiny test encode; NVENC is only usable with a supported NVIDIA GPU + driver.
     Results are remembered for a week per ffmpeg build (a GPU that stops working still falls back to the
@@ -584,7 +584,7 @@ def _hdr10_params(info: VideoInfo, encoder: str) -> str:
     return ":".join(parts)
 
 
-@cache
+@detected
 def has_filter(name: str) -> bool:
     try:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-filters"], timeout=30, check=False).stdout
@@ -975,7 +975,7 @@ def made_by_wick(info: VideoInfo) -> str:
     return next((str(v) for k, v in info.tags.items() if k.upper() == TAG), "")
 
 
-@lru_cache(maxsize=16)
+@detected
 def _encoder_option(encoder: str, option: str) -> bool:
     """Does this FFmpeg's encoder take ``option`` (newer builds add some, like dolbyvision)?"""
     try:

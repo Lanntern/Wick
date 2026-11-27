@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from wick import index, journal, presets
+from wick import detected, index, journal, presets
 from wick.settings import Settings
 
 from .conftest import ffmpeg, needs_ffmpeg
@@ -289,7 +289,7 @@ def test_parallelism_rules(monkeypatch):
     from wick import tools, video
 
     monkeypatch.setattr("os.cpu_count", lambda: 16)
-    tools.total_memory_gb.cache_clear()
+    detected.forget()
     monkeypatch.setattr(tools, "total_memory_gb", lambda: 32.0)
     assert Settings().image_workers() == 16 and Settings().threads_per_job() == 1
     monkeypatch.setattr(tools, "total_memory_gb", lambda: 6.0)        # little memory: fewer at once
