@@ -237,7 +237,7 @@ class FileTableModel(QAbstractTableModel):
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.rows)
 
-    def columnCount(self, parent=QModelIndex()):
+    def columnCount(self, _parent=QModelIndex()):
         return len(COLUMNS)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -412,7 +412,7 @@ class FileFilterProxy(QSortFilterProxyModel):
     def set_group(self, group: str) -> None:
         self._refilter(lambda: setattr(self, "group", group))
 
-    def filterAcceptsRow(self, source_row, source_parent):
+    def filterAcceptsRow(self, source_row, _source_parent):
         m: FileTableModel = self.sourceModel()  # type: ignore[assignment]
         r = m.rows[source_row]
         if self.group:

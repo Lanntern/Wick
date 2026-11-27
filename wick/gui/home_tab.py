@@ -146,7 +146,7 @@ class HomeTab(Page):
         self.select_high = button("Select High Confidence")
         self.select_high.clicked.connect(lambda: self._select(lambda c: c == overview.HIGH))
         self.select_none = button("Select None")
-        self.select_none.clicked.connect(lambda: self._select(lambda c: False))
+        self.select_none.clicked.connect(lambda: self._select(lambda _c: False))
         self.send_btn = button("Compress Selected…", "primary", "compress",
                                "Open the selected files on the Compress page to review and compress")
         self.send_btn.clicked.connect(self._send)
@@ -342,7 +342,7 @@ class HomeTab(Page):
         if self.worker is not None and self.busy():
             self.worker.cancel.set()           # (it stops at its next file; quitting waits for it)
 
-    def _progress(self, msg: str, done: int, total: int) -> None:
+    def _progress(self, _msg: str, done: int, total: int) -> None:
         if total:
             self.progress.setRange(0, total)
             self.progress.setValue(done)

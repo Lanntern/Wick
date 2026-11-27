@@ -651,7 +651,7 @@ class DropZone(QFrame):
         self.hover = on
         self.update()
 
-    def paintEvent(self, e) -> None:
+    def paintEvent(self, _e) -> None:
         t = tokens()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -876,7 +876,7 @@ class ToggleSwitch(QAbstractButton):
     def sizeHint(self) -> QSize:
         return QSize(Space.XL * 2 - Space.S, Space.XL + 2)
 
-    def paintEvent(self, e) -> None:
+    def paintEvent(self, _e) -> None:
         t = tokens()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)

@@ -655,7 +655,7 @@ class SettingsPanel(QWidget):
 
     def _update_enabled(self) -> None:
         kinds = getattr(self, "_kinds", None)
-        has = (lambda k: True) if not kinds else (lambda k: k in kinds)
+        has = (lambda _k: True) if not kinds else (lambda k: k in kinds)
         show = self._show
         sec = {x.toggle.text(): x for x in self.sections}
 

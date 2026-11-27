@@ -18,7 +18,7 @@ _VIDEO_QUALITY = {"identical": "visually identical", "high": "high quality", "ba
 def describe_settings(s: Settings, kinds: set[str] | None = None, bin_name: str = "Recycle Bin") -> str:
     """e.g. "Photos to JPEG XL (identical pixels) · Videos to AV1, balanced quality · Originals to the Recycle Bin".
     ``kinds``: only the parts for these groups ("image", "video", "audio", "document"); None for all."""
-    want = (lambda k: True) if kinds is None else (lambda k: k in kinds)
+    want = (lambda _k: True) if kinds is None else (lambda k: k in kinds)
     parts = []
     if want("image"):
         if s.image_format == "none":

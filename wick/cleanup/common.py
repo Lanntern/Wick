@@ -37,7 +37,7 @@ def publish(tool: str, items: list) -> None:
 
 def publisher():
     """Capture the current sink for a detector's worker pool (thread locals do not cross threads)."""
-    return getattr(_scan_context, "publish", None) or (lambda tool, items: None)
+    return getattr(_scan_context, "publish", None) or (lambda _tool, _items: None)
 
 
 class _LiveItems(list):

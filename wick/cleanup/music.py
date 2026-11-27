@@ -340,7 +340,7 @@ def _copies(files: list[tuple[Path, os.stat_result]], infos: dict[int, dict], me
     return out
 
 
-def group_title(g: str, items: list[Candidate]) -> str:
+def group_title(_g: str, items: list[Candidate]) -> str:
     keeper = items[0].keeper
     return f"{len(items) + 1} copies of {keeper.stem if keeper else 'a song'}"
 

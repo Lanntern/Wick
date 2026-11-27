@@ -59,7 +59,7 @@ extend-exclude = ["wick/_ssimulacra2.py"]   # vendored (BSD), kept as published
 
 [tool.ruff.lint]
 # Bugs first: pyflakes, pycodestyle errors, bugbear, pylint errors.
-select = ["E4", "E7", "E9", "E501", "F", "B", "BLE", "PLE", "W6", "C901", "I", "UP"]
+select = ["E4", "E7", "E9", "E501", "F", "B", "BLE", "ARG", "PLE", "W6", "C901", "I", "UP"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["wick"]
@@ -71,6 +71,7 @@ max-complexity = 20
 [tool.ruff.lint.per-file-ignores]
 "wick/gui/style.py" = ["E501"]                # icon paths and stylesheet text
 "wick/gui/file_model.py" = ["B008"]           # Qt's own QModelIndex() default argument idiom
+"tests/**" = ["ARG"]                           # fixtures asked for their effect; fakes keep the real signatures
 
 [tool.vulture]
 # Unused code (CI's lint job). Qt and pytest call these names themselves; the allow-list holds the rest.

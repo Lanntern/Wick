@@ -190,7 +190,7 @@ class FileJobPage(Page):
 
     def plan(self, e: FileEntry) -> Plan | None: ...
 
-    def row_values(self, e: FileEntry, plan: Plan | None) -> list[str]:
+    def row_values(self, e: FileEntry, _plan: Plan | None) -> list[str]:
         return [e.path.name, e.path.parent.name, KIND_LABEL.get(e.kind, e.kind), human(e.size), ""]
 
     def processor(self):
@@ -199,7 +199,7 @@ class FileJobPage(Page):
     def settings(self) -> Settings:
         return Settings(min_image_kb=0, min_video_mb=0)
 
-    def accepts(self, path: Path) -> bool:
+    def accepts(self, _path: Path) -> bool:
         return True
 
     def after_scan(self) -> None: ...
@@ -355,7 +355,7 @@ class FileJobPage(Page):
             self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(it))
         self._update()
 
-    def menu_entries(self, entries: list[FileEntry]) -> list:
+    def menu_entries(self, _entries: list[FileEntry]) -> list:
         """The page's own context menu entries for these rows."""
         return []
 

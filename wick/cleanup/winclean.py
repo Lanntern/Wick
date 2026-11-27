@@ -340,9 +340,9 @@ def undo_compact_os() -> str:
     return "Compact OS turned off"
 
 
-def run_system(keys: list[str], cancel: threading.Event | None = None,
-               files: list[str] | tuple = ()) -> tuple[bool, str]:
-    """Run the batch elevated (one UAC prompt) and wait. (ok, message)."""
+def run_system(keys: list[str], files: list[str] | tuple = ()) -> tuple[bool, str]:
+    """Run the batch elevated (one UAC prompt) and wait. (ok, message). It can't be stopped once it runs:
+    Windows doesn't let Wick end a program running as administrator."""
     if not keys:
         return True, ""
 

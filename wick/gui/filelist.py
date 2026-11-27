@@ -130,7 +130,7 @@ class ColumnFitter(QObject):
             header.save_widths()
 
     @safe_filter
-    def eventFilter(self, obj, ev):  # noqa: N802
+    def eventFilter(self, _obj, ev):  # noqa: N802
         if ev.type() == QEvent.Type.Resize:
             self.fit_soon()
         return False
@@ -231,7 +231,7 @@ def child_items(item: QTreeWidgetItem) -> Iterator[QTreeWidgetItem]:
             yield it
 
 
-def checkable_items(tree: QTreeWidget, column: int = 0) -> list[QTreeWidgetItem]:
+def checkable_items(tree: QTreeWidget) -> list[QTreeWidgetItem]:
     out: list[QTreeWidgetItem] = []
     stack = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
     while stack:
@@ -253,7 +253,7 @@ def add_header_checkbox(tree: QTreeWidget, column: int = 0, on_change: Callable[
     header = header_of(tree)
 
     def state() -> Qt.CheckState:
-        items = checkable_items(tree, column)
+        items = checkable_items(tree)
         if not items:
             return Qt.CheckState.Unchecked
         checked = Qt.CheckState.Checked
@@ -269,7 +269,7 @@ def add_header_checkbox(tree: QTreeWidget, column: int = 0, on_change: Callable[
     def toggle() -> None:
         target = Qt.CheckState.Unchecked if state() == Qt.CheckState.Checked else Qt.CheckState.Checked
         tree.blockSignals(True)
-        for it in checkable_items(tree, column):
+        for it in checkable_items(tree):
             it.setCheckState(column, target)
         tree.blockSignals(False)
         tree.viewport().update()
@@ -333,7 +333,7 @@ class ListPlaceholder(QWidget):
         self.update(self._ring_rect())  # only the ring: the message doesn't change 60 times a second
 
     @safe_filter
-    def eventFilter(self, obj, ev):  # noqa: N802
+    def eventFilter(self, _obj, ev):  # noqa: N802
         if ev.type() == QEvent.Type.Resize and not self.isHidden():  # also while its page isn't shown yet
             self.setGeometry(self.view.viewport().rect())
         return False
@@ -369,7 +369,7 @@ class ListPlaceholder(QWidget):
 
 def set_all_checked(tree: QTreeWidget, on: bool, column: int = 0, on_change: Callable[[], None] | None = None) -> None:
     tree.blockSignals(True)
-    for it in checkable_items(tree, column):
+    for it in checkable_items(tree):
         it.setCheckState(column, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
     tree.blockSignals(False)
     tree.viewport().update()

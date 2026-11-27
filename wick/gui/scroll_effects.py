@@ -19,7 +19,7 @@ class _TopTransition(QWidget):
         self.strength = 1.0
         self.hide()
 
-    def paintEvent(self, event):  # noqa: N802
+    def paintEvent(self, _event):  # noqa: N802
         if not self.levels or style.high_contrast_active():
             return
         painter = QPainter(self)

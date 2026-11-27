@@ -27,6 +27,7 @@ import sys
 import threading
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from pathlib import Path as _Path
@@ -281,9 +282,10 @@ class Server:
 
     def call_tool(self, name: str, args: dict, request_id=None, progress_token=None) -> dict:
 
-        handlers = {"list_allowed_folders": self.t_list_allowed_folders, "plan_compression": self.t_plan,
-                    "compress_planned_files": self.t_compress, "list_history": self.t_history,
-                    "undo_run": self.t_undo, "find_cleanup": self.t_find_cleanup}
+        handlers: dict[str, Callable[..., dict]] = {
+            "list_allowed_folders": self.t_list_allowed_folders, "plan_compression": self.t_plan,
+            "compress_planned_files": self.t_compress, "list_history": self.t_history,
+            "undo_run": self.t_undo, "find_cleanup": self.t_find_cleanup}
         if name not in handlers:
             raise KeyError(name)
         if not isinstance(args, dict):
@@ -330,7 +332,7 @@ class Server:
                             + (" (refused: " + "; ".join(f"{p}: {w}" for p, w in self.refused) + ")."
                                if self.refused else "."))
 
-    def t_list_allowed_folders(self, args, **_) -> dict:
+    def t_list_allowed_folders(self, _args, **_) -> dict:
 
         out: dict[str, Any] = {"allowed_folders": [clean(a) for a in self.allowed],
                "originals": (f"moved to the {BIN_NAME}; undo with undo_run" if self.replaces_originals() else
@@ -469,7 +471,7 @@ class Server:
                     self.n = 0
                     self.lock = threading.Lock()
 
-                def file_finished(self, r):
+                def file_finished(self, _r):
                     with self.lock:
                         self.n += 1
                         server._progress(progress_token, self.n, len(todo), f"{self.n} of {len(todo)} files")
@@ -586,7 +588,7 @@ class Server:
                 return {"done": False, "result": "The user didn't approve this, so nothing was changed."}
             n = [0]
 
-            def report(rec, ok, msg):
+            def report(_rec, _ok, _msg):
                 n[0] += 1
                 self._progress(progress_token, n[0], len(active), f"{n[0]} of {len(active)} files")
 

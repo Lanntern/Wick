@@ -557,7 +557,8 @@ def turn_video(src: Path, opts: ConvertOptions, cancel: threading.Event | None =
     args += ["-i", str(src), "-map", "0", "-map_metadata", "0", "-c", "copy", "-movflags", "+faststart", str(out)]
     try:
         steps.report("Rotating without losing quality")
-        tools.run(args, timeout=3600)
+        with tools.cancelling(cancel or threading.Event()):
+            tools.run(args, timeout=3600)
         steps.report("Checking the result")
         a, b = probe_video(src), probe_video(out)
         if b is None or a is None or abs(a.duration - b.duration) > max(0.5, a.duration * 0.01) \
@@ -943,8 +944,7 @@ def video_to_animation(src: Path, info: VideoInfo, target: str, opts: ConvertOpt
         raise
 
 
-def animation_to_video(src: Path, info, opts: ConvertOptions, s: Settings,
-                       on_progress: Callable[[float], None] | None = None,
+def animation_to_video(src: Path, opts: ConvertOptions, on_progress: Callable[[float], None] | None = None,
                        cancel: threading.Event | None = None) -> Path:
     """An animated GIF, WebP or PNG as an MP4 (H.264, plays everywhere), each frame shown as long as in the
     animation. See-through parts become white (MP4 has no transparency)."""
@@ -1182,10 +1182,16 @@ def needs_pandoc(src: Path, target: str) -> bool:
     return target != "pdf" or src.suffix.lower() not in OFFICE_EXTS
 
 
-def convert_document(src: Path, target: str) -> Path:
+def convert_document(src: Path, target: str, cancel: threading.Event | None = None) -> Path:
     """A document to another format: with Pandoc, or to PDF with Microsoft Office or LibreOffice (office.py);
     a Markdown or web page goes through Word's format first. Pandoc runs with ``--sandbox``: it reads only this
-    file (never the network, never other files); pictures inside come along where the format can hold them."""
+    file (never the network, never other files); pictures inside come along where the format can hold them.
+    ``cancel`` stops Pandoc and LibreOffice (Microsoft Office finishes the file it's making)."""
+    with tools.cancelling(cancel or threading.Event()):
+        return _convert_document(src, target)
+
+
+def _convert_document(src: Path, target: str) -> Path:
     if target == "pdf":
         from . import office
 
@@ -1194,7 +1200,7 @@ def convert_document(src: Path, target: str) -> Path:
         try:
             source = src
             if src.suffix.lower() not in office.OFFICE_EXTS:
-                middle = convert_document(src, "docx")
+                middle = _convert_document(src, "docx")
                 source = middle
             steps.report(f"Making the PDF with {office.converter_for(source.suffix)}")
             office.to_pdf(source, out)

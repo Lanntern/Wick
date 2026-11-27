@@ -159,7 +159,7 @@ def uninstall_item(item: Candidate, writer: journal.RunWriter, others: list, can
                                                f"the {BIN_NAME}" if moved else ""), freed, at)
 
 
-def windows_items(items: list[Candidate], writer: journal.RunWriter, cancel=None) -> list[Outcome]:
+def windows_items(items: list[Candidate], writer: journal.RunWriter) -> list[Outcome]:
     """Windows' own leftovers, removed by Windows in one batch (one administrator prompt)."""
 
     from . import winclean
@@ -170,7 +170,7 @@ def windows_items(items: list[Candidate], writer: journal.RunWriter, cancel=None
     except OSError:
         before = None
     files = [f for c in items if c.extra.get("system") == "installer_orphans" for f in c.extra.get("paths", [])]
-    ok, msg = winclean.run_system([c.extra["system"] for c in items], cancel, files)
+    ok, msg = winclean.run_system([c.extra["system"] for c in items], files)
     if not ok:
         return [Outcome(c, False, msg) for c in items]
     freed_total = 0
@@ -207,7 +207,7 @@ def takeout_items(items: list[Candidate], writer: journal.RunWriter, cancel=None
     try:
         res = takeout.merge([c.path for c in items], out, albums=first.get("albums", "link"),
                             edited=first.get("edited", "both"),
-                            progress=(lambda msg, d, t: on_line(msg)) if on_line else None, cancel=cancel)
+                            progress=(lambda msg, _d, _t: on_line(msg)) if on_line else None, cancel=cancel)
     except Exception as e:  # noqa: BLE001 - e.g. a damaged archive
         return [Outcome(c, False, f"Couldn't merge: {e}") for c in items]
     at = time.time()
@@ -381,7 +381,7 @@ def apply(items: list[Candidate], action: str, tool: str, root: Path,
         items = [c for c in items if not c.extra.get("vdisk")]
     system = [c for c in items if c.extra.get("system")]
     if system and action == TRASH and not stopped():
-        for o in windows_items(system, writer, cancel):
+        for o in windows_items(system, writer):
             report(o, len(items))
     items = [c for c in items if not c.extra.get("system")]
     total = len(outcomes) + len(items)

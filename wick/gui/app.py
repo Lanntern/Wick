@@ -114,7 +114,7 @@ def _accept_finder_files(app, win) -> None:
     timer.timeout.connect(flush)
 
     class FinderFiles(QObject):
-        def eventFilter(self, obj, event):  # noqa: N802
+        def eventFilter(self, _obj, event):  # noqa: N802
             if event.type() == QEvent.Type.FileOpen:
                 path = event.file() or event.url().toLocalFile()
                 if path:

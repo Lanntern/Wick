@@ -88,7 +88,7 @@ def codec_label(codec: str) -> str:
     return _CODECS.get(codec, codec.upper())
 
 
-def label(d: dict, path: Path) -> str:
+def label(d: dict) -> str:
     res = f"{d['height']}p" if d.get("height") else ""
     rate = f"{d['bit_rate'] / 1e6:.1f} Mbps" if d.get("bit_rate") else ""
     return ", ".join(x for x in (res, codec_label(d.get("codec", "")), rate) if x)
@@ -171,13 +171,13 @@ def _copies(files: list, prints: dict[int, dict], members: list[int], group: str
     """One video's extra copies: everything but the one with the most pixels."""
     best = max(members, key=lambda i: _rank(prints[i], files[i][1].st_size))
     kp, kst = files[best]
-    kq = label(prints[best], kp)
+    kq = label(prints[best])
     out = []
     for i in members:
         if i == best:
             continue
         p, st = files[i]
-        q = label(prints[i], p)
+        q = label(prints[i])
         close = matches(prints[i]["hashes"], prints[best]["hashes"], STRICTNESS["very"])
         detail = f"{q}, like the copy that stays" if q == kq else f"{q}; the copy that stays is {kq}"
         out.append(Candidate(
@@ -189,7 +189,7 @@ def _copies(files: list, prints: dict[int, dict], members: list[int], group: str
     return out
 
 
-def group_title(g: str, items: list[Candidate]) -> str:
+def group_title(_g: str, items: list[Candidate]) -> str:
     keeper = items[0].keeper
     return f"{len(items) + 1} copies of {keeper.name if keeper else 'a video'}"
 

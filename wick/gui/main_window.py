@@ -731,7 +731,7 @@ class MainWindow(QMainWindow):
             e.acceptProposedAction()
             self.compress.drop.set_hover(True)
 
-    def dragLeaveEvent(self, e) -> None:
+    def dragLeaveEvent(self, _e) -> None:
         self.compress.drop.set_hover(False)
 
     def dropEvent(self, e) -> None:

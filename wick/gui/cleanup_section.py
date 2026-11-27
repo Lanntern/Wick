@@ -83,11 +83,11 @@ class Tool:
     scan: Callable[[ToolSection, Callable, threading.Event], ScanResult]
     actions: list[tuple[str, str, str]]                    # (action id, button label, kind)
     folder_label: str = "Look in"
-    options: Callable[[ToolSection], list[tuple[str, QWidget]]] = lambda s: []
+    options: Callable[[ToolSection], list[tuple[str, QWidget]]] = lambda _s: []
     note: str = ""
     available: Callable[[], str] = lambda: ""              # returns a reason when unavailable
-    group_title: Callable[[str, list[Candidate]], str] = lambda g, items: g
-    menu: Callable[[ToolSection, list[Candidate]], list] = lambda s, items: []   # extra right-click entries
+    group_title: Callable[[str, list[Candidate]], str] = lambda g, _items: g
+    menu: Callable[[ToolSection, list[Candidate]], list] = lambda _s, _items: []   # extra right-click entries
     extra: dict = field(default_factory=dict)
 
 
@@ -1016,7 +1016,7 @@ class ToolSection(QWidget):
         self.bar.setRange(0, n)
         self.worker.start()
 
-    def _applied_one(self, outcome, done: int, total: int) -> None:
+    def _applied_one(self, outcome, done: int, _total: int) -> None:
         self.bar.setValue(done)
         self.status.setText(f"{outcome.message}: {outcome.item.title}")
 
@@ -1025,7 +1025,7 @@ class ToolSection(QWidget):
         for it, c in self._items():
             c.extra["checked"] = it.checkState(C_NAME) == Qt.CheckState.Checked
 
-    def _applied(self, outcomes, run_id) -> None:
+    def _applied(self, outcomes, _run_id) -> None:
         ok = [o for o in outcomes if o.ok]
         failed = [o for o in outcomes if not o.ok]
         if self.tool.key == "takeout":

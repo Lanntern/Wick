@@ -171,7 +171,7 @@ def _pairs_options(sec: ToolSection):
     return [("Of each pair", combo)]
 
 
-def _similar_group_title(g: str, items: list[Candidate]) -> str:
+def _similar_group_title(_g: str, items: list[Candidate]) -> str:
     keeper = items[0].keeper
     return f"{len(items) + 1} similar photos" + (f": keeping {keeper.name}" if keeper else "")
 
@@ -335,7 +335,7 @@ def _takeout_options(sec: ToolSection):
     return [("Albums", albums), ("Edited photos", edited)]
 
 
-def _scan_caches(sec: ToolSection, progress, cancel):
+def _scan_caches(_sec: ToolSection, progress, cancel):
     return caches.find_caches(progress, cancel)
 
 
@@ -496,7 +496,7 @@ def _scan_dev(sec: ToolSection, progress, cancel):
                                      progress=progress, cancel=cancel)
 
 
-def _dup_group_title(g: str, items: list[Candidate]) -> str:
+def _dup_group_title(_g: str, items: list[Candidate]) -> str:
     keeper = items[0].keeper
     return f"{len(items) + 1} copies" + (f" of {keeper.name}" if keeper else "")
 
@@ -584,14 +584,14 @@ def tools() -> list[Tool]:
         Tool("backups", "Phone Backups",
              "iPhone and iPad backups made by iTunes or Apple Devices, and Samsung Smart Switch backups, newest "
              "first. Each can be tens of gigabytes; nothing is selected for you.",
-             None, lambda s, p, c: backups.find_backups(p, c),
+             None, lambda _s, p, c: backups.find_backups(p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              available=lambda: "" if sys.platform == "win32" or sys.platform == "darwin" else
              "Available on Windows and macOS."),
         Tool("apps", "Apps",
              "Installed apps, with the ones you haven't opened in months first. Uninstalling runs the app's own "
              f"uninstaller, then moves the folders it left behind to the {BIN_NAME}.",
-             None, lambda s, p, c: apps_mod.find_apps(p, c),
+             None, lambda _s, p, c: apps_mod.find_apps(p, c),
              [(actions.UNINSTALL, "Uninstall…", "primary")],
              note="When an app was last opened comes from Windows' own records for your account. Apps started "
                   "another way, like by a game launcher, may show no record.",
@@ -599,7 +599,7 @@ def tools() -> list[Tool]:
         Tool("leftovers", "App Leftovers",
              "Folders in AppData and ProgramData that no installed app seems to use and that haven't changed in "
              "months, often left by apps you removed. Nothing is selected for you.",
-             None, lambda s, p, c: apps_mod.find_leftovers(p, c),
+             None, lambda _s, p, c: apps_mod.find_leftovers(p, c),
              [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              available=lambda: "" if apps_mod.IS_WINDOWS else "Available on Windows."),
         Tool("empty", "Empty Items",
@@ -624,14 +624,14 @@ def tools() -> list[Tool]:
         Tool("winclean", "Windows",
              "Files Windows leaves behind, like the previous installation after a big update, update downloads, "
              "error reports, memory dumps and old temporary files.",
-             None, lambda s, p, c: winclean.find(p, c), [(actions.TRASH, "Clean Up", "primary")],
+             None, lambda _s, p, c: winclean.find(p, c), [(actions.TRASH, "Clean Up", "primary")],
              note="System items are removed with the same Windows tools Disk Cleanup uses. Your own files go to "
                   f"the {BIN_NAME}.",
              available=lambda: "" if winclean.supported() else "Available on Windows only."),
         Tool("macclean", "Mac",
              "What a Mac collects: Xcode's build data and old device support, caches, Mail's copies of opened "
              "attachments, iPhone update files, old installers, and data left by apps that are gone.",
-             None, lambda s, p, c: macclean.find(p, c), [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
+             None, lambda _s, p, c: macclean.find(p, c), [(actions.TRASH, f"Move to {BIN_NAME}", "primary")],
              note="Only what's rebuilt or downloaded again by itself is selected for you.",
              available=lambda: "" if macclean.supported() else "Available on macOS only."),
         Tool("appcompress", "Compress Apps",

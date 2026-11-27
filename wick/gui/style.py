@@ -433,17 +433,17 @@ class _IconEngine(QIconEngine):
     def _color(self, mode) -> str:
         return self._colors.get(mode) or self._colors[QIcon.Mode.Normal]
 
-    def paint(self, painter, rect, mode, state) -> None:
+    def paint(self, painter, rect, mode, _state) -> None:
         _paint_icon(painter, QRectF(rect), self._name, self._color(mode), self._stroke)
 
-    def scaledPixmap(self, size, mode, state, scale) -> QPixmap:
+    def scaledPixmap(self, size, mode, _state, scale) -> QPixmap:
         side = min(size.width(), size.height())
         return icon_pixmap(self._name, self._color(mode), side, scale or 1.0, self._stroke)
 
     def pixmap(self, size, mode, state) -> QPixmap:
         return self.scaledPixmap(size, mode, state, 1.0)
 
-    def actualSize(self, size, mode, state):
+    def actualSize(self, size, _mode, _state):
         return size
 
     def clone(self) -> QIconEngine:
@@ -453,9 +453,9 @@ class _IconEngine(QIconEngine):
         return "wick-icon"
 
 
-def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
-    """The named icon in the theme's colors (``color`` for normal and selected, when given). ``size`` is
-    unused: the icon is drawn at whatever size it's shown."""
+def icon(name: str, color: str | None = None, _size: int = 20) -> QIcon:
+    """The named icon in the theme's colors (``color`` for normal and selected, when given). The size
+    argument is ignored: the icon is drawn at whatever size it's shown."""
     t = tokens()
     return QIcon(_IconEngine(name, {QIcon.Mode.Normal: color or t.text2, QIcon.Mode.Disabled: t.text3,
                                     QIcon.Mode.Selected: color or t.accent_text}))

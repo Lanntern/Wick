@@ -50,7 +50,7 @@ def folder() -> Path:
     return d
 
 
-def can_download(addon: Addon) -> bool:
+def can_download(_addon: Addon) -> bool:
     """Only the Windows build is downloaded (elsewhere it comes from the system's packages)."""
     return sys.platform == "win32" and os.environ.get("WICK_NO_NETWORK") != "1"
 

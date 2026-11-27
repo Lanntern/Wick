@@ -397,9 +397,9 @@ def process_convert(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=No
             elif entry.kind == PDF:
                 tmp = convert.convert_pdf(entry.path, plan.route, opts, on_progress, cancel)
             elif entry.kind in (DOCUMENT, DOC):
-                tmp = convert.convert_document(entry.path, plan.route)
+                tmp = convert.convert_document(entry.path, plan.route, cancel)
             elif plan.route == "mp4":
-                tmp = convert.animation_to_video(entry.path, entry.image, opts, s, on_progress, cancel)
+                tmp = convert.animation_to_video(entry.path, opts, on_progress, cancel)
             elif entry.kind == AUDIO:
                 tmp = convert.convert_audio(entry.path, entry.audio, plan.route, s, on_progress, cancel, opts)
             else:
@@ -441,7 +441,7 @@ def folder_output_path(entry: FileEntry, s: Settings) -> Path:
     return unique_path(base / f"{src.stem} pages")
 
 
-def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=None, on_progress=None,
+def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, _cancel=None, _on_progress=None,
                      *, policy: str) -> FileResult:
     from . import metaclean
 

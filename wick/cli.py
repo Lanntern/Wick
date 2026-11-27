@@ -184,7 +184,7 @@ def _plan(a: argparse.Namespace):
     missing = [str(p) for p in a.paths if not p.exists()]
     if missing:
         sys.exit("Not found: " + ", ".join(missing))
-    result = scan(a.paths, s, progress=lambda m, d, t: print(f"\r{m[:100]:<100}", end="", file=sys.stderr),
+    result = scan(a.paths, s, progress=lambda m, _d, _t: print(f"\r{m[:100]:<100}", end="", file=sys.stderr),
                   picked=True)              # (files named on the command line were chosen: no size minimums)
     print("\r" + " " * 100 + "\r", end="", file=sys.stderr)
     items = [(e, plan_entry(e, s)) for e in result.entries]
@@ -292,14 +292,14 @@ def cmd_undo(a: argparse.Namespace) -> int:
     return 1 if failed else 0
 
 
-def cmd_presets(a: argparse.Namespace) -> int:
+def cmd_presets(_a: argparse.Namespace) -> int:
 
     for name in presets.names():
         print(f"{name}\n    {presets.description(name)}")
     return 0
 
 
-def cmd_tools(a: argparse.Namespace) -> int:
+def cmd_tools(_a: argparse.Namespace) -> int:
 
     for name, path in tools.tool_status().items():
         print(f"{name:8} {path or 'MISSING'}")
@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_undo)
 
     p = sub.add_parser("speedtest", help="compare parallel settings on generated samples (changes nothing)")
-    p.set_defaults(func=lambda a: (print(__import__("wick.benchmark", fromlist=["run"]).run(
+    p.set_defaults(func=lambda _a: (print(__import__("wick.benchmark", fromlist=["run"]).run(
         lambda m: print(m, file=sys.stderr))), 0)[1])
 
     p = sub.add_parser("presets", help="list presets")
