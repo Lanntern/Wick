@@ -15,7 +15,7 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
-from . import tools
+from . import detected, tools
 
 # Each Homebrew package and the programs Wick uses from it.
 FORMULAE = {"ffmpeg": ("ffmpeg", "ffprobe"), "jpeg-xl": ("cjxl", "djxl"), "gifsicle": ("gifsicle",)}
@@ -67,7 +67,7 @@ def install(formulae: list[str], progress: Callable[[str], None] | None = None,
     if proc.wait() != 0:
         raise InstallFailed("\n".join(tail) or f"brew exited with {proc.returncode}")
 
-    tools.find_tool.cache_clear()          # (look again: the new programs are in Homebrew's folder now)
+    detected.forget()          # (look again: the new programs are in Homebrew's folder now)
 
 
 def homebrew_hint() -> str:

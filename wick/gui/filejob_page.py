@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -38,7 +39,9 @@ from .filelist import (
     keyboard_list,
     make_sortable,
     selected_or_clicked,
+    set_all_checked,
     set_sort_keys,
+    top_items,
 )
 from .jobstatus import JobStatus, PauseControl
 from .settings_panel import BIN_NAME
@@ -141,17 +144,17 @@ class FileJobPage(Page):
         for i in range(1, len(self.COLUMNS) - 1):
             self.tree.setColumnWidth(i, 150)
         self.tree.itemChanged.connect(self._item_changed)
-        make_sortable(self.tree)
+        header = make_sortable(self.tree)
         self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
-        self.tree.header().remember(type(self).__name__)
+        header.remember(type(self).__name__)
         add_header_checkbox(self.tree, 0, self._item_changed)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._menu)
         keyboard_list(self.tree, self._menu)
         click_to_check(self.tree, 0)
-        self.tree.header().enable_column_menu(f"filejob/{self.tool}/{title}", list(range(1, self.STATUS_COL)),
+        header.enable_column_menu(f"filejob/{self.tool}/{title}", list(range(1, self.STATUS_COL)),
                                               {self.C_CREATED, self.C_MODIFIED})
-        self.tree.header().column_choice_changed = lambda: self.refresh_rows() \
+        header.column_choice_changed = lambda: self.refresh_rows() \
             if not self.tree.isColumnHidden(self.C_CREATED) and self.entries and not self.busy() else None
         self.placeholder = ListPlaceholder(self.tree)
         card.lay.addWidget(self.tree, 1)
@@ -161,6 +164,15 @@ class FileJobPage(Page):
         self.hover = HoverPreviewer(self.tree, self._hover_info, self)
         self.hover.enabled = window.qsettings.value("hover_preview", True, bool)
         self._update()
+
+    def shortcuts(self) -> list[tuple[str, Callable[[], object]]]:
+        return [
+            ("Ctrl+A", lambda: set_all_checked(self.tree, True, 0, self._update)),
+            ("Ctrl+Shift+A", lambda: set_all_checked(self.tree, False, 0, self._update)),
+            ("Ctrl+Return", self.start),
+            ("Ctrl+Enter", self.start),
+            ("Esc", lambda: self.stop() if self.busy() else None),
+        ]
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -178,7 +190,7 @@ class FileJobPage(Page):
 
     def plan(self, e: FileEntry) -> Plan | None: ...
 
-    def row_values(self, e: FileEntry, plan: Plan | None) -> list[str]:
+    def row_values(self, e: FileEntry, _plan: Plan | None) -> list[str]:
         return [e.path.name, e.path.parent.name, KIND_LABEL.get(e.kind, e.kind), human(e.size), ""]
 
     def processor(self):
@@ -187,7 +199,7 @@ class FileJobPage(Page):
     def settings(self) -> Settings:
         return Settings(min_image_kb=0, min_video_mb=0)
 
-    def accepts(self, path: Path) -> bool:
+    def accepts(self, _path: Path) -> bool:
         return True
 
     def after_scan(self) -> None: ...
@@ -266,8 +278,7 @@ class FileJobPage(Page):
 
     def _fill_rows(self) -> None:
         unticked = set()            # (keep what was left out when the list is rebuilt for new settings)
-        for i in range(self.tree.topLevelItemCount()):
-            it = self.tree.topLevelItem(i)
+        for it in top_items(self.tree):
             e, p = it.data(0, ROLE_ROW)
             if p is not None and it.checkState(0) != Qt.CheckState.Checked:     # (excluded rows weren't the user's choice)
                 unticked.add(id(e))
@@ -344,14 +355,13 @@ class FileJobPage(Page):
             self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(it))
         self._update()
 
-    def menu_entries(self, entries: list[FileEntry]) -> list:
+    def menu_entries(self, _entries: list[FileEntry]) -> list:
         """The page's own context menu entries for these rows."""
         return []
 
     def selected(self) -> list[tuple[FileEntry, Plan]]:
         out = []
-        for i in range(self.tree.topLevelItemCount()):
-            it = self.tree.topLevelItem(i)
+        for it in top_items(self.tree):
             e, p = it.data(0, ROLE_ROW)
             if (
                 p is not None

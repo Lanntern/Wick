@@ -332,7 +332,7 @@ def find_compressible(folders: list[Path], progress: ProgressFn | None = None,
             try:
                 ratio, samples = sample_ratio(folder, selected_algorithm, skipped, cancel)
                 estimate_source = f"sample estimate ({samples} files)"
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001 - logged; the sample is only an estimate
                 if cancelled(cancel):
                     result.cancelled = True
                     break
@@ -475,6 +475,35 @@ def run_compact(folder: Path, undo: bool = False, on_line: Callable[[str], None]
             raise ValueError('App/game compression needs an APFS (or Mac OS Extended) volume')
         files = _compact_files(folder, set() if undo else exclusions(skip_extensions), cancel, changed_since)
         return apfs.run(folder, files, undo, on_line, cancel)
+    _check_windows_folder(folder)
+    commands = _commands(folder, undo, selected, exclusions(skip_extensions), cancel, changed_since)
+    if elevate:
+        return _compact_as_administrator(folder, undo, selected, commands, on_line, cancel)
+    code = 0
+    for command in commands:
+        if cancelled(cancel):
+            return 1223
+        if on_line:
+            on_line(f"{'Decompressing' if undo else selected.upper()}: {command[-1]}")
+        try:
+            with tools.cancelling(cancel or threading.Event()):
+                result = tools.run(command, check=False)
+        except tools.Cancelled:
+            return 1223
+        code = max(code, result.returncode)
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+        if on_line and output:
+            on_line(output[-800:])
+        if result.returncode:
+            from ..log import log
+
+            log.warning("Windows compression failed for %s (exit %s): %s",
+                        command[-1], result.returncode, output[-800:])
+    return 1223 if cancelled(cancel) else code
+
+
+def _check_windows_folder(folder: Path) -> None:
+    """Raises ValueError for a drive, a system location, or a folder not on NTFS."""
     protected = [Path(v).resolve() for k in ('SystemRoot', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramData')
                  if (v := os.environ.get(k))]
     if folder.parent == folder or folder in protected:
@@ -484,31 +513,11 @@ def run_compact(folder: Path, undo: bool = False, on_line: Callable[[str], None]
         raise ValueError('Windows system folders cannot be compressed here')
     if volume_type(folder) != 'NTFS':
         raise ValueError('App/game compression requires an NTFS volume')
-    commands = _commands(folder, undo, selected, exclusions(skip_extensions), cancel, changed_since)
-    if not elevate:
-        code = 0
-        for command in commands:
-            if cancelled(cancel):
-                return 1223
-            if on_line:
-                on_line(f"{'Decompressing' if undo else selected.upper()}: {command[-1]}")
-            try:
-                with tools.cancelling(cancel or threading.Event()):
-                    result = tools.run(command, check=False)
-            except tools.Cancelled:
-                return 1223
-            code = max(code, result.returncode)
-            output = "\n".join(part for part in (result.stdout, result.stderr) if part)
-            if on_line and output:
-                on_line(output[-800:])
-            if result.returncode:
-                from ..log import log
 
-                log.warning("Windows compression failed for %s (exit %s): %s",
-                            command[-1], result.returncode, output[-800:])
-        return 1223 if cancelled(cancel) else code
 
-    # Only argument data is stored on disk, never executable PowerShell. The fixed command runs bounded batches.
+def _compact_as_administrator(folder: Path, undo: bool, selected: str, commands, on_line, cancel) -> int:
+    """The same commands, run as administrator (Windows asks once). Only argument data is stored on disk, never
+    executable PowerShell; the fixed command runs bounded batches and checks for Stop between them."""
     fd, script_name = tempfile.mkstemp(prefix='wick-compact-', suffix='.json')
     script, marker = Path(script_name), Path(script_name + '.cancel')
     finished = threading.Event()

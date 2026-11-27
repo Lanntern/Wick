@@ -11,13 +11,12 @@ from __future__ import annotations
 
 import os
 import threading
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import index, tools
 from ..formats import VIDEO_EXTS, plural
-from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
+from .common import Candidate, Groups, ProgressFn, ScanResult, cancelled, walk_files
 from .similar import Ticker
 
 POINTS = tuple(i / 10 for i in range(1, 10))
@@ -89,7 +88,7 @@ def codec_label(codec: str) -> str:
     return _CODECS.get(codec, codec.upper())
 
 
-def label(d: dict, path: Path) -> str:
+def label(d: dict) -> str:
     res = f"{d['height']}p" if d.get("height") else ""
     rate = f"{d['bit_rate'] / 1e6:.1f} Mbps" if d.get("bit_rate") else ""
     return ", ".join(x for x in (res, codec_label(d.get("codec", "")), rate) if x)
@@ -113,6 +112,33 @@ def find_similar_videos(roots: list[Path], *, strictness: str = "very", min_size
         result.cancelled = True
         return result
 
+    prints = _fingerprints(files, progress, cancel)
+    if cancelled(cancel):
+        result.cancelled = True
+        return result
+    ids = sorted(prints, key=lambda i: prints[i]["duration"])
+    groups = Groups(ids)
+    for n, a in enumerate(ids):
+        da = prints[a]["duration"]
+        for b in ids[n + 1:]:
+            if prints[b]["duration"] - da > max(1.0, da * LENGTH_SLACK):
+                break
+            if groups.root(a) != groups.root(b) and matches(prints[a]["hashes"], prints[b]["hashes"], limit):
+                groups.join(a, b)
+    sets = [g for g in groups.sets() if len(g) > 1]
+    sets.sort(key=lambda g: sum(files[i][1].st_size for i in g), reverse=True)
+    for gi, members in enumerate(sets):
+        result.items += _copies(files, prints, members, f"vid{gi}")
+    if sets:
+        result.notes.append(f"{plural(len(sets), 'video')} saved more than once. The copy "
+                            "with the most pixels stays; right-click to keep a different one.")
+    elif not files:
+        result.notes.append("No videos here.")
+    return result
+
+
+def _fingerprints(files: list, progress: ProgressFn | None, cancel: threading.Event | None) -> dict[int, dict]:
+    """Each video's fingerprint: from the index when unchanged, else made now (several at a time)."""
     prints: dict[int, dict] = {}
     todo = []
     for i, (p, st) in enumerate(files):
@@ -138,57 +164,32 @@ def find_similar_videos(roots: list[Path], *, strictness: str = "very", min_size
         list(pool.map(work, todo))
     index.store_values("vhash", [(files[i][0], files[i][1].st_size, files[i][1].st_mtime,
                                   {"v": _VERSION, "fp": prints.get(i)}) for i in done])
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
-
-    ids = sorted(prints, key=lambda i: prints[i]["duration"])
-    parent = {i: i for i in ids}
-
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    for n, a in enumerate(ids):
-        da = prints[a]["duration"]
-        for b in ids[n + 1:]:
-            if prints[b]["duration"] - da > max(1.0, da * LENGTH_SLACK):
-                break
-            if root(a) != root(b) and matches(prints[a]["hashes"], prints[b]["hashes"], limit):
-                parent[root(a)] = root(b)
-    linked: dict[int, list[int]] = defaultdict(list)
-    for i in ids:
-        linked[root(i)].append(i)
-    sets = [g for g in linked.values() if len(g) > 1]
-    sets.sort(key=lambda g: sum(files[i][1].st_size for i in g), reverse=True)
-    for gi, members in enumerate(sets):
-        best = max(members, key=lambda i: _rank(prints[i], files[i][1].st_size))
-        kp, kst = files[best]
-        kq = label(prints[best], kp)
-        for i in members:
-            if i == best:
-                continue
-            p, st = files[i]
-            q = label(prints[i], p)
-            close = matches(prints[i]["hashes"], prints[best]["hashes"], STRICTNESS["very"])
-            detail = f"{q}, like the copy that stays" if q == kq else f"{q}; the copy that stays is {kq}"
-            result.items.append(Candidate(
-                path=p, size=st.st_size, keeper=kp, group=f"vid{gi}", detail=detail,
-                selected=close and _rank(prints[i], st.st_size) <= _rank(prints[best], kst.st_size)
-                and prints[i]["width"] * prints[i]["height"] < prints[best]["width"] * prints[best]["height"],
-                extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
-                       "keeper_label": kq}))
-    if sets:
-        result.notes.append(f"{plural(len(sets), 'video')} saved more than once. The copy "
-                            "with the most pixels stays; right-click to keep a different one.")
-    elif not files:
-        result.notes.append("No videos here.")
-    return result
+    return prints
 
 
-def group_title(g: str, items: list[Candidate]) -> str:
+def _copies(files: list, prints: dict[int, dict], members: list[int], group: str) -> list[Candidate]:
+    """One video's extra copies: everything but the one with the most pixels."""
+    best = max(members, key=lambda i: _rank(prints[i], files[i][1].st_size))
+    kp, kst = files[best]
+    kq = label(prints[best])
+    out = []
+    for i in members:
+        if i == best:
+            continue
+        p, st = files[i]
+        q = label(prints[i])
+        close = matches(prints[i]["hashes"], prints[best]["hashes"], STRICTNESS["very"])
+        detail = f"{q}, like the copy that stays" if q == kq else f"{q}; the copy that stays is {kq}"
+        out.append(Candidate(
+            path=p, size=st.st_size, keeper=kp, group=group, detail=detail,
+            selected=close and _rank(prints[i], st.st_size) <= _rank(prints[best], kst.st_size)
+            and prints[i]["width"] * prints[i]["height"] < prints[best]["width"] * prints[best]["height"],
+            extra={"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns, "label": q,
+                   "keeper_label": kq}))
+    return out
+
+
+def group_title(_g: str, items: list[Candidate]) -> str:
     keeper = items[0].keeper
     return f"{len(items) + 1} copies of {keeper.name if keeper else 'a video'}"
 

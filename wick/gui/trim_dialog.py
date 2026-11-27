@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from .. import tools
 from .style import Space, Type
-from .widgets import dialog_buttons, text
+from .widgets import dialog_buttons, primary_button, text
 
 STEP = 10            # slider steps per second
 
@@ -107,7 +107,7 @@ class TrimDialog(QDialog):
         if is_video:
             lay.addWidget(self.exact)
         lay.addLayout(dialog_buttons(self, ("Save Trimmed Copy", self.accept)))
-        self.save = self._primary_button
+        self.save = primary_button(self)
         self.is_video, self._ticket, self._shown = is_video, 0, 0
         self._workers: list[QThread] = []
         self._timer = QTimer(self, singleShot=True, interval=150)

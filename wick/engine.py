@@ -33,7 +33,7 @@ from .fileops import (
 )
 from .formats import ARCHIVE, AUDIO, COMIC, DOC, DOCUMENT, FONT, JPEG, KIND_LABEL, PDF, VIDEO, human, plural
 from .images import NotWorthIt, VerificationFailed, convert_image
-from .log import log
+from .log import ignored, log
 from .plan import Plan
 from .scanner import FileEntry, preload_codecs
 from .settings import Settings
@@ -397,9 +397,9 @@ def process_convert(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=No
             elif entry.kind == PDF:
                 tmp = convert.convert_pdf(entry.path, plan.route, opts, on_progress, cancel)
             elif entry.kind in (DOCUMENT, DOC):
-                tmp = convert.convert_document(entry.path, plan.route)
+                tmp = convert.convert_document(entry.path, plan.route, cancel)
             elif plan.route == "mp4":
-                tmp = convert.animation_to_video(entry.path, entry.image, opts, s, on_progress, cancel)
+                tmp = convert.animation_to_video(entry.path, opts, on_progress, cancel)
             elif entry.kind == AUDIO:
                 tmp = convert.convert_audio(entry.path, entry.audio, plan.route, s, on_progress, cancel, opts)
             else:
@@ -441,7 +441,7 @@ def folder_output_path(entry: FileEntry, s: Settings) -> Path:
     return unique_path(base / f"{src.stem} pages")
 
 
-def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, cancel=None, on_progress=None,
+def process_metadata(entry: FileEntry, plan: Plan, s: Settings, writer, _cancel=None, _on_progress=None,
                      *, policy: str) -> FileResult:
     from . import metaclean
 
@@ -558,6 +558,7 @@ class Gate:
             try:
                 self._busy = bool(self.busy())
             except Exception:  # noqa: BLE001
+                ignored("engine: busy check")
                 self._busy = False
         return max(1, self.limit // 2) if self._busy else self.limit
 
@@ -698,128 +699,132 @@ def preview_file(entry: FileEntry, plan: Plan, s: Settings) -> Path:
 
 # ------------------------------------------------------------------ undo
 
-def undo_record(run_id: str, rec: journal.FileRecord) -> tuple[bool, str]:  # noqa: C901 (to split up)
+class CantUndo(Exception):
+    """Why a change can't be undone (said to the person as it is)."""
+
+
+# Changes there is nothing to put back for.
+_NOT_UNDOABLE = {
+    "decompact": "Use Compress Apps to choose an algorithm and compress this folder again",
+    "vdisk": "Nothing to undo: compacting only gave unused space back to Windows",
+    "system": "Removed by Windows: it can't be put back",
+    "docker": "Removed by Docker: it comes back when a project pulls or builds it again",
+}
+
+
+def undo_record(run_id: str, rec: journal.FileRecord) -> tuple[bool, str]:
+    """Put one change back. (done, what happened or why it couldn't be)."""
     if rec.undone:
         return True, "Already undone"
-    if rec.mode == "decompact":
-        return False, "Use Compress Apps to choose an algorithm and compress this folder again"
+    if rec.mode in _NOT_UNDOABLE:
+        return False, _NOT_UNDOABLE[rec.mode]
+    undo = _UNDO_BY_MODE.get(rec.mode, _undo_replaced)
+    try:
+        how = undo(rec)
+    except CantUndo as e:
+        return False, str(e)
+    journal.mark_undone(run_id, rec.original, how)
+    rec.undone, rec.undo_note = True, how
+    return True, how
+
+
+def _undo_by_cleanup_action(rec: journal.FileRecord) -> str:
+    """Hard links, NTFS compression, renamed files and CompactOS: undone by the clean-up action that made them."""
+    from .cleanup import actions, winclean
+
+    undo = {"hardlink": actions.undo_hardlink, "compact": actions.undo_compact, "renamed": actions.undo_rename,
+            "compactos": lambda _rec: winclean.undo_compact_os()}[rec.mode]
+    try:
+        return undo(rec)
+    except Exception as e:  # noqa: BLE001 - its reason is shown (a file in use, access denied...)
+        raise CantUndo(str(e)) from e
+
+
+def _undo_removed(rec: journal.FileRecord) -> str:
+    """Clean Up sent it to the bin: bring it back."""
+    orig = Path(rec.original)
+    if orig.exists():
+        raise CantUndo("Something already exists at the original location")
+    item = trash_restore.find_trashed(orig, rec.trashed_at)
+    if item is None:
+        raise CantUndo(f"It isn't in the {BIN_NAME} any more (emptied?)")
+    try:
+        trash_restore.restore(item)
+    except OSError as e:
+        raise CantUndo(str(e)) from e
+    return f"Restored from {BIN_NAME}"
+
+
+def _undo_moved(rec: journal.FileRecord) -> str:
+    """The original was moved to a folder: bring it back, remove the result."""
+    orig, out, moved = Path(rec.original), Path(rec.output), Path(rec.moved_to)
+    if orig.exists():
+        raise CantUndo("Something else is at the original's place now")
+    if not moved.exists():
+        raise CantUndo(f"The original isn't in {moved.parent} any more")
+    shutil.move(str(moved), str(orig))
+    if out.is_dir():
+        _remove_made_folder(out)
+    else:
+        remove_quietly(out)
+    return "Moved the original back and removed the converted file"
+
+
+def _undo_copy(rec: journal.FileRecord) -> str:
+    """A copy was made next to the original: remove it."""
+    out = Path(rec.output)
+    if out.is_dir():
+        return _remove_made_folder(out)
+    remove_quietly(out)
+    return "Removed the copy (the original was never changed)"
+
+
+def _undo_replaced(rec: journal.FileRecord) -> str:
+    """The original was replaced (sent to the bin, or deleted where there's none): bring it back — from the bin,
+    or rebuilt bit-exact from a reversible JPEG XL — and remove the result."""
     orig, out = Path(rec.original), Path(rec.output)
-
-    if rec.mode in ("hardlink", "compact"):
-        from .cleanup import actions
-
-        try:
-            how = actions.undo_hardlink(rec) if rec.mode == "hardlink" else actions.undo_compact(rec)
-        except Exception as e:  # noqa: BLE001
-            return False, str(e)
-        journal.mark_undone(run_id, rec.original, how)
-        rec.undone, rec.undo_note = True, how
-        return True, how
-
-    if rec.mode == "renamed":
-        from .cleanup import actions
-
-        try:
-            how = actions.undo_rename(rec)
-        except Exception as e:  # noqa: BLE001
-            return False, str(e)
-        journal.mark_undone(run_id, rec.original, how)
-        rec.undone, rec.undo_note = True, how
-        return True, how
-    if rec.mode == "vdisk":
-        return False, "Nothing to undo: compacting only gave unused space back to Windows"
-    if rec.mode == "compactos":
-        from .cleanup import winclean
-
-        try:
-            how = winclean.undo_compact_os()
-        except Exception as e:  # noqa: BLE001
-            return False, str(e)
-        journal.mark_undone(run_id, rec.original, how)
-        rec.undone, rec.undo_note = True, how
-        return True, how
-    if rec.mode == "system":
-        return False, "Removed by Windows: it can't be put back"
-    if rec.mode == "docker":
-        return False, "Removed by Docker: it comes back when a project pulls or builds it again"
-    if rec.mode == "removed":  # clean-up: the item went to the bin; nothing else to delete
-        orig = Path(rec.original)
-        if orig.exists():
-            return False, "Something already exists at the original location"
-        item = trash_restore.find_trashed(orig, rec.trashed_at)
-        if item is None:
-            return False, f"It isn't in the {BIN_NAME} any more (emptied?)"
-        try:
-            trash_restore.restore(item)
-        except OSError as e:
-            return False, str(e)
-        how = f"Restored from {BIN_NAME}"
-        journal.mark_undone(run_id, rec.original, how)
-        rec.undone, rec.undo_note = True, how
-        return True, how
-
-    if rec.mode == "moved":                # the original was moved to a folder: bring it back, remove the result
-        moved = Path(rec.moved_to)
-        if orig.exists():
-            return False, "Something else is at the original's place now"
-        if not moved.exists():
-            return False, f"The original isn't in {moved.parent} any more"
-        shutil.move(str(moved), str(orig))
-        if out.is_dir():
-            _remove_made_folder(out)
-        else:
-            remove_quietly(out)
-        how = "Moved the original back and removed the converted file"
-        journal.mark_undone(run_id, rec.original, how)
-        rec.undone, rec.undo_note = True, how
-        return True, how
-
-    if rec.mode == "copy":
-        if out.is_dir():
-            how = _remove_made_folder(out)
-        else:
-            remove_quietly(out)
-            how = "Removed the copy (the original was never changed)"
-        journal.mark_undone(run_id, rec.original, how)
-        rec.undone, rec.undo_note = True, how
-        return True, how
-
     same_path = orig == out
     aside: Path | None = None
     if not same_path and orig.exists():
-        return False, "A file already exists at the original location"
+        raise CantUndo("A file already exists at the original location")
     if same_path:
         if not out.exists():
-            return False, "Converted file is missing"
+            raise CantUndo("Converted file is missing")
         aside = temp_name(out.parent, out.suffix, "-undo")
         os.rename(out, aside)
-
     try:
-        item = None if rec.mode == "deleted" else trash_restore.find_trashed(orig, rec.trashed_at)
-        if item is not None:
-            trash_restore.restore(item)
-            how = f"Restored from {BIN_NAME}"
-        elif rec.reversible and (aside or out).exists():
-            _reconstruct_jpeg(aside or out, orig, rec)
-            how = "Rebuilt the original JPEG from the JPEG XL file (bit-exact)"
-        elif rec.mode == "deleted":
-            raise FileNotFoundError(f"Original was deleted permanently (drive had no {BIN_NAME})")
-        else:
-            raise FileNotFoundError(f"Original isn't in the {BIN_NAME} any more (emptied?)")
-    except Exception as e:  # noqa: BLE001
+        how = _bring_back_original(rec, orig, aside or out)
+    except Exception as e:  # noqa: BLE001 - its reason is shown; the result is put back as it was
         if aside is not None:
             os.rename(aside, out)
-        return False, str(e)
-
-    if same_path:
+        raise CantUndo(str(e)) from e
+    if aside is not None:
         remove_quietly(aside)
     elif out.is_dir():            # a folder of pages (PDF → images) made in Replace mode
         _remove_made_folder(out)
     else:
         remove_quietly(out)
-    journal.mark_undone(run_id, rec.original, how)
-    rec.undone, rec.undo_note = True, how
-    return True, how
+    return how
+
+
+def _bring_back_original(rec: journal.FileRecord, orig: Path, result: Path) -> str:
+    item = None if rec.mode == "deleted" else trash_restore.find_trashed(orig, rec.trashed_at)
+    if item is not None:
+        trash_restore.restore(item)
+        return f"Restored from {BIN_NAME}"
+    if rec.reversible and result.exists():
+        _reconstruct_jpeg(result, orig, rec)
+        return "Rebuilt the original JPEG from the JPEG XL file (bit-exact)"
+    if rec.mode == "deleted":
+        raise FileNotFoundError(f"Original was deleted permanently (drive had no {BIN_NAME})")
+    raise FileNotFoundError(f"Original isn't in the {BIN_NAME} any more (emptied?)")
+
+
+_UNDO_BY_MODE = {
+    "hardlink": _undo_by_cleanup_action, "compact": _undo_by_cleanup_action,
+    "renamed": _undo_by_cleanup_action, "compactos": _undo_by_cleanup_action,
+    "removed": _undo_removed, "moved": _undo_moved, "copy": _undo_copy,
+}
 
 
 _MADE = re.compile(r"^page \d+\.(png|jpg|pdf)$")

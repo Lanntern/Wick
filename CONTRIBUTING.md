@@ -88,6 +88,9 @@ scripts/fetch_tools.py   download Windows encoders
 
 The lint job checks most of these; the rest are here so a change doesn't have to learn them in review.
 
+- **Before each commit:** `pip install pre-commit` (in the same environment as Wick's dependencies), then
+  `pre-commit install` once. Ruff, vulture and the code rules then run on every commit, and the type checks
+  before every push, with the tool versions CI uses (`.pre-commit-config.yaml`).
 - **Checks:** `ruff check .`, `vulture`, and mypy once per system, run with the project's own Python (`python -m mypy`, so it sees PySide6 and the other libraries):
   `python -m mypy wick --platform linux --always-false IS_WINDOWS --always-false IS_MAC` (then `win32` with
   `--always-true IS_WINDOWS`, and `darwin` with `--always-true IS_MAC`). Each run skips the other systems'
@@ -102,7 +105,20 @@ The lint job checks most of these; the rest are here so a change doesn't have to
     called, they pick up the replacement.
 - **Private names stay private:** `_name` is for its own module. If another module needs it, give it a
   public name (`tests/test_code_rules.py` checks).
-- **Functions under 25 branches** (ruff C901). The few older ones over it are marked `noqa: C901 (to split up)`.
+- **Errors:** catch the error you expect (`OSError`, `sqlite3.Error`, `tools.ToolError`...). A catch-all
+  (`except Exception`) is for code that reads untrusted files or third-party libraries that can raise anything;
+  it carries `# noqa: BLE001 - why`, and writes the error to the log (`log.ignored("where")`), re-raises, or
+  hands it on as a message. A silent one fails `tests/test_code_rules.py`.
+- **Unused arguments** are removed, or start with `_` when the caller dictates the signature (a Qt override, a
+  callback, one entry of a table of handlers); ruff's ARG rule checks (not in tests, where fixtures and fakes
+  take arguments they don't use).
+- **Functions under 20 branches** (ruff C901). A long function becomes named steps (or a small class when the
+  steps share state), not a `noqa`.
+- **Tests that fake another system** change `sys.platform` (`monkeypatch.setattr(sys, "platform", "linux")`);
+  changing `os.name` does nothing, and `tests/test_code_rules.py` rejects it.
+- **Tests never open a real dialog.** Anything that waits for an answer (`exec()`, `QFileDialog.get...`,
+  `QMessageBox`, Windows' message box) is answered "cancel" and fails the test that opened it; replace the dialog
+  in the test first (`monkeypatch.setattr(SomeDialog, "exec", ...)`).
 - **Folder walks** go through `wick/walk.py`, so links, junctions and unreadable folders are handled the same way
   everywhere.
 

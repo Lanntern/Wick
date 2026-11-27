@@ -110,7 +110,7 @@ def test_a_file_that_wouldnt_shrink_is_skipped_next_time(tmp_path, monkeypatch):
     from wick.scanner import FileEntry
 
     monkeypatch.setattr(index, "path", lambda: tmp_path / "index.sqlite")
-    monkeypatch.setattr(index, "_conn", None, raising=False)
+    monkeypatch.setattr(index._state, "conn", None)          # (a database of its own, in tmp_path)
     index.set_enabled(True)
     p = tmp_path / "a.jpg"
     p.write_bytes(b"x" * 100)

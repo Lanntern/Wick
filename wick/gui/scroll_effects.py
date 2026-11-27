@@ -19,7 +19,7 @@ class _TopTransition(QWidget):
         self.strength = 1.0
         self.hide()
 
-    def paintEvent(self, event):  # noqa: N802
+    def paintEvent(self, _event):  # noqa: N802
         if not self.levels or style.high_contrast_active():
             return
         painter = QPainter(self)
@@ -92,7 +92,10 @@ class EdgeScrollArea(QScrollArea):
         if edge.width() < 1 or edge.height() < 1:
             return
         # Capture only the content strip, never the overlay or the whole settings page. No paint-event recursion.
-        pixmap = self.widget().grab(QRect(self.horizontalScrollBar().value(), self.verticalScrollBar().value(),
+        content = self.widget()
+        if content is None:
+            return
+        pixmap = content.grab(QRect(self.horizontalScrollBar().value(), self.verticalScrollBar().value(),
                                          edge.width(), edge.height()))
         image = pixmap.toImage()
         if image.isNull():

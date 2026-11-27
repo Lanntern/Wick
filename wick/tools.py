@@ -18,9 +18,9 @@ import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from functools import cache, lru_cache
 from pathlib import Path
 
+from .detected import detected
 from .log import log
 
 TOOL_NAMES = ("ffmpeg", "ffprobe", "cjxl", "djxl", "cjpegli", "gifsicle", "ssimulacra2", "butteraugli_main")
@@ -124,7 +124,7 @@ def _nice() -> None:  # pragma: no cover - runs in the child
         pass
 
 
-@lru_cache(maxsize=1)
+@detected
 def total_memory_gb() -> float:
     """Installed memory in GB (0 if unknown)."""
     try:
@@ -210,7 +210,7 @@ def _candidate_dirs() -> Iterator[Path]:
         yield from (Path("/opt/homebrew/bin"), Path("/usr/local/bin"), Path("/opt/local/bin"))
 
 
-@cache
+@detected
 def find_tool(name: str) -> str | None:
     exe = name + (".exe" if sys.platform == "win32" else "")
     for d in _candidate_dirs():

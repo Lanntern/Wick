@@ -1,0 +1,49 @@
+# The macOS tests and app build, as their own check: GitHub provides Mac runners less reliably than Linux and
+# Windows ones (and counts their minutes ten times over), and a job that never gets one shouldn't fail the
+# main checks. Version tags run the same job from build.yml, for the release's disk image.
+name: macOS
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "README.md"
+      - "CLA.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "docs/**"
+      - ".gitignore"
+      - ".github/FUNDING.yml"
+      - ".github/workflows/updates.yml"
+      - ".github/workflows/cla.yml"
+      - ".github/workflows/package-managers.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "bucket/**"
+      - "packaging/winget/**"
+  pull_request:
+    paths-ignore:   # (the same list)
+      - "README.md"
+      - "CLA.md"
+      - "CONTRIBUTING.md"
+      - "SECURITY.md"
+      - "docs/**"
+      - ".gitignore"
+      - ".github/FUNDING.yml"
+      - ".github/workflows/updates.yml"
+      - ".github/workflows/cla.yml"
+      - ".github/workflows/package-managers.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "bucket/**"
+      - "packaging/winget/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    uses: ./.github/workflows/macos-build.yml

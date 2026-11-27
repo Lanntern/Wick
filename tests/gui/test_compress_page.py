@@ -183,7 +183,8 @@ def test_lists_sort_select_all_and_menu(win, tmp_path):
 
     changed = []
     add_header_checkbox(tree, 0, lambda: changed.append(1))
-    column, state, toggle = header._check
+    state, toggle = header.check_state, header.check_toggle()
+    assert header.check_column == 0 and toggle is not None
     assert state() == Qt.Unchecked
     toggle()
     assert state() == Qt.Checked and changed
@@ -199,7 +200,7 @@ def test_lists_sort_select_all_and_menu(win, tmp_path):
 
     # Compress table: the header checkbox drives the model.
     h = win.compress.table.horizontalHeader()
-    assert h._check is not None
+    assert h.check_column is not None
 
 
 def test_saved_so_far_hidden_until_something_saved(win):
@@ -216,17 +217,18 @@ def test_window_resize_does_not_freeze_columns(win):
     choosing widths, so columns keep fitting their content."""
     from PySide6.QtWidgets import QTreeWidget
 
-    from wick.gui.filelist import make_sortable
+    from wick.gui.filelist import fitter_of, make_sortable
 
     tree = QTreeWidget()
     tree.setHeaderLabels(["Name", "Folder", "Size"])
     make_sortable(tree)
-    tree._fitter._resized(2)                         # (last column, as the window grows)
+    fitter = fitter_of(tree)
+    fitter._resized(2)                         # (last column, as the window grows)
     tree.header()._dragging = True
-    tree._fitter._resized(2)
-    assert not tree._fitter.user_sized
-    tree._fitter._resized(0)                         # a real drag on a column edge
-    assert tree._fitter.user_sized
+    fitter._resized(2)
+    assert not fitter.user_sized
+    fitter._resized(0)                         # a real drag on a column edge
+    assert fitter.user_sized
 
 
 def test_columns_fit_long_names_when_there_is_room(win):
@@ -623,6 +625,8 @@ def test_community_results_fit_columns_and_sort_numerically(win, monkeypatch):
         assert dialog.table.rowCount() == 1
         assert dialog.table.item(0, 1).text() == "20"
         assert all(dialog.table.item(0, column).text() == "8%" for column in range(2, 6))
+        dialog.download_button.click()          # (tests run with networking off: it says so instead of failing)
+        assert dialog.note.text() == "Network access is disabled."
     finally:
         dialog.close()
         dialog.deleteLater()

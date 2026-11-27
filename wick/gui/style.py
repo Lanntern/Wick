@@ -71,14 +71,32 @@ DARK = Tokens(
     canvas="#141415",
 )
 
-_current: Tokens = LIGHT
-_system_accent = False      # Settings › Appearance › "Use the Windows accent color"
+
+class _State:
+    """The look in use (tokens, font scale, accent), and the app-wide helpers installed once (event filters, the
+    style object, the tooltip card)."""
+
+    def __init__(self) -> None:
+        self.current: Tokens = LIGHT
+        self.system_accent = False      # Settings › Appearance › "Use the Windows accent color"
+        self.base_pt: float | None = None
+        self.scaled = False
+        self.fluent = False
+        self.inner_names_obj: _InnerNames | None = None
+        self.popup_filter_obj: _PopupFilter | None = None
+        self.style_obj = None
+        self.tip_card: _TipCard | None = None
+        self.tooltip_wrap: _Tooltips | None = None
+        self.focus_visible: _FocusVisible | None = None
+        self.system_palette: QPalette | None = None
+
+
+_state = _State()
 
 
 def set_system_accent(on: bool) -> None:
     """Use Windows' accent color instead of the app's blue (from the next apply_style)."""
-    global _system_accent
-    _system_accent = bool(on)
+    _state.system_accent = bool(on)
 
 
 def windows_accent() -> str | None:
@@ -118,7 +136,7 @@ def with_accent(t: Tokens, accent: str) -> Tokens:
 
 
 def tokens() -> Tokens:
-    return _current
+    return _state.current
 
 
 # ---------------------------------------------------------------- accessibility
@@ -235,12 +253,10 @@ UI_FAMILIES = ["Segoe UI Variable Text", "Segoe UI", ".AppleSystemUIFont", "SF P
                "Inter", "Cantarell", "Noto Sans", "Ubuntu", "DejaVu Sans"]
 
 
-_BASE_PT: float | None = None
 
 
 _TEXT_BOUND = ("CONTROL", "ROW", "FORM_LABEL", "SIDEBAR_ROW", "SIDEBAR_W", "INSPECTOR_W")
 _REFERENCE_PT = {"win32": 9.0, "darwin": 13.0}.get(__import__("sys").platform, 10.0)
-_scaled = False
 
 
 def text_scale() -> float:
@@ -250,10 +266,9 @@ def text_scale() -> float:
 
 def scale_to_text() -> None:
     """Grow text-bound Size tokens with the text size. Call once, before building widgets."""
-    global _scaled
-    if _scaled:
+    if _state.scaled:
         return
-    _scaled = True
+    _state.scaled = True
     f = text_scale()
     if f > 1.0:
         for name in _TEXT_BOUND:
@@ -265,13 +280,12 @@ def base_point_size() -> float:
 
     Read once, before our own font is applied, so the scale never compounds.
     """
-    global _BASE_PT
-    if _BASE_PT is None:
+    if _state.base_pt is None:
         from PySide6.QtWidgets import QApplication
 
         size = QApplication.font().pointSizeF()
-        _BASE_PT = max(9.0, size if size > 0 else 10.0)
-    return _BASE_PT
+        _state.base_pt = max(9.0, size if size > 0 else 10.0)
+    return _state.base_pt
 
 
 def pt(role: float) -> float:
@@ -341,13 +355,11 @@ FLUENT_GLYPHS = {
     "home": 0xE80F, "convert": 0xE8AB, "tag": 0xE8EC, "ellipsis": 0xE712, "trash": 0xE74D, "lock": 0xE72E,
     "heart": 0xEB51, "pause": 0xE769, "play": 0xE768, "star": 0xE734,
 }
-_fluent = False
 
 
 def use_fluent_icons(on: bool) -> None:
     """Draw icons with Windows' icon font where it has them (developer setting; the app's own icons otherwise)."""
-    global _fluent
-    _fluent = on
+    _state.fluent = on
     _icon_pixmap.cache_clear()
 
 
@@ -361,7 +373,7 @@ def _fluent_family() -> str:
 
 def _fluent_char(name: str) -> str:
     """The icon font's character for ``name``, or "" when the font (or that glyph) isn't there."""
-    if not _fluent or name not in FLUENT_GLYPHS or not _fluent_family():
+    if not _state.fluent or name not in FLUENT_GLYPHS or not _fluent_family():
         return ""
     from PySide6.QtGui import QFontMetrics
 
@@ -421,17 +433,17 @@ class _IconEngine(QIconEngine):
     def _color(self, mode) -> str:
         return self._colors.get(mode) or self._colors[QIcon.Mode.Normal]
 
-    def paint(self, painter, rect, mode, state) -> None:
+    def paint(self, painter, rect, mode, _state) -> None:
         _paint_icon(painter, QRectF(rect), self._name, self._color(mode), self._stroke)
 
-    def scaledPixmap(self, size, mode, state, scale) -> QPixmap:
+    def scaledPixmap(self, size, mode, _state, scale) -> QPixmap:
         side = min(size.width(), size.height())
         return icon_pixmap(self._name, self._color(mode), side, scale or 1.0, self._stroke)
 
     def pixmap(self, size, mode, state) -> QPixmap:
         return self.scaledPixmap(size, mode, state, 1.0)
 
-    def actualSize(self, size, mode, state):
+    def actualSize(self, size, _mode, _state):
         return size
 
     def clone(self) -> QIconEngine:
@@ -441,9 +453,9 @@ class _IconEngine(QIconEngine):
         return "wick-icon"
 
 
-def icon(name: str, color: str | None = None, size: int = 20) -> QIcon:
-    """The named icon in the theme's colors (``color`` for normal and selected, when given). ``size`` is
-    unused: the icon is drawn at whatever size it's shown."""
+def icon(name: str, color: str | None = None, _size: int = 20) -> QIcon:
+    """The named icon in the theme's colors (``color`` for normal and selected, when given). The size
+    argument is ignored: the icon is drawn at whatever size it's shown."""
     t = tokens()
     return QIcon(_IconEngine(name, {QIcon.Mode.Normal: color or t.text2, QIcon.Mode.Disabled: t.text3,
                                     QIcon.Mode.Selected: color or t.accent_text}))
@@ -787,24 +799,20 @@ class _InnerNames(QObject):
         return False
 
 
-_inner_names_obj: _InnerNames | None = None
 
 
 def _inner_names() -> _InnerNames:
-    global _inner_names_obj
-    if _inner_names_obj is None:
-        _inner_names_obj = _InnerNames()
-    return _inner_names_obj
+    if _state.inner_names_obj is None:
+        _state.inner_names_obj = _InnerNames()
+    return _state.inner_names_obj
 
 
-_popup_filter_obj: _PopupFilter | None = None
 
 
 def _popup_filter() -> _PopupFilter:
-    global _popup_filter_obj
-    if _popup_filter_obj is None:
-        _popup_filter_obj = _PopupFilter()
-    return _popup_filter_obj
+    if _state.popup_filter_obj is None:
+        _state.popup_filter_obj = _PopupFilter()
+    return _state.popup_filter_obj
 
 
 def _app_style():
@@ -837,7 +845,6 @@ def _native_round_corners(w: QWidget, small: bool = False) -> None:
         ignored("gui.style._native_round_corners")
 
 
-_style_obj = None
 
 
 def keyboard_focus(w: QWidget) -> bool:
@@ -879,7 +886,6 @@ class _FocusVisible(QObject):
         return False
 
 
-_focus_visible: _FocusVisible | None = None
 
 
 def _tint_title_bar(w: QWidget) -> None:
@@ -989,26 +995,24 @@ class _TipCard(QWidget):
             self.dismiss()
 
 
-_tip_card: _TipCard | None = None
 
 
 def show_tip(tip: str, widget: QWidget, rect=None, x: int | None = None) -> None:
     """Show the app's tooltip for ``widget`` (or for ``rect``, a part of it in its own coordinates)."""
     from PySide6.QtCore import QRect
 
-    global _tip_card
     if not tip:
         hide_tip()
         return
-    if _tip_card is None:
-        _tip_card = _TipCard()
+    if _state.tip_card is None:
+        _state.tip_card = _TipCard()
     r = rect if rect is not None else widget.rect()
-    _tip_card.show_for(tip, QRect(widget.mapToGlobal(r.topLeft()), r.size()), x)
+    _state.tip_card.show_for(tip, QRect(widget.mapToGlobal(r.topLeft()), r.size()), x)
 
 
 def hide_tip() -> None:
-    if _tip_card is not None and _tip_card.isVisible():
-        _tip_card.dismiss()
+    if _state.tip_card is not None and _state.tip_card.isVisible():
+        _state.tip_card.dismiss()
 
 
 class _Tooltips(QObject):
@@ -1041,30 +1045,27 @@ class _Tooltips(QObject):
         return False
 
 
-_tooltip_wrap: _Tooltips | None = None
-_system_palette: QPalette | None = None
 
 
 def apply_style(mode: str) -> Tokens:
     """Apply light/dark/system styling app-wide. Returns the active tokens."""
-    global _current
     from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
+    if not isinstance(app, QApplication):
+        raise RuntimeError("apply_style needs the QApplication made first")
     scale_to_text()
-    global _tooltip_wrap, _focus_visible
-    if _tooltip_wrap is None:
+    if _state.tooltip_wrap is None:
         # The app-wide tooltip and focus-ring filters see every event. Building the window sends tens of
         # thousands of them, none a tooltip or a keyboard focus change: they're installed once the event loop
         # runs (the window on screen), which took about a sixth off building it.
         from PySide6.QtCore import QTimer
 
-        _tooltip_wrap = _Tooltips(app)
-        _focus_visible = _FocusVisible(app)
+        tips, focus = _state.tooltip_wrap, _state.focus_visible = _Tooltips(app), _FocusVisible(app)
 
         def install() -> None:
-            app.installEventFilter(_tooltip_wrap)
-            app.installEventFilter(_focus_visible)
+            app.installEventFilter(tips)
+            app.installEventFilter(focus)
 
         QTimer.singleShot(0, install)
     hints = app.styleHints()
@@ -1076,25 +1077,23 @@ def apply_style(mode: str) -> Tokens:
         dark = system_dark
     else:
         dark = mode == "dark"
-    _current = DARK if dark else LIGHT
-    accent = windows_accent() if _system_accent else None
+    _state.current = DARK if dark else LIGHT
+    accent = windows_accent() if _state.system_accent else None
     if accent:
-        _current = with_accent(_current, accent)
-    global _system_palette
-    if _system_palette is None:
-        _system_palette = QPalette(app.palette())          # (Windows' own colors, before ours are applied)
+        _state.current = with_accent(_state.current, accent)
+    if _state.system_palette is None:
+        _state.system_palette = QPalette(app.palette())          # (Windows' own colors, before ours are applied)
     if high_contrast_active():
         # The user's contrast theme wins: Windows draws the controls in its colors, and what the app draws
         # itself (icons, switches, charts) takes the same colors.
         app.setStyleSheet("")
-        app.setPalette(_system_palette)
-        _current = high_contrast_tokens(_system_palette)
-        return _current
-    global _style_obj
-    if _style_obj is None:
-        _style_obj = _app_style()
-        app.setStyle(_style_obj)  # Fusion everywhere, for consistent rendering; the stylesheet does the rest
-    app.setPalette(palette(_current))
+        app.setPalette(_state.system_palette)
+        _state.current = high_contrast_tokens(_state.system_palette)
+        return _state.current
+    if _state.style_obj is None:
+        _state.style_obj = style_obj = _app_style()
+        app.setStyle(style_obj)  # Fusion everywhere, for consistent rendering; the stylesheet does the rest
+    app.setPalette(palette(_state.current))
     app.setFont(ui_font())
-    app.setStyleSheet(stylesheet(_current))
-    return _current
+    app.setStyleSheet(stylesheet(_state.current))
+    return _state.current

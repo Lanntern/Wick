@@ -50,7 +50,7 @@ from .file_model import (
     open_in_file_manager_many,
 )
 from .filelist import ListPlaceholder, click_to_check, file_menu, keyboard_list, open_file
-from .header import Header
+from .header import Header, header_of
 from .jobstatus import JobStatus, PauseControl, ResumeBanner
 from .preview import PreviewDialog
 from .settings_panel import BIN_NAME, SettingsPanel
@@ -65,6 +65,7 @@ from .widgets import (
     StatusDelegate,
     available_width,
     button,
+    clear_layout,
     hbox,
     keys,
     page_top,
@@ -202,11 +203,11 @@ class CompressTab(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(Size.ROW)
         self.table.setItemDelegateForColumn(C_STATUS, StatusDelegate(self.table))
         self.table.setItemDelegateForColumn(C_INFO, _ElideRight(self.table))  # keep "1920×1080 · 30 fps" readable
-        self.table.setHorizontalHeader(Header(self.table))
+        h = Header(self.table)
+        self.table.setHorizontalHeader(h)
         self.table.setSortingEnabled(True)  # after the header swap, so the new header shows the indicator
         self.table.sortByColumn(C_SIZE, Qt.SortOrder.DescendingOrder)
-        self.table.horizontalHeader().remember("compress")
-        h = self.table.horizontalHeader()
+        h.remember("compress")
 
         def toggle_all():
             self.model.set_all_checked(self.model.check_state() != Qt.CheckState.Checked)
@@ -328,7 +329,7 @@ class CompressTab(QWidget):
     def _fit_columns(self) -> None:
         available = self.table.viewport().width()
         fixed = self.table.columnWidth(C_CHECK) + COLUMN_WIDTHS[C_SIZE] + COLUMN_WIDTHS[C_STATUS]
-        off = self.table.horizontalHeader().user_hidden
+        off = header_of(self.table).user_hidden
         optional = [c for c in reversed(HIDE_ORDER) if c not in off]
         shown: list[int] = []
         for col in optional:  # add back in priority order while Name keeps its minimum
@@ -338,16 +339,12 @@ class CompressTab(QWidget):
         for col in HIDE_ORDER:
             self.table.setColumnHidden(col, col not in shown)
         # Name takes the room the window gives (columns keep the widths they were dragged to).
-        h = self.table.horizontalHeader()
+        h = header_of(self.table)
         middle = sum(
             self.table.columnWidth(c) for c in COLUMN_WIDTHS if c != C_STATUS and not self.table.isColumnHidden(c)
         )
         name = available - self.table.columnWidth(C_CHECK) - middle - COLUMN_WIDTHS[C_STATUS]
-        h._clamping = True
-        try:
-            self.table.setColumnWidth(C_NAME, max(NAME_MIN, name))
-        finally:
-            h._clamping = False
+        h.resize_freely(C_NAME, max(NAME_MIN, name))
         h.fill_last()
         self._fit_toolbar()
         # Icon-only header buttons only when their labels really don't fit next to the title.
@@ -628,10 +625,7 @@ class CompressTab(QWidget):
         if key == getattr(self, "_off_shown", None):
             return
         self._off_shown = key
-        while self.off_buttons.count():
-            w = self.off_buttons.takeAt(0).widget()
-            if w is not None:
-                w.deleteLater()
+        clear_layout(self.off_buttons)
         if not counts or self.busy():
             self.off_banner.hide()
             return

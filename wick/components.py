@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import importlib.metadata as md
 import re
-from functools import lru_cache
 
 from . import tools
+from .detected import detected
 
 
 def _tool_version(name: str, args: list[str], pattern: str) -> str | None:
@@ -30,7 +30,7 @@ def _dist(name: str) -> str | None:
         return None
 
 
-@lru_cache(maxsize=1)
+@detected
 def versions() -> dict[str, str]:
     """Component name (as in the credits list) -> version; missing components are left out."""
     out: dict[str, str | None] = {

@@ -16,11 +16,12 @@ import re
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import cache, lru_cache
+from functools import lru_cache
 from pathlib import Path
 from typing import TypeVar
 
 from . import tools
+from .detected import detected
 from .fileops import remove_quietly, temp_name
 from .video import BANDING_GRAIN
 
@@ -95,7 +96,7 @@ def mean(scores: list[Score]) -> Score:
     return Score(scores[0].metric, sum(x.value for x in scores) / len(scores))
 
 
-@cache
+@detected
 def has_vmaf() -> bool:
     ffmpeg = tools.find_tool("ffmpeg")
     if not ffmpeg:
@@ -122,7 +123,7 @@ def _default_video_metric() -> str:
     return "VMAF" if has_vmaf() else "SSIM-video"
 
 
-@cache
+@detected
 def _metric_works(metric: str) -> bool:
     """Whether a chosen measure can run here: its tool or filter exists and a tiny comparison succeeds."""
     try:

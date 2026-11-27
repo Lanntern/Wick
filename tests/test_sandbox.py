@@ -51,6 +51,7 @@ def test_workers_are_reused_and_a_reply_larger_than_allowed_is_refused(tmp_path)
 
 def test_a_decoder_that_crashes_or_hangs_never_takes_wick_with_it(tmp_path):
     w = sandbox._borrow()
+    assert w is not None
     w.proc.kill()                        # (a decoder a crafted file crashed)
     w.proc.join()
     sandbox._give_back(w)
@@ -111,6 +112,7 @@ def test_a_worker_that_fails_is_logged_with_its_file(tmp_path, caplog):
         with pytest.raises(sandbox.DecoderCrashed):
             sandbox.call("_test_sleep", 30, timeout=1)
         w = sandbox._borrow()
+        assert w is not None
         w.proc.kill()
         w.proc.join()
         sandbox._give_back(w)

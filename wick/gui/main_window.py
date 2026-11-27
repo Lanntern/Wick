@@ -34,12 +34,11 @@ from ..settings import Settings
 from . import style
 from .compress_tab import CompressTab
 from .dialogs import ask, inform
-from .filelist import set_all_checked
 from .home_tab import HomeTab
 from .sidebar import Sidebar
 from .style import Space, Type
 from .watch_tab import WatchTab
-from .widgets import Card, button, keys, refresh_icons, text
+from .widgets import Card, Page, TakesFiles, button, keys, refresh_icons, text
 from .workers import EncoderProbeThread
 
 if TYPE_CHECKING:
@@ -340,7 +339,7 @@ class MainWindow(QMainWindow):
         self.pages.removeWidget(holder)
         holder.deleteLater()
         self.pages.setCurrentIndex(current)
-        self._page_shortcuts(name, page)
+        self._page_shortcuts(page)
         return page
 
     def _prebuild_next(self) -> None:
@@ -378,8 +377,13 @@ class MainWindow(QMainWindow):
         """After a keyboard page switch, put the focus where work happens: the page's list if it has rows,
         otherwise its first control (so the page's own shortcuts work straight away)."""
         page = self.pages.currentWidget()
+        if page is None:
+            return
         if page is self.built("cleanup"):
-            page = page.stack.currentWidget()
+            from .cleanup_tab import CleanupTab  # (built by now: the page on screen)
+
+            assert isinstance(page, CleanupTab)
+            page = page.current()
         view = getattr(page, "table", None) or getattr(page, "tree", None)
         model = view.model() if view is not None else None
         if view is not None and view.isVisible() and model is not None and model.rowCount():
@@ -432,11 +436,7 @@ class MainWindow(QMainWindow):
         add("Insert", c.include_selected, c.table, Qt.ShortcutContext.WidgetShortcut)
         # Home
 
-        h = self.home
-        add("Ctrl+A", lambda: set_all_checked(h.tree, True, 0, h._update_send), h, page_ctx)
-        add("Ctrl+Shift+A", lambda: set_all_checked(h.tree, False, 0, h._update_send), h, page_ctx)
-        add("Ctrl+Return", h._send, h, page_ctx)
-        add("Ctrl+Enter", h._send, h, page_ctx)
+        self._page_shortcuts(self.home)
         add("Ctrl+,", lambda: (self.go_to(self.app_settings), self.focus_page()))
         add("F1", self.show_shortcuts)
         add("Ctrl+/", self.show_shortcuts)
@@ -508,38 +508,18 @@ class MainWindow(QMainWindow):
         sc.activated.connect(slot)
         return sc
 
-    def _page_shortcuts(self, name: str, page: QWidget) -> None:
-        """Shortcuts that belong to a page built on demand (installed when it's built)."""
-
-        add, page_ctx = self._shortcut, Qt.ShortcutContext.WidgetWithChildrenShortcut
-        if name == "history":
-            add("Ctrl+Z", page.undo_selected, page, page_ctx)
-            add("F5", page.reload, page, page_ctx)
-        elif name in ("converter", "metadata"):
-            add("Ctrl+A", lambda p=page: set_all_checked(p.tree, True, 0, p._update), page, page_ctx)
-            add("Ctrl+Shift+A", lambda p=page: set_all_checked(p.tree, False, 0, p._update), page, page_ctx)
-            add("Ctrl+Return", lambda p=page: p.start(), page, page_ctx)
-            add("Ctrl+Enter", lambda p=page: p.start(), page, page_ctx)
-            add("Esc", lambda p=page: p.stop() if p.busy() else None, page, page_ctx)
-        elif name == "cleanup":
-            cu = page
-            tool = lambda: cu.stack.currentWidget()  # noqa: E731
-            add("Ctrl+R", lambda: tool().scan(), cu, page_ctx)
-            add("F5", lambda: tool().scan(), cu, page_ctx)
-            add("Ctrl+A", lambda: tool()._set_all(True), cu, page_ctx)
-            add("Ctrl+Shift+A", lambda: tool()._set_all(False), cu, page_ctx)
-            add("Ctrl+Return", lambda: tool().run_primary(), cu, page_ctx)
-            add("Ctrl+Enter", lambda: tool().run_primary(), cu, page_ctx)
-            add("Esc", lambda: tool().stop() if tool().busy() else None, cu, page_ctx)
-            add("Ctrl+Tab", lambda: cu.step(1), cu, page_ctx)
-            add("Ctrl+Shift+Tab", lambda: cu.step(-1), cu, page_ctx)
+    def _page_shortcuts(self, page: QWidget) -> None:
+        """The keys a page lists for itself (Page.shortcuts), working while it's shown."""
+        if isinstance(page, Page):
+            for seq, slot in page.shortcuts():
+                self._shortcut(seq, slot, page, Qt.ShortcutContext.WidgetWithChildrenShortcut)
 
     def _add_files(self, folder: bool) -> None:
         """Ctrl+O / Ctrl+Shift+O add to the page you're on (Convert, Metadata), else to Compress."""
-        page = self.pages.currentWidget()
-        if not hasattr(page, "browse_files"):
-            page = self.compress
-            self.go_to(page)
+        current = self.pages.currentWidget()
+        page = current if isinstance(current, TakesFiles) else self.compress
+        if page is not current:
+            self.go_to(self.compress)
         (page.browse_folder if folder else page.browse_files)()
 
     def show_shortcuts(self) -> None:
@@ -751,7 +731,7 @@ class MainWindow(QMainWindow):
             e.acceptProposedAction()
             self.compress.drop.set_hover(True)
 
-    def dragLeaveEvent(self, e) -> None:
+    def dragLeaveEvent(self, _e) -> None:
         self.compress.drop.set_hover(False)
 
     def dropEvent(self, e) -> None:
@@ -759,7 +739,7 @@ class MainWindow(QMainWindow):
         paths = [u.toLocalFile() for u in e.mimeData().urls() if u.isLocalFile()]
         if paths:
             current = self.pages.currentWidget()
-            if current is not None and current in (self.built("converter"), self.built("metadata")):
+            if isinstance(current, TakesFiles) and current is not self.compress:
                 current.add_paths(paths)
                 return
             self.go_to(self.compress)
@@ -1314,7 +1294,7 @@ class MainWindow(QMainWindow):
 
         def closed(result: int) -> None:
             self.qsettings.setValue("welcome_done", True)
-            if result == WelcomeDialog.Accepted:
+            if result == WelcomeDialog.DialogCode.Accepted:
                 self.go_to(self.home)
                 self.home.analyze()
             QTimer.singleShot(400, self.ask_tradeoff)

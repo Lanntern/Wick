@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from .formats import plural
+from .log import ignored
 
 _REL = re.compile(r"<Relationship\b[^>]*?/?>", re.S)
 _ATTR = re.compile(r'([\w:]+)="([^"]*)"')
@@ -108,6 +109,7 @@ def remove_orphans(pkg: Package) -> int:
         try:
             rels = _rels(pkg)
         except Exception:  # noqa: BLE001 - relationships we can't read: nothing is removed
+            ignored("officeslim: relationships")
             return 0
         used = {r["_target"] for items in rels.values() for r in items}
         # Only in folders the relationships do point into: a package without them (an odd writer) keeps all.
@@ -148,6 +150,7 @@ def bitmaps_to_png(pkg: Package) -> int:
     try:
         rels = _rels(pkg)
     except Exception:  # noqa: BLE001
+        ignored("officeslim: relationships")
         return 0
     done = 0
     for name in list(pkg.names):
@@ -166,6 +169,7 @@ def bitmaps_to_png(pkg: Package) -> int:
             if not same_pixels(pkg.data[name], png):
                 continue
         except Exception:  # noqa: BLE001 - this picture stays as it is
+            ignored("officeslim: picture to PNG")
             continue
         stem = name.rsplit(".", 1)[0]
         new = stem + ".png"
@@ -205,67 +209,35 @@ _SRCRECT = re.compile(r"<a:srcRect\b[^>]*/>")
 def crop_pictures(pkg: Package, lossy_ok: bool) -> int:
     """Cut off what a crop hides, for pictures used once (PNG always; JPEG only when ``lossy_ok``, since cutting it
     means encoding it again). Returns how many."""
-    from PIL import Image
-
-    from .documents import shrink_png
-
     if not pkg.ooxml:
         return 0
     try:
         rels = _rels(pkg)
     except Exception:  # noqa: BLE001
+        ignored("officeslim: relationships")
         return 0
-    by_part = {_source_of(n): {r.get("Id"): r["_target"] for r in items} for n, items in rels.items()}
     uses: dict[str, int] = {}
     for items in rels.values():
         for r in items:
             uses[r["_target"]] = uses.get(r["_target"], 0) + 1
-    blips = []
-    for part in pkg.names:
-        if part in pkg.removed or not part.endswith(".xml") or part not in by_part:
-            continue
-        text = pkg.text(part)
-        for m in _BLIPFILL.finditer(text):
-            embed = _EMBED.search(m.group(0))
-            if embed:
-                blips.append((part, m.start(), m.end(), m.group(0), by_part[part].get(embed.group(1), "")))
+    blips = _picture_fills(pkg, {_source_of(n): {r.get("Id"): r["_target"] for r in items} for n, items in rels.items()})
     per_target: dict[str, int] = {}
-    for _p, _s, _e, _b, target in blips:
+    for *_, target in blips:
         per_target[target] = per_target.get(target, 0) + 1
     done = 0
     edits: dict[str, list[tuple[int, int, str]]] = {}
-    for part, start, _end, block, target in blips:
+    for part, start, block, target in blips:
         rect = _SRCRECT.search(block)
         if not rect or not target or uses.get(target) != 1 or per_target.get(target) != 1:
             continue
         a = {k: int(v) for k, v in _ATTR.findall(rect.group(0)) if k in ("l", "t", "r", "b") and v.lstrip("-").isdigit()}
-        if not a or any(v < 0 for v in a.values()) or not any(a.values()):
-            continue
         name = pkg.renamed.get(target, target)
-        if name not in pkg.data or not name.lower().endswith(PICTURE_EXTS):
+        if not a or any(v < 0 for v in a.values()) or not any(a.values()) or name not in pkg.data \
+                or not name.lower().endswith(PICTURE_EXTS):
             continue
         jpeg = not name.lower().endswith(".png")
-        if jpeg and not lossy_ok:
-            continue
-        try:
-            with Image.open(io.BytesIO(pkg.data[name])) as im:
-                w, h = im.size
-                box = (round(w * a.get("l", 0) / 100000), round(h * a.get("t", 0) / 100000),
-                       w - round(w * a.get("r", 0) / 100000), h - round(h * a.get("b", 0) / 100000))
-                if box[2] - box[0] < 1 or box[3] - box[1] < 1:
-                    continue
-                part_img = im.crop(box)
-                buf = io.BytesIO()
-                if jpeg:
-                    part_img.convert("RGB" if part_img.mode not in ("RGB", "L", "CMYK") else part_img.mode).save(
-                        buf, "JPEG", quality=90, optimize=True, icc_profile=im.info.get("icc_profile"))
-                    new = buf.getvalue()
-                else:
-                    part_img.save(buf, "PNG", icc_profile=im.info.get("icc_profile"))
-                    new = shrink_png(buf.getvalue())
-        except Exception:  # noqa: BLE001
-            continue
-        if len(new) >= len(pkg.data[name]):
+        new = _cropped(pkg.data[name], a, jpeg) if lossy_ok or not jpeg else None
+        if new is None or len(new) >= len(pkg.data[name]):
             continue
         pkg.data[name] = new
         pkg.changed.add(name)
@@ -280,6 +252,45 @@ def crop_pictures(pkg: Package, lossy_ok: bool) -> int:
     if done:
         pkg.notes.append(f"cropped-away parts of {plural(done, 'picture')} removed")
     return done
+
+
+def _picture_fills(pkg: Package, by_part: dict[str, dict]) -> list[tuple[str, int, str, str]]:
+    """Every picture fill in the document's parts: (part, where it starts, its XML, the picture it shows)."""
+    out = []
+    for part in pkg.names:
+        if part in pkg.removed or not part.endswith(".xml") or part not in by_part:
+            continue
+        for m in _BLIPFILL.finditer(pkg.text(part)):
+            embed = _EMBED.search(m.group(0))
+            if embed:
+                out.append((part, m.start(), m.group(0), by_part[part].get(embed.group(1), "")))
+    return out
+
+
+def _cropped(data: bytes, crop: dict[str, int], jpeg: bool) -> bytes | None:
+    """The picture with the cropped-away edges (in 1/100,000ths of a side) cut off; None if it can't be."""
+    from PIL import Image
+
+    from .documents import shrink_png
+
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+            box = (round(w * crop.get("l", 0) / 100000), round(h * crop.get("t", 0) / 100000),
+                   w - round(w * crop.get("r", 0) / 100000), h - round(h * crop.get("b", 0) / 100000))
+            if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+                return None
+            part_img = im.crop(box)
+            buf = io.BytesIO()
+            if jpeg:
+                part_img.convert("RGB" if part_img.mode not in ("RGB", "L", "CMYK") else part_img.mode).save(
+                    buf, "JPEG", quality=90, optimize=True, icc_profile=im.info.get("icc_profile"))
+                return buf.getvalue()
+            part_img.save(buf, "PNG", icc_profile=im.info.get("icc_profile"))
+            return shrink_png(buf.getvalue())
+    except Exception:  # noqa: BLE001 - a picture we can't read or write stays as it is
+        ignored("officeslim: cropping a picture")
+        return None
 
 
 # ---------------------------------------------------------------- Excel pivot caches
@@ -396,6 +407,7 @@ def epub_fonts(pkg: Package) -> int:
                 if not subset(src, dst, chars):
                     continue
             except Exception:  # noqa: BLE001 - not a font we can read (or not this key): it stays as it is
+                ignored("officeslim: cutting a font")
                 continue
             new = dst.read_bytes()
             pkg.set(name, _xor(new, keys[algo], lengths[algo]) if algo else new)

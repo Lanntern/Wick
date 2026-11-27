@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -152,7 +153,7 @@ def _mastering(path: Path, index: int, stream_side_data: list | None = None) -> 
         proc = tools.run([ffprobe, "-v", "error", "-select_streams", str(index), "-read_intervals", "%+#1",
                           "-show_frames", "-print_format", "json", str(path)], timeout=60, check=False)
         frames = json.loads(proc.stdout or "{}").get("frames", [])
-    except Exception:  # noqa: BLE001
+    except (OSError, RuntimeError, subprocess.SubprocessError, ValueError):
         return {}
     return _side_data_mastering(frames[0].get("side_data_list", []) if frames else [])
 
@@ -162,7 +163,7 @@ def probe_video(path: Path) -> VideoInfo | None:
         data = probe_raw(path)
     except (tools.ToolError, OSError, ValueError, TimeoutError):
         return None
-    except Exception:  # subprocess.TimeoutExpired and friends
+    except Exception:  # noqa: BLE001 - logged; any other failure to probe: not a video we can read
         from wick.log import ignored
         ignored("probe.probe_video")
         return None
@@ -274,7 +275,7 @@ NOT_MEASURED = -1
 _hw_decode_ok = True       # cleared once GPU decoding fails, so later videos skip straight to the processor
 
 
-def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:  # noqa: C901
+def detect_cadence(path: Path, info: VideoInfo, seconds: float = 3.0) -> int:
     """Find frames that were repeated to pad the frame rate (e.g. a 24 fps film uploaded as 30 fps).
 
     Measures how much each frame differs from the previous one in a short sample. A repeat shows up as a

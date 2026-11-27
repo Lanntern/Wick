@@ -15,32 +15,79 @@ MIN_SAMPLES = 3          # don't trust a correction until a few files agree
 MAX_SAMPLES = 200        # older results fade out (running average over roughly this many)
 _CLAMP = (0.4, 2.5)      # never scale an estimate by more than this
 
-_lock = threading.Lock()
-_data: dict[str, list[float]] | None = None   # key -> [mean log ratio, count]
-_dirty = False
-_enabled = True
+class Calibration:
+    """The corrections learned so far, read from calibration.json the first time they're needed."""
 
+    def __init__(self, path=None):
+        self._path = path               # (None: calibration.json in the app data folder)
+        self._lock = threading.Lock()
+        self._data: dict[str, list[float]] | None = None   # key -> [mean log ratio, count]
+        self._dirty = False
+        self.enabled = True
 
-def set_enabled(on: bool) -> None:
-    global _enabled
-    _enabled = on
+    def _file(self):
+        if self._path is not None:
+            return self._path
+        from .journal import data_dir
 
+        return data_dir() / "calibration.json"
 
-def _file():
-    from .journal import data_dir
+    def _load(self) -> dict[str, list[float]]:
+        if self._data is None:
+            try:
+                raw = json.loads(self._file().read_text("utf-8"))
+                self._data = {str(k): [float(v[0]), float(v[1])] for k, v in raw.items()}
+            except (OSError, ValueError, TypeError, IndexError):
+                self._data = {}
+        return self._data
 
-    return data_dir() / "calibration.json"
+    def factor(self, entry, plan) -> float:
+        """How much to scale this plan's raw estimate (1.0 until enough results are known)."""
+        if not self.enabled:
+            return 1.0
+        with self._lock:
+            mean, n = self._load().get(key(entry, plan), (0.0, 0))
+        if n < MIN_SAMPLES:
+            return 1.0
+        return max(_CLAMP[0], min(_CLAMP[1], math.exp(mean)))
 
+    def record(self, entry, plan, actual_size: int, raw_estimate: int) -> None:
+        """Remember how a real result compared with the uncorrected estimate."""
+        if not self.enabled or actual_size <= 0 or raw_estimate <= 0:
+            return
+        r = math.log(actual_size / raw_estimate)
+        with self._lock:
+            d = self._load()
+            mean, n = d.get(key(entry, plan), (0.0, 0))
+            n = min(n + 1, MAX_SAMPLES)
+            d[key(entry, plan)] = [mean + (r - mean) / n, n]
+            self._dirty = True
 
-def _load() -> dict[str, list[float]]:
-    global _data
-    if _data is None:
-        try:
-            raw = json.loads(_file().read_text("utf-8"))
-            _data = {str(k): [float(v[0]), float(v[1])] for k, v in raw.items()}
-        except (OSError, ValueError, TypeError, IndexError):
-            _data = {}
-    return _data
+    def save(self) -> None:
+        with self._lock:
+            if not self._dirty or self._data is None:
+                return
+            try:
+                from .fileops import atomic_write_text
+
+                atomic_write_text(self._file(), json.dumps(self._data, indent=1))
+                self._dirty = False
+            except OSError:
+                pass
+
+    def reload(self) -> None:
+        """Read the file again the next time (what's not saved is dropped)."""
+        with self._lock:
+            self._data, self._dirty = None, False
+
+    def reset(self) -> None:
+        """Forget everything learned."""
+        with self._lock:
+            self._data, self._dirty = {}, False
+            try:
+                self._file().unlink()
+            except OSError:
+                pass
 
 
 def key(entry, plan) -> str:
@@ -49,53 +96,31 @@ def key(entry, plan) -> str:
     return f"{entry.kind}:{plan.route}:{'lossless' if plan.lossless else 'lossy'}"
 
 
+_store = Calibration()      # the app's own (module functions below)
+
+
+def set_enabled(on: bool) -> None:
+    _store.enabled = on
+
+
 def factor(entry, plan) -> float:
-    """How much to scale this plan's raw estimate (1.0 until enough results are known)."""
-    if not _enabled:
-        return 1.0
-    with _lock:
-        mean, n = _load().get(key(entry, plan), (0.0, 0))
-    if n < MIN_SAMPLES:
-        return 1.0
-    return max(_CLAMP[0], min(_CLAMP[1], math.exp(mean)))
+    return _store.factor(entry, plan)
 
 
 def record(entry, plan, actual_size: int, raw_estimate: int) -> None:
-    """Remember how a real result compared with the uncorrected estimate."""
-    global _dirty
-    if not _enabled or actual_size <= 0 or raw_estimate <= 0:
-        return
-    r = math.log(actual_size / raw_estimate)
-    with _lock:
-        d = _load()
-        mean, n = d.get(key(entry, plan), (0.0, 0))
-        n = min(n + 1, MAX_SAMPLES)
-        d[key(entry, plan)] = [mean + (r - mean) / n, n]
-        _dirty = True
+    _store.record(entry, plan, actual_size, raw_estimate)
 
 
 def save() -> None:
-    global _dirty
-    with _lock:
-        if not _dirty or _data is None:
-            return
-        try:
-            from .fileops import atomic_write_text
+    _store.save()
 
-            atomic_write_text(_file(), json.dumps(_data, indent=1))
-            _dirty = False
-        except OSError:
-            pass
+
+def reload() -> None:
+    _store.reload()
 
 
 def reset() -> None:
-    global _data, _dirty
-    with _lock:
-        _data, _dirty = {}, False
-        try:
-            _file().unlink()
-        except OSError:
-            pass
+    _store.reset()
 
 
-__all__ = ["factor", "record", "save", "reset", "key", "set_enabled"]
+__all__ = ["Calibration", "factor", "record", "save", "reload", "reset", "key", "set_enabled"]

@@ -3,8 +3,20 @@ clutter, Windows, app compression and Google Takeout, one tab each (see cleanup_
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QCheckBox, QComboBox, QDialog, QSizePolicy, QStackedWidget, QTabBar, QWidget
+from PySide6.QtGui import QStandardItemModel
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QListView,
+    QSizePolicy,
+    QStackedWidget,
+    QTabBar,
+    QWidget,
+)
 
 from .cleanup_section import ScanWorker, ToolSection
 from .cleanup_tools import tools
@@ -47,11 +59,14 @@ class CleanupTab(Page):
             self.picker.addItem(tool.tab)
         # Tools for another system (Windows' on a Mac, and so on) aren't offered: they could never run here.
         # They stay in the list, hidden, so a link to one still opens it with its explanation.
+        view, model = self.picker.view(), self.picker.model()
         for i, tool in enumerate(self._tools):
             if tool.available():
                 self.tabs.setTabVisible(i, False)
-                self.picker.view().setRowHidden(i, True)
-                self.picker.model().item(i).setEnabled(False)       # (skipped by the arrow keys too)
+                if isinstance(view, QListView):
+                    view.setRowHidden(i, True)
+                if isinstance(model, QStandardItemModel) and (item := model.item(i)) is not None:
+                    item.setEnabled(False)       # (skipped by the arrow keys too)
         self.picker.setCurrentIndex(self.tabs.currentIndex())    # (the tool it was left on, restored above)
         self.picker.currentIndexChanged.connect(self.tabs.setCurrentIndex)
         self.tabs.currentChanged.connect(self.picker.setCurrentIndex)
@@ -63,6 +78,23 @@ class CleanupTab(Page):
         common.clicked.connect(self.scan_common)
         self.action_bar.addWidget(common)          # (a page-wide action: in the header, like other pages')
         self.body.addWidget(self.stack, 1)
+
+    def current(self) -> ToolSection:
+        """The tool on screen (always built: a tool is built when it's first shown)."""
+        return self.section(self.stack.currentIndex())
+
+    def shortcuts(self) -> list[tuple[str, Callable[[], object]]]:
+        return [
+            ("Ctrl+R", lambda: self.current().scan()),
+            ("F5", lambda: self.current().scan()),
+            ("Ctrl+A", lambda: self.current().set_all(True)),
+            ("Ctrl+Shift+A", lambda: self.current().set_all(False)),
+            ("Ctrl+Return", lambda: self.current().run_primary()),
+            ("Ctrl+Enter", lambda: self.current().run_primary()),
+            ("Esc", lambda: self.current().stop() if self.current().busy() else None),
+            ("Ctrl+Tab", lambda: self.step(1)),
+            ("Ctrl+Shift+Tab", lambda: self.step(-1)),
+        ]
 
     def section(self, index: int) -> ToolSection:
         """Tool ``index``'s section, built now if it hasn't been yet."""
@@ -84,6 +116,10 @@ class CleanupTab(Page):
                 scroll.verticalScrollBar().rangeChanged.connect(lambda *_: self._refit_soon())
             self._built[index] = sec
         return sec
+
+    def built_sections(self) -> list[tuple[int, ToolSection]]:
+        """The tools built so far (index, section), without building the others."""
+        return sorted(self._built.items())
 
     @property
     def sections(self) -> list[ToolSection]:
@@ -108,7 +144,8 @@ class CleanupTab(Page):
         for i in range(self.stack.count()):
             w = self.stack.widget(i)
             policy = QSizePolicy.Policy.Preferred if i == index else QSizePolicy.Policy.Ignored
-            w.setSizePolicy(policy, policy)
+            if w is not None:
+                w.setSizePolicy(policy, policy)
         self.stack.updateGeometry()
         self._refit_soon()
 

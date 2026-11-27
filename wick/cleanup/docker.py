@@ -131,14 +131,6 @@ def find(active: dict[str, str] | None = None, idle_days: int = 30) -> tuple[lis
             proj = _labels(c.get("Labels", "")).get("com.docker.compose.project")
             if proj:
                 active.setdefault(proj.lower(), f"its container {c.get('Names', '')} is running")
-
-    def project_of(name: str) -> str | None:
-        low = name.lower().rsplit("/", 1)[-1]
-        for proj in active:
-            if low == proj or low.startswith(proj + "-") or low.startswith(proj + "_"):
-                return proj
-        return None
-
     items: list[Candidate] = []
     summary = {r.get("Type"): r for r in _lines(_run(["system", "df", "--format", "{{json .}}"], timeout=60))}
     cache = parse_size(str(summary.get("Build Cache", {}).get("Reclaimable", "")))
@@ -146,6 +138,20 @@ def find(active: dict[str, str] | None = None, idle_days: int = 30) -> tuple[lis
         items.append(_item("Build cache", cache, "Layers Docker keeps to speed up builds; rebuilt when needed. "
                            "Removed by Docker (docker builder prune); cache in use by a build stays.",
                            {"kind": "builder"}))
+    items += _unused_images(df, active, idle_days)
+    items += _stopped_containers(df, active)
+    return items, notes
+
+
+def _project_of(name: str, active: dict[str, str]) -> str | None:
+    """The Compose project in use that an image ``name`` was built for, if any."""
+    low = name.lower().rsplit("/", 1)[-1]
+    return next((p for p in active if low == p or low.startswith(p + "-") or low.startswith(p + "_")), None)
+
+
+def _unused_images(df: dict, active: dict[str, str], idle_days: int) -> list[Candidate]:
+    """Images no container uses (and untagged leftovers, as one item)."""
+    items = []
     now = time.time()
     dangling = 0
     for im in df.get("Images") or []:
@@ -159,7 +165,7 @@ def find(active: dict[str, str] | None = None, idle_days: int = 30) -> tuple[lis
         if size < 1024 * 1024:
             continue
         warning = ""
-        proj = project_of(repo)
+        proj = _project_of(repo, active)
         if proj:
             warning = f"Built for {proj}, which is in use: {active[proj]}"
         else:
@@ -172,20 +178,22 @@ def find(active: dict[str, str] | None = None, idle_days: int = 30) -> tuple[lis
     if dangling >= 1024 * 1024:
         items.append(_item("Untagged images", dangling, "Leftovers from rebuilt or re-pulled images; nothing uses "
                            "them. Removed by Docker (docker image prune).", {"kind": "dangling"}))
+    return items
+
+
+def _stopped_containers(df: dict, active: dict[str, str]) -> list[Candidate]:
+    items = []
     for c in df.get("Containers") or []:
-        state = str(c.get("State", "")).lower()
-        if state not in ("exited", "created", "dead"):
+        if str(c.get("State", "")).lower() not in ("exited", "created", "dead"):
             continue
         size = parse_size(str(c.get("Size", "")))
-        labels = _labels(c.get("Labels", ""))
-        proj = labels.get("com.docker.compose.project", "").lower()
-        warning = "Anything saved inside it (not in a volume) is lost"
-        if proj in active:
-            warning = f"Part of {proj}, which is in use: {active[proj]}"
+        proj = _labels(c.get("Labels", "")).get("com.docker.compose.project", "").lower()
+        warning = (f"Part of {proj}, which is in use: {active[proj]}" if proj in active
+                   else "Anything saved inside it (not in a volume) is lost")
         items.append(_item(f"Container {c.get('Names', '')}", size, f"Stopped container from {c.get('Image', '')}; "
                            "Compose or docker run creates it again. Removed by Docker.",
                            {"kind": "container", "id": c.get("ID", "")}, warning))
-    return items, notes
+    return items
 
 
 def remove(ref: dict) -> tuple[bool, str]:

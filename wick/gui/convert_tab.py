@@ -41,9 +41,10 @@ from ..scanner import FileEntry
 from ..settings import Settings
 from .dialogs import ask, inform
 from .filejob_page import ROLE_ROW, FileJobPage, option_row, set_visible
+from .filelist import top_items
 from .settings_panel import BIN_NAME, METADATA_CHOICES, NAME_TIP
 from .style import Space, Type
-from .widgets import Card, button, dialog_buttons, dialog_layout, text
+from .widgets import Card, button, dialog_buttons, dialog_layout, primary_button, text
 
 OUTPUT_CHOICES = [("Next to originals", "beside"), ("Save with a new name", "suffix"),
                   ("Save to another folder", "folder"), (f"Replace originals ({BIN_NAME})", "replace")]
@@ -707,7 +708,7 @@ class ConvertTab(FileJobPage):
             form.addRow("Again", again)
         lay.addLayout(form)
         lay.addLayout(dialog_buttons(dlg, ("Set Password" if confirm else "Unlock", dlg.accept)))
-        ok = dlg._primary_button
+        ok = primary_button(dlg)
 
         def valid() -> None:
             ok.setEnabled(bool(first.text()) and (not confirm or first.text() == again.text()))
@@ -720,8 +721,7 @@ class ConvertTab(FileJobPage):
         """The chosen pictures and PDFs, in the list's order, as one new PDF (JPEGs as they are)."""
         from .. import pdftools
 
-        order = {id(it.data(0, ROLE_ROW)[0]): i for i, it in
-                 ((i, self.tree.topLevelItem(i)) for i in range(self.tree.topLevelItemCount()))}
+        order = {id(it.data(0, ROLE_ROW)[0]): i for i, it in enumerate(top_items(self.tree))}
         entries = sorted(entries, key=lambda e: order.get(id(e), 0))
         first = entries[0].path
         name = f"{first.stem}.pdf" if len(entries) == 1 else "Combined.pdf"
@@ -736,7 +736,7 @@ class ConvertTab(FileJobPage):
 
     # ---- trimming and joining
     def _ordered(self, entries: list[FileEntry]) -> list[FileEntry]:
-        order = {id(self.tree.topLevelItem(i).data(0, ROLE_ROW)[0]): i for i in range(self.tree.topLevelItemCount())}
+        order = {id(it.data(0, ROLE_ROW)[0]): i for i, it in enumerate(top_items(self.tree))}
         return sorted(entries, key=lambda e: order.get(id(e), 0))
 
     def _trim(self, e: FileEntry) -> None:

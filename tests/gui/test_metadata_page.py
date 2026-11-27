@@ -63,9 +63,9 @@ def test_metadata_streams_bounded_batches_without_recounting_the_table(win, monk
         assert len(selected_calls) < 10  # table size no longer multiplies work for every arriving row
         assert len(beats) > 10
         assert page.run_btn.isEnabled()
-        page.tree.header()._check[2]()  # header select-none uses blocked itemChanged signals
+        page.tree.header().check_toggle()()  # header select-none uses blocked itemChanged signals
         assert page.selection_count() == 0
-        page.tree.header()._check[2]()
+        page.tree.header().check_toggle()()
         assert page.selection_count() == 4096
         page.show_filter.setCurrentIndex(page.show_filter.findData("gps"))
         assert page.selection_count() == 0

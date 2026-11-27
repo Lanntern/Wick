@@ -237,7 +237,7 @@ class FileTableModel(QAbstractTableModel):
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.rows)
 
-    def columnCount(self, parent=QModelIndex()):
+    def columnCount(self, _parent=QModelIndex()):
         return len(COLUMNS)
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -266,84 +266,91 @@ class FileTableModel(QAbstractTableModel):
             f |= Qt.ItemFlag.ItemIsUserCheckable
         return f
 
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):  # noqa: C901 (to split up)
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
             return None
         r = self.rows[index.row()]
         c = index.column()
-        e = r.entry
-
-        if role == Qt.ItemDataRole.CheckStateRole and c == C_CHECK:
+        if role == Qt.ItemDataRole.DisplayRole:
+            return self._display(r, c)
+        if role == SORT_ROLE:
+            return self._sort_key(r, c)
+        if c == C_CHECK and role == Qt.ItemDataRole.CheckStateRole:
             if r.result and r.result.status == DONE:
                 return None  # done: nothing left to choose (its status says what happened)
             return Qt.CheckState.Checked if r.checked and r.plan.convert else Qt.CheckState.Unchecked
-
-        if role == Qt.ItemDataRole.DisplayRole:
-            if c == C_NAME:
-                return e.path.name
-            if c == C_FOLDER:
-                return _short_folder(e)
-            if c == C_TYPE:
-                label = KIND_LABEL.get(e.kind, e.kind)
-                if e.image is not None and e.image.animated:
-                    label += " (animated)"
-                return label
-            if c == C_INFO:
-                return describe(e)
-            if c == C_SIZE:
-                return human(e.size)
-            if c == C_EST:  # the size after compression (estimated until done), with the change in percent
-                if r.result and r.result.status == DONE:
-                    return f"{human(r.result.new_size)} ({_pct(e.size, r.result.new_size)})"
-                return f"~{human(r.plan.est_size)} ({_pct(e.size, r.plan.est_size)})" if r.plan.convert else "–"
-            if c == C_CREATED:
-                return format_date(r.created_at())
-            if c == C_MODIFIED:
-                return format_date(e.mtime)
-            if c == C_STATUS:
-                return self._status_text(r)
-
-        if role == SORT_ROLE:
-            if c == C_CREATED:
-                return r.created_at() or 0.0
-            if c == C_MODIFIED:
-                return e.mtime
-            if c == C_SIZE:
-                return e.size
-            if c == C_EST:
-                return r.result.new_size if r.result and r.result.status == DONE else r.plan.est_size
-            if c == C_CHECK:
-                return int(r.checked)
-            return self.data(index, Qt.ItemDataRole.DisplayRole) or ""
-
-        if role == STATUS_ROLE and c == C_STATUS:
-            if r.running:
-                return "running"
-            if r.result:
-                return {DONE: "done", FAILED: "failed"}.get(r.result.status, "skipped")
-            if not r.plan.convert:
-                return "excluded"
-            return "ready" if r.checked else "skipped"
-        if role == PROGRESS_ROLE and c == C_STATUS:
-            return r.progress if r.running else None
-        if role == Qt.ItemDataRole.AccessibleTextRole and c == C_CHECK:
+        if c == C_CHECK and role == Qt.ItemDataRole.AccessibleTextRole:
             return "Will be compressed" if r.checked and r.plan.convert else "Not selected"
-
+        if c == C_STATUS and role == STATUS_ROLE:
+            return self._status_key(r)
+        if c == C_STATUS and role == PROGRESS_ROLE:
+            return r.progress if r.running else None
         if role == Qt.ItemDataRole.ToolTipRole:
-            if c in (C_NAME, C_FOLDER):
-                return str(e.path)
-            if c == C_STATUS:
-                return self._status_text(r)
-            if c == C_INFO:
-                note = cadence_note(e.video) if e.video is not None else ""
-                return describe(e) + (f"\n{note}" if note else "")
-
+            return self._tooltip(r, c)
         if role == Qt.ItemDataRole.ForegroundRole and c != C_STATUS:
-            if not r.plan.convert and not r.result:
-                return muted_color()
-
+            return muted_color() if not r.plan.convert and not r.result else None
         if role == Qt.ItemDataRole.TextAlignmentRole and c in (C_SIZE, C_EST):
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        return None
+
+    def _display(self, r, c: int):
+        e = r.entry
+        if c == C_NAME:
+            return e.path.name
+        if c == C_FOLDER:
+            return _short_folder(e)
+        if c == C_TYPE:
+            label = KIND_LABEL.get(e.kind, e.kind)
+            return label + " (animated)" if e.image is not None and e.image.animated else label
+        if c == C_INFO:
+            return describe(e)
+        if c == C_SIZE:
+            return human(e.size)
+        if c == C_EST:  # the size after compression (estimated until done), with the change in percent
+            if r.result and r.result.status == DONE:
+                return f"{human(r.result.new_size)} ({_pct(e.size, r.result.new_size)})"
+            return f"~{human(r.plan.est_size)} ({_pct(e.size, r.plan.est_size)})" if r.plan.convert else "–"
+        if c == C_CREATED:
+            return format_date(r.created_at())
+        if c == C_MODIFIED:
+            return format_date(e.mtime)
+        if c == C_STATUS:
+            return self._status_text(r)
+        return None
+
+    def _sort_key(self, r, c: int):
+        if c == C_CREATED:
+            return r.created_at() or 0.0
+        if c == C_MODIFIED:
+            return r.entry.mtime
+        if c == C_SIZE:
+            return r.entry.size
+        if c == C_EST:
+            return r.result.new_size if r.result and r.result.status == DONE else r.plan.est_size
+        if c == C_CHECK:
+            return int(r.checked)
+        return self._display(r, c) or ""
+
+    @staticmethod
+    def _status_key(r) -> str:
+        """The status column's state, for its icon and color."""
+        if r.running:
+            return "running"
+        if r.result:
+            return {DONE: "done", FAILED: "failed"}.get(r.result.status, "skipped")
+        if not r.plan.convert:
+            return "excluded"
+        return "ready" if r.checked else "skipped"
+
+    def _tooltip(self, r, c: int):
+        e = r.entry
+        if c in (C_NAME, C_FOLDER):
+            return str(e.path)
+        if c == C_STATUS:
+            return self._status_text(r)
+        if c == C_INFO:
+            note = cadence_note(e.video) if e.video is not None else ""
+            return describe(e) + (f"\n{note}" if note else "")
         return None
 
     def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
@@ -405,7 +412,7 @@ class FileFilterProxy(QSortFilterProxyModel):
     def set_group(self, group: str) -> None:
         self._refilter(lambda: setattr(self, "group", group))
 
-    def filterAcceptsRow(self, source_row, source_parent):
+    def filterAcceptsRow(self, source_row, _source_parent):
         m: FileTableModel = self.sourceModel()  # type: ignore[assignment]
         r = m.rows[source_row]
         if self.group:

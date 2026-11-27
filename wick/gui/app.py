@@ -31,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
 
     jumplist.set_process_app_id()        # (before any window: taskbar grouping, pinning and the jump list)
 
-    app = QApplication.instance() or QApplication(sys.argv[:1])
+    existing = QApplication.instance()
+    app = existing if isinstance(existing, QApplication) else QApplication(sys.argv[:1])
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
@@ -113,7 +114,7 @@ def _accept_finder_files(app, win) -> None:
     timer.timeout.connect(flush)
 
     class FinderFiles(QObject):
-        def eventFilter(self, obj, event):  # noqa: N802
+        def eventFilter(self, _obj, event):  # noqa: N802
             if event.type() == QEvent.Type.FileOpen:
                 path = event.file() or event.url().toLocalFile()
                 if path:

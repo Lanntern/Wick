@@ -44,9 +44,9 @@ def test_settings_page_data_and_diagnostics(win, no_dialogs):
     win.go_to(page)
     QApplication.processEvents()
     page._index_toggled(False)
-    assert not index._enabled
+    assert not index.is_enabled()
     page._index_toggled(True)
-    assert index._enabled
+    assert index.is_enabled()
     page.history_keep.setCurrentIndex(page.history_keep.findData(30))
     page.history_keep.activated.emit(page.history_keep.currentIndex())
     assert win.qsettings.value("history_days", 0, int) == 30

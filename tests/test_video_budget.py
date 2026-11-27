@@ -10,7 +10,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from wick import chunked, convert, engine, index, probe, quality, tools, video
+from wick import chunked, convert, detected, engine, index, probe, quality, tools, video
 from wick.images import NotWorthIt
 from wick.plan import Plan
 from wick.settings import Settings
@@ -181,7 +181,7 @@ class VideoBudgetTests(unittest.TestCase):
     def test_old_cached_video_is_reprobed_for_picture_rate(self):
         data = dataclasses.asdict(clip())
         data.pop("video_bit_rate")
-        with patch.object(index, "_db") as db, patch.object(index, "_enabled", True):
+        with patch.object(index, "_db") as db, patch.object(index._state, "enabled", True):
             db.return_value.execute.return_value.fetchone.return_value = (100, 1.0, "video", json.dumps(data), time.time())
             self.assertIsNone(index.lookup(Path("input.mp4"), 100, 1.0, "video"))
             data["video_bit_rate"] = 5_500_000
@@ -253,9 +253,7 @@ class GpuTuningTests(unittest.TestCase):
     """Extra GPU settings are only used where the driver takes them; AMD's QVBR level is matched to the QP."""
 
     def setUp(self):
-        video.gpu_extras.cache_clear()
-        video.amf_extras.cache_clear()
-        video.amf_qvbr_level.cache_clear()
+        detected.forget()
 
     tearDown = setUp
 

@@ -3,11 +3,17 @@ keeps the last column in view."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+
 from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QAbstractScrollArea, QHeaderView, QWidget
+from PySide6.QtWidgets import QAbstractItemView, QAbstractScrollArea, QHeaderView, QTableView, QTreeView, QWidget
 
 from .style import Size, Space, Type, assets, tokens, ui_font
+
+if TYPE_CHECKING:
+    from .filelist import ColumnFitter
 
 
 class _HeaderCap(QWidget):
@@ -39,8 +45,13 @@ class Header(QHeaderView):
         self.setHighlightSections(False)
         self.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.setMinimumHeight(Size.ROW)
-        self._check = None   # (column, state() -> Qt.CheckState, toggle())
-        self._expander = None   # (column, state() -> bool | None (all open; None: nothing to open), toggle())
+        self._check: tuple[int, Callable[[], Qt.CheckState], Callable[[], None]] | None = None
+        # (column, state() -> all open (None: nothing to open), toggle())
+        self._expander: tuple[int, Callable[[], bool | None], Callable[[], None]] | None = None
+        self._remember_key: str | None = None
+        self._cap: _HeaderCap | None = None
+        self.fitter: ColumnFitter | None = None   # sizes the columns to their content (filelist.make_sortable)
+        self.column_choice_changed: Callable[[], None] | None = None   # (set by the page: a column shown or hidden)
         self._hover_x: int | None = None   # pointer position while over the header (shows resize handles)
         self._hand = False
         self.setMouseTracking(True)
@@ -53,6 +64,11 @@ class Header(QHeaderView):
         self._menu_key: str | None = None
         self._optional: list[int] = []
 
+    def view(self) -> QTreeView | QTableView | None:
+        """The list or table this header belongs to."""
+        v = self.parentWidget()
+        return v if isinstance(v, (QTreeView, QTableView)) else None
+
     # ---- remembered sorting and widths
     def remember(self, key: str) -> None:
         """Keep this list's sort column and order, and column widths dragged by hand, between sessions (under
@@ -61,9 +77,9 @@ class Header(QHeaderView):
 
         self._remember_key = key
         qs = open_qsettings()
-        view = self.parentWidget()
+        view = self.view()
         column = qs.value(f"lists/{key}/sort_column", None)
-        if column is not None and hasattr(view, "sortByColumn"):
+        if column is not None and view is not None:
             try:
                 c = int(str(column))
                 order = (
@@ -76,7 +92,7 @@ class Header(QHeaderView):
             except (TypeError, ValueError):
                 pass
         widths = qs.value(f"lists/{key}/widths", None)
-        fitter = getattr(view, "_fitter", None)
+        fitter = self.fitter
         if isinstance(widths, (list, tuple)) and len(widths) == self.count() and fitter is not None:
             try:
                 for i, w in enumerate(widths[:-1]):
@@ -96,7 +112,7 @@ class Header(QHeaderView):
 
     def save_widths(self) -> None:
         """Called when the person has dragged a column edge."""
-        key = getattr(self, "_remember_key", None)
+        key = self._remember_key
         if key:
             from .main_window import open_qsettings
 
@@ -104,11 +120,10 @@ class Header(QHeaderView):
 
     def mouseDoubleClickEvent(self, e) -> None:  # noqa: N802
         """Back to widths fitted to the content (forgetting dragged ones)."""
-        view = self.parentWidget()
-        fitter = getattr(view, "_fitter", None)
+        fitter = self.fitter
         if fitter is not None and fitter.user_sized:
             fitter.user_sized = False
-            key = getattr(self, "_remember_key", None)
+            key = self._remember_key
             if key:
                 from .main_window import open_qsettings
 
@@ -137,9 +152,9 @@ class Header(QHeaderView):
             )
         )
         self.user_hidden = {c for c in hidden if c in self._optional}
-        view = self.parentWidget()
+        view = self.view()
         for c in self._optional:
-            if hasattr(view, "setColumnHidden"):
+            if view is not None:
                 view.setColumnHidden(c, c in self.user_hidden)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._column_menu)
@@ -161,7 +176,6 @@ class Header(QHeaderView):
             act.toggled.connect(lambda on, col=c: self.set_column_shown(col, on))
         menu.exec(self.mapToGlobal(pos))
 
-    column_choice_changed = None  # (set by the page: called after a column is shown or hidden)
 
     def set_column_shown(self, column: int, shown: bool) -> None:
         from .main_window import open_qsettings
@@ -170,17 +184,16 @@ class Header(QHeaderView):
             self.user_hidden.discard(column)
         else:
             self.user_hidden.add(column)
-        view = self.parentWidget()
-        if hasattr(view, "setColumnHidden"):
+        view = self.view()
+        if view is not None:
             view.setColumnHidden(column, not shown)
         if self._menu_key:
             open_qsettings().setValue(f"columns/{self._menu_key}/hidden", sorted(self.user_hidden) or [-1])
         self.forget_min_widths()
         if callable(self.column_choice_changed):
             self.column_choice_changed()
-        fitter = getattr(view, "_fitter", None)
-        if fitter is not None:
-            fitter.fit_soon()
+        if self.fitter is not None:
+            self.fitter.fit_soon()
 
     def sizeHint(self) -> QSize:
         s = super().sizeHint()
@@ -200,8 +213,8 @@ class Header(QHeaderView):
             head += Size.INDICATOR + Space.L
         head += self._expander_width(index)
         floor = max(self.minimumSectionSize(), head)
-        view = self.parentWidget()
-        content = view.sizeHintForColumn(index) + Space.S if hasattr(view, "sizeHintForColumn") else 0
+        view = self.view()
+        content = view.sizeHintForColumn(index) + Space.S if view is not None else 0
         m = max(floor, content) if 0 < content <= self.SHORT_VALUE else max(floor, self.MIN_TEXT)
         self._mins[index] = m
         return m
@@ -257,15 +270,15 @@ class Header(QHeaderView):
         super().resizeEvent(e)
         if self.keep_in_view:
             self.fill_last()
-        cap = getattr(self, "_cap", None)
+        cap = self._cap
         if cap is not None and cap.height() != self.height():
             cap.setFixedHeight(self.height())
 
     def showEvent(self, e) -> None:  # noqa: N802
         super().showEvent(e)
-        view = self.parentWidget()
+        view = self.view()
         if (
-            getattr(self, "_cap", None) is None
+            self._cap is None
             and isinstance(view, QAbstractScrollArea)
             and self.orientation() == Qt.Orientation.Horizontal
         ):
@@ -279,6 +292,39 @@ class Header(QHeaderView):
         self._check = (column, state, toggle)
         self.setMouseTracking(True)
         self.viewport().update()
+
+    @property
+    def check_column(self) -> int | None:
+        """The column with the select-all checkbox, if there is one."""
+        return self._check[0] if self._check is not None else None
+
+    def check_state(self) -> Qt.CheckState | None:
+        """What the select-all checkbox shows (None: there isn't one)."""
+        return self._check[1]() if self._check is not None else None
+
+    def check_toggle(self) -> Callable[[], None] | None:
+        """What clicking the select-all checkbox does."""
+        return self._check[2] if self._check is not None else None
+
+    def decoration_width(self, index: int) -> int:
+        """Room the select-all checkbox and the open-all arrow take in column ``index``, beside its heading."""
+        extra = self._expander_width(index)
+        if self.check_column == index:
+            extra += Size.INDICATOR + Space.L
+        return extra
+
+    @property
+    def dragging(self) -> bool:
+        """A column edge is being dragged by the person."""
+        return self._dragging
+
+    def resize_freely(self, index: int, width: int) -> None:
+        """Resize a column without holding it to its minimum (the page has worked out the room itself)."""
+        self._clamping = True
+        try:
+            self.resizeSection(index, width)
+        finally:
+            self._clamping = False
 
     def _check_hit(self, pos) -> bool:
         if self._check is None:
@@ -299,8 +345,8 @@ class Header(QHeaderView):
         """Room the arrow takes in ``index``: the rows' indentation, when there's something to open."""
         if self._expander is None or self._expander[0] != index or self._expander[1]() is None:
             return 0
-        view = self.parentWidget()
-        return view.indentation() if hasattr(view, "indentation") and view.rootIsDecorated() else 0
+        view = self.view()
+        return view.indentation() if isinstance(view, QTreeView) and view.rootIsDecorated() else 0
 
     def _expander_hit(self, pos) -> bool:
         if self._expander is None or self.logicalIndexAt(pos) != self._expander[0]:
@@ -409,7 +455,7 @@ class Header(QHeaderView):
 
     def _row_check_x(self) -> int:
         """Where the view draws row checkboxes inside a cell, so the header box lines up with them."""
-        view = self.parentWidget()
+        view = self.view()
         if view is None:
             return Space.S
         try:
@@ -495,3 +541,13 @@ class Header(QHeaderView):
             path.lineTo(cx + half, cy - dy)
             p.drawPath(path)
         p.restore()
+
+
+def header_of(view: QAbstractItemView) -> Header:
+    """The app's header of a list or table (every list gets one through filelist.make_sortable or
+    install_header)."""
+    h = view.horizontalHeader() if isinstance(view, QTableView) else view.header() if isinstance(view, QTreeView) \
+        else None
+    if not isinstance(h, Header):
+        raise TypeError(f"{type(view).__name__} has no app header")
+    return h

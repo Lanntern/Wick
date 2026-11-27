@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import sys
+from collections.abc import Callable
+from typing import Protocol, runtime_checkable
 
 from PySide6.QtCore import QRect, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QDoubleValidator, QFont, QPainter, QPainterPath, QPen
@@ -321,7 +323,7 @@ class FlowLayout(QLayout):
         return item
 
     def expandingDirections(self):
-        return Qt.Orientations(0)
+        return Qt.Orientation(0)
 
     def hasHeightForWidth(self) -> bool:
         return True
@@ -423,6 +425,15 @@ def page_top() -> int:
     return Size.TITLE_BAR + Space.S if custom_frame() else Space.XL
 
 
+@runtime_checkable
+class TakesFiles(Protocol):
+    """A page files can be added to (dropped on the window, or Ctrl+O while it's shown)."""
+
+    def add_paths(self, paths: list[str]) -> None: ...
+    def browse_files(self) -> None: ...
+    def browse_folder(self) -> None: ...
+
+
 class Page(QWidget):
     """A page with a large title, an optional status line, a right-aligned action area and a body."""
 
@@ -467,17 +478,35 @@ class Page(QWidget):
             self.body.setContentsMargins(0, 0, 0, 0)
             outer.addWidget(BodyScroll(self.body), 1)
 
+    def shortcuts(self) -> list[tuple[str, Callable[[], object]]]:
+        """Keys that work while this page is shown (installed by the window when the page is built)."""
+        return []
 
-def available_width(w: QWidget) -> int:
+
+def clear_layout(layout: QLayout) -> None:
+    """Remove everything from ``layout``, deleting its widgets."""
+    while layout.count():
+        item = layout.takeAt(0)
+        w = item.widget() if item is not None else None
+        if w is not None:
+            w.deleteLater()
+
+
+def available_width(w: QWidget, within: type[QScrollArea] | None = None) -> int:
     """The width ``w``'s page really has. Inside a page body (which scrolls rather than squeezing) a widget
     is never narrower than its own minimum, so its width can't tell whether its contents still fit: decide
     from the page's visible width instead."""
+    kind = within or BodyScroll
     p = w.parentWidget()
-    while p is not None and not isinstance(p, BodyScroll):
+    while p is not None and not isinstance(p, kind):
         p = p.parentWidget()
-    if p is None:
+    if not isinstance(p, QScrollArea):
         return w.width()
-    m = p.widget().layout().contentsMargins()
+    inner = p.widget()
+    layout = inner.layout() if inner is not None else None
+    if layout is None:
+        return p.viewport().width()
+    m = layout.contentsMargins()
     return p.viewport().width() - m.left() - m.right()
 
 
@@ -508,7 +537,8 @@ class BodyScroll(QScrollArea):
         return QSize(Space.XXL * 4, Space.XXL * 3)
 
     def sizeHint(self) -> QSize:  # noqa: N802
-        return self.widget().sizeHint()
+        content = self.widget()
+        return content.sizeHint() if content is not None else super().sizeHint()
 
 
 class Card(QFrame):
@@ -621,7 +651,7 @@ class DropZone(QFrame):
         self.hover = on
         self.update()
 
-    def paintEvent(self, e) -> None:
+    def paintEvent(self, _e) -> None:
         t = tokens()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -658,7 +688,7 @@ class InfoPopover(QWidget):
         self.setAccessibleName(title or "More information")
         self.below = True  # the card is below its anchor (arrow at the top)
         self._beak_x = 0.0
-        lay = QVBoxLayout(self)
+        lay = self._lay = QVBoxLayout(self)
         lay.setSpacing(Space.XS)
         if title:
             lay.addWidget(text(title, Type.BODY, bold=True))
@@ -671,7 +701,7 @@ class InfoPopover(QWidget):
         pad, sh = Space.M, self.SHADOW
         top = sh + pad + (self.BEAK if self.below else 0)
         bottom = sh + pad + (0 if self.below else self.BEAK)
-        self.layout().setContentsMargins(sh + pad, top, sh + pad, bottom)
+        self._lay.setContentsMargins(sh + pad, top, sh + pad, bottom)
 
     def _fade_in(self) -> None:
         """Appear with the same short fade as tooltips."""
@@ -696,8 +726,8 @@ class InfoPopover(QWidget):
             self.below = below
             self._margins()
             self.setFixedWidth(self._width)
-            self.layout().activate()
-            h = self.layout().totalHeightForWidth(self._width)
+            self._lay.activate()
+            h = self._lay.totalHeightForWidth(self._width)
             y = (
                 a_top.y() + anchor.height() + Space.XXS - self.SHADOW
                 if below
@@ -846,7 +876,7 @@ class ToggleSwitch(QAbstractButton):
     def sizeHint(self) -> QSize:
         return QSize(Space.XL * 2 - Space.S, Space.XL + 2)
 
-    def paintEvent(self, e) -> None:
+    def paintEvent(self, _e) -> None:
         t = tokens()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -1061,7 +1091,7 @@ class SizeInput(QWidget):
             self.number.addItem(f"{v:g}")
         validator = QDoubleValidator(0, 1_000_000, 2, self.number)
         validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-        self.number.lineEdit().setValidator(validator)
+        self.number.setValidator(validator)
         self.number.setMinimumContentsLength(5)
         self.unit = QComboBox()
         for name, _factor in self.UNITS:
@@ -1097,7 +1127,8 @@ class SizeInput(QWidget):
     def setAccessibleName(self, name: str) -> None:  # noqa: N802 (Qt's name)
         super().setAccessibleName(name)
         self.number.setAccessibleName(name)
-        self.number.lineEdit().setAccessibleName(name)
+        if (edit := self.number.lineEdit()) is not None:
+            edit.setAccessibleName(name)
         self.unit.setAccessibleName(f"{name}: unit")
 
     def setToolTip(self, tip: str) -> None:  # noqa: N802
@@ -1121,6 +1152,14 @@ def dialog_layout(dialog: QWidget, heading: str, intro: str = "") -> QVBoxLayout
     return lay
 
 
+def primary_button(dialog: QWidget) -> QPushButton:
+    """The main action dialog_buttons put in ``dialog``'s button row."""
+    for b in dialog.findChildren(QPushButton):
+        if b.property("dialogPrimary"):
+            return b
+    raise LookupError("this dialog has no main action")
+
+
 def dialog_buttons(
     dialog, primary: tuple[str, object] | None = None, cancel: str | None = "Cancel", left: tuple = ()
 ) -> QHBoxLayout:
@@ -1138,7 +1177,7 @@ def dialog_buttons(
         go.setDefault(True)
         go.clicked.connect(slot)
         row.addWidget(go)
-        dialog._primary_button = go
+        go.setProperty("dialogPrimary", True)        # (found again by primary_button)
     if cancel:
         stop = button(cancel)
         stop.setAutoDefault(False)

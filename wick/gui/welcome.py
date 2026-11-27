@@ -30,7 +30,7 @@ class WelcomeDialog(QDialog):
         self.setWindowTitle(f"Welcome to {APP_NAME}")
         self.setMinimumWidth(Space.XXL * 16)
         tk = tokens()
-        lay = QVBoxLayout(self)
+        lay = self._lay = QVBoxLayout(self)
         lay.setContentsMargins(Space.XXL, Space.XXL, Space.XXL, Space.XL)
         lay.setSpacing(Space.L)
 
@@ -88,7 +88,7 @@ class WelcomeDialog(QDialog):
 
     def _fit(self) -> None:
         """Exactly as tall as its text needs at its width (wrapped lines are only known once it's shown)."""
-        self.resize(self.width(), self.layout().totalHeightForWidth(self.width()))
+        self.resize(self.width(), self._lay.totalHeightForWidth(self.width()))
 
 
 __all__ = ["WelcomeDialog", "PROMISES"]

@@ -53,10 +53,10 @@ class ActivityMonitor:
         add("Home analysis", "home", win.home.worker, stop=win.home.stop)
         cleanup = win.built("cleanup")
         if cleanup is not None:
-            for i, sec in cleanup._built.items():
-                if getattr(sec.worker, "combined", False) and getattr(sec.worker, "active_key", "") \
-                        and sec.tool.key != sec.worker.active_key:
-                    continue
+            for i, sec in cleanup.built_sections():
+                w = sec.worker
+                if w is not None and w.combined and w.active_key and sec.tool.key != w.active_key:
+                    continue      # (one shared scan: shown once, under the tool it's on)
                 add(sec.tool.tab, "cleanup", sec.worker, sec, i, stop=sec.stop)
         add("Recompress updated games", "cleanup", getattr(win, "_recompress", None))     # (its .cancel: Event)
         # Watch Folders exposes its own live worker, separate from the interactive Compress page.

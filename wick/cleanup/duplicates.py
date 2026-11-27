@@ -6,6 +6,7 @@ import hashlib
 import os
 import threading
 from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -79,26 +80,60 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
                     progress: ProgressFn | None = None, cancel: threading.Event | None = None) -> ScanResult:
     result = ScanResult("duplicates")
     by_size: dict[int, list[tuple[Path, os.stat_result]]] = defaultdict(list)
-    inodes: set[tuple[int, int]] = set()
     n = 0
     for path, st in walk_files(roots, skip_program_folders=skip_program_folders, cancel=cancel):
         n += 1
         if progress and n % 500 == 0:
             progress(f"Looking at files… {n:,}", n, 0)
-        if st.st_size < max(1, min_size):
-            continue
-        by_size[st.st_size].append((path, st))
+        if st.st_size >= max(1, min_size):
+            by_size[st.st_size].append((path, st))
     if cancelled(cancel):
         result.cancelled = True
         return result
+    from .. import drives
 
-    # Only files sharing a size can be duplicates. For those, get the real file ID and
-    # volume (Windows' directory listing reports 0 for both) so names that are already
-    # hard links to the same data count once.
-    for size in list(by_size):
-        group = by_size[size]
-        if len(group) < 2:
-            continue
+    same_size = _distinct_data([g for g in by_size.values() if len(g) > 1])
+    workers = drives.readers([p for g in same_size for p, _ in g], HASH_READERS)
+    # Then: the same start and end (a quick look), then the same checksum (files read in parallel on SSDs).
+    same_ends = _split_by(same_size, lambda c: _partial(c[0], c[1].st_size), workers)
+    done = 0
+    total_bytes = sum(st.st_size for g in same_ends for _, st in g)
+    lock = threading.Lock()
+
+    def on_bytes(k: int) -> None:
+        nonlocal done
+        with lock:
+            done += k
+            now = done
+        if progress:
+            progress("Comparing contents…", now, max(1, total_bytes))
+
+    groups = _split_by(same_ends, lambda c: _full(c[0], cancel, on_bytes), workers)
+    if cancelled(cancel):
+        result.cancelled = True
+        return result
+    groups.sort(key=lambda g: g[0][1].st_size * (len(g) - 1), reverse=True)
+    for gi, g in enumerate(groups):
+        k = choose_keeper(g, keep, prefer)
+        keeper = g[k][0]
+        result.items += [Candidate(path=p, size=st.st_size, keeper=keeper, group=f"dup{gi}",
+                                   detail="Identical to the copy that stays",
+                                   extra={"same_volume": st.st_dev == g[k][1].st_dev, "mtime_ns": st.st_mtime_ns})
+                         for i, (p, st) in enumerate(g) if i != k]
+    if groups:
+        result.notes.append(f"{plural(len(groups), 'set')} of identical files")
+    return result
+
+
+_Files = list[tuple[Path, os.stat_result]]
+
+
+def _distinct_data(groups: list[_Files]) -> list[_Files]:
+    """Files of the same size, each piece of data once: with the real file ID and volume (Windows' directory
+    listing reports 0 for both), names that are already hard links to the same data count once."""
+    inodes: set[tuple[int, int]] = set()
+    out = []
+    for group in groups:
         unique = []
         for p, _st in group:
             try:
@@ -110,72 +145,26 @@ def find_duplicates(roots: list[Path], *, min_size: int = 100 * 1024, keep: str 
                 continue  # another name for data we already have: no extra space used
             inodes.add(key)
             unique.append((p, real))
-        by_size[size] = unique
+        if len(unique) > 1:
+            out.append(unique)
+    return out
 
-    from .. import drives
 
-    candidates = [(p, st) for group in by_size.values() if len(group) > 1 for p, st in group]
-    workers = drives.readers([p for p, _ in candidates], HASH_READERS)
-
-    # Stage 2: quick fingerprint of the start and end (files read in parallel on SSDs).
+def _split_by(groups: list[_Files], digest: Callable, workers: int) -> list[_Files]:
+    """Each group split by ``digest`` of its files (worked out in parallel); only splits of two or more stay.
+    A file whose digest is None (unreadable, or stopped) is left out."""
+    files = [c for g in groups for c in g]
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        partials = dict(zip([p for p, _ in candidates],
-                            pool.map(lambda c: _partial(c[0], c[1].st_size), candidates), strict=True))
-    stage2: list[list[tuple[Path, os.stat_result]]] = []
-    for group in by_size.values():
-        if len(group) < 2:
-            continue
-        sub: dict[bytes, list] = defaultdict(list)
-        for p, st in group:
-            d = partials.get(p)
-            if d is not None:
-                sub[d].append((p, st))
-        stage2.extend(g for g in sub.values() if len(g) > 1)
-
-    # Stage 3: full checksum.
-    total_bytes = sum(st.st_size for g in stage2 for _, st in g)
-    done = 0
-    lock = threading.Lock()
-
-    def on_bytes(k: int) -> None:
-        nonlocal done
-        with lock:
-            done += k
-            now = done
-        if progress:
-            progress("Comparing contents…", now, max(1, total_bytes))
-
-    files = [(p, st) for g in stage2 for p, st in g]
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        digests = dict(zip([p for p, _ in files], pool.map(lambda c: _full(c[0], cancel, on_bytes), files),
-                           strict=True))
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
-    groups: list[list] = []
-    for g in stage2:
-        by_hash: dict[bytes, list] = defaultdict(list)
+        digests = dict(zip([p for p, _ in files], pool.map(digest, files), strict=True))
+    out: list[_Files] = []
+    for g in groups:
+        sub: dict[bytes, _Files] = defaultdict(list)
         for p, st in g:
             d = digests.get(p)
             if d is not None:
-                by_hash[d].append((p, st))
-        groups.extend(v for v in by_hash.values() if len(v) > 1)
-
-    groups.sort(key=lambda g: g[0][1].st_size * (len(g) - 1), reverse=True)
-    for gi, g in enumerate(groups):
-        k = choose_keeper(g, keep, prefer)
-        keeper = g[k][0]
-        for i, (p, st) in enumerate(g):
-            if i == k:
-                continue
-            result.items.append(Candidate(
-                path=p, size=st.st_size, keeper=keeper, group=f"dup{gi}",
-                detail="Identical to the copy that stays",
-                extra={"same_volume": st.st_dev == g[k][1].st_dev, "mtime_ns": st.st_mtime_ns},
-            ))
-    if groups:
-        result.notes.append(f"{plural(len(groups), 'set')} of identical files")
-    return result
+                sub[d].append((p, st))
+        out.extend(v for v in sub.values() if len(v) > 1)
+    return out
 
 
 def switch_keeper(items: list[Candidate], new_keeper: Path) -> list[Candidate]:

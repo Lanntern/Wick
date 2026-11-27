@@ -44,9 +44,9 @@ class Download:
 
 
 WINDOWS = [
-    Download("ffmpeg", "9.0.2",
-             "https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-full_build-shared.zip",
-             "8d31e162f1616e37aab3fa2db991b97e1b8dbeb1c8465fd81a81be16ff91b328",
+    Download("ffmpeg", "9.1",
+             "https://github.com/GyanD/codexffmpeg/releases/download/9.1/ffmpeg-9.1-full_build-shared.zip",
+             "d010a19b78d5eae62dca8d4c7f195acd56dae8ed6fb85f72821edd9437da2898",
              {"ffmpeg.exe": "ffmpeg.exe", "ffprobe.exe": "ffprobe.exe", "LICENSE": "LICENSE-ffmpeg.txt",
               "*.dll": None}),
     Download("libjxl", "0.13.0",
@@ -74,15 +74,16 @@ LINUX_LIBJXL = Download(
      "butteraugli_main": "?butteraugli_main"},
     held="libjxl publishes no static Linux builds after 0.11.1 (Linux users get libjxl from their distribution)")
 
-# ffmpeg/ffprobe for Linux CI: a static build of the same FFmpeg release as on Windows (BtbN's GPL build: SVT-AV1,
-# x265, x264, Opus, LAME, libvpx, VMAF). Pinned to a month's last build, which BtbN keeps for two years. CI used
-# the distribution's ffmpeg, so an Ubuntu mirror outage blocked every merge.
+# ffmpeg/ffprobe for Linux CI: a static build of the same FFmpeg release as on Windows, when BtbN has one (its GPL
+# build: SVT-AV1, x265, x264, Opus, LAME, libvpx, VMAF). Pinned to a month's last build, which BtbN keeps for two
+# years. CI used the distribution's ffmpeg, so an Ubuntu mirror outage blocked every merge.
 LINUX_FFMPEG = Download(
     "ffmpeg", "9.0.2",
     "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-10-31-12-59/"
     "ffmpeg-n9.0.2-39-g7adfbe40dc-linux64-gpl-9.0.tar.xz",
     "73e29a56974ae5a651133a04584c7483b21afe941e17dc91d79814a758b608d3",
-    {"ffmpeg": "ffmpeg", "ffprobe": "ffprobe", "LICENSE.txt": "LICENSE-ffmpeg.txt"})
+    {"ffmpeg": "ffmpeg", "ffprobe": "ffprobe", "LICENSE.txt": "LICENSE-ffmpeg.txt"},
+    held="BtbN has no FFmpeg 9.1 build yet (Windows ships 9.1); move to it with a month's last build once one has")
 
 # Pandoc (documents): on Windows the app downloads it when first needed (wick/addons.py pins the same
 # version); this is for Linux CI and builds. Distribution packages may be too old to run --sandbox.

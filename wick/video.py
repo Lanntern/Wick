@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from functools import cache, lru_cache
 from pathlib import Path
+from typing import Any
 
 from . import audio as audio_mod
 from . import steps, tools
 from .audio import SPEECH_KBPS
+from .detected import detected
 from .fileops import remove_quietly, temp_name
 from .formats import human, plural
 from .images import NotWorthIt, VerificationFailed
@@ -68,7 +71,7 @@ NVENC_TUNINGS = (("-preset", "p7", "-tune", "uhq", "-rc-lookahead", "32"),
 SPLIT_FROM_PIXELS = 3840 * 2160 * 0.9   # 4K and up: both encoders of a two-encoder GPU work on each frame
 
 
-@cache
+@detected
 def nvenc_tuning(encoder: str) -> tuple[str, ...]:
     """The best NVENC settings this computer takes (each tried once with a tiny encode)."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -78,7 +81,7 @@ def nvenc_tuning(encoder: str) -> tuple[str, ...]:
     return NVENC_BASIC
 
 
-@cache
+@detected
 def nvenc_split(encoder: str) -> bool:
     """Whether split-frame encoding works here (GPUs with two or more encoders, recent drivers): tried once
     with a 4K frame, the size it's used for."""
@@ -101,7 +104,7 @@ NVENC_EXTRAS: tuple[tuple[str, ...], ...] = (("-multipass", "fullres"), ("-tempo
 QSV_EXTRAS: tuple[tuple[str, ...], ...] = (("-extbrc", "1", "-look_ahead_depth", "40"),)
 
 
-@cache
+@detected
 def gpu_extras(encoder: str) -> tuple[str, ...]:
     """The extra settings (NVENC_EXTRAS, QSV_EXTRAS) this GPU takes, each tried once with a tiny encode."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -144,7 +147,7 @@ def _qvbr(level: int, extras: tuple[str, ...]) -> list[str]:
     return ["-quality", "quality", "-rc", "qvbr", "-qvbr_quality_level", str(level), *extras]
 
 
-@cache
+@detected
 def amf_extras(encoder: str) -> tuple[str, ...] | None:
     """The pre-analysis settings this AMD GPU takes with QVBR, or None if it doesn't do QVBR."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -154,7 +157,7 @@ def amf_extras(encoder: str) -> tuple[str, ...] | None:
     return None
 
 
-@cache
+@detected
 def amf_qvbr_level(encoder: str, qp: int) -> int | None:
     """The QVBR level that makes about the same size as constant QP ``qp`` on the test clip (None: use the QP)."""
     ffmpeg = tools.find_tool("ffmpeg")
@@ -178,7 +181,7 @@ def amf_qvbr_level(encoder: str, qp: int) -> int | None:
     return lo
 
 
-@cache
+@detected
 def svt_tuning() -> str:
     """SVT-AV1's visual-quality tuning (instead of its default, which aims at the PSNR number) and variance boost
     (protects dark and flat areas), where the bundled build has them; tried once."""
@@ -297,7 +300,7 @@ def _encoder_cache(ffmpeg: str) -> tuple[Path, str, dict]:
     return path, stamp, data
 
 
-@cache
+@detected
 def encoder_works(encoder: str) -> bool:
     """Try a tiny test encode; NVENC is only usable with a supported NVIDIA GPU + driver.
     Results are remembered for a week per ffmpeg build (a GPU that stops working still falls back to the
@@ -342,7 +345,7 @@ def _test_encode(ffmpeg: str, encoder: str, options: tuple[str, ...] | None = No
         rejected = re.search(r"Error parsing option|Unrecognized option|Unknown option|not supported",
                              proc.stderr or "", re.I)
         return proc.returncode == 0 and not (options is not None and rejected)
-    except Exception:
+    except Exception:  # noqa: BLE001 - logged; an encoder that can't be tried isn't offered
         from wick.log import ignored
         ignored("video._test_encode")
         return False
@@ -581,7 +584,7 @@ def _hdr10_params(info: VideoInfo, encoder: str) -> str:
     return ":".join(parts)
 
 
-@cache
+@detected
 def has_filter(name: str) -> bool:
     try:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-filters"], timeout=30, check=False).stdout
@@ -972,13 +975,13 @@ def made_by_wick(info: VideoInfo) -> str:
     return next((str(v) for k, v in info.tags.items() if k.upper() == TAG), "")
 
 
-@lru_cache(maxsize=16)
+@detected
 def _encoder_option(encoder: str, option: str) -> bool:
     """Does this FFmpeg's encoder take ``option`` (newer builds add some, like dolbyvision)?"""
     try:
         out = tools.run([tools.require("ffmpeg"), "-hide_banner", "-h", f"encoder={encoder}"], timeout=30,
                         check=False).stdout or ""
-    except Exception:  # noqa: BLE001
+    except (OSError, RuntimeError, subprocess.SubprocessError):
         return False
     return f"-{option} " in out
 
@@ -1291,8 +1294,6 @@ def preview_video(src: Path, info: VideoInfo, s: Settings, cancel: threading.Eve
     codec = codec_for(info, s)
     encoder = choose_encoder(codec, s.video_encoder)
     if s.video_crop_bars:
-        import dataclasses
-
         bars = detect_bars(src, info, cancel)
         if bars:
             info = dataclasses.replace(info, crop=bars)
@@ -1412,37 +1413,16 @@ def _font_plan(src: Path, info: VideoInfo, s: Settings, ext: str, folder: Path):
         return None
 
 
-def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:  # noqa: C901 (to split up)
+def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_progress, cancel) -> tuple[Path, str]:
     out = temp_name(src.parent, plan.target_ext)
     keep_audio, _subs, dropped = select_tracks(info, s)
     if plan.route == "video_remux":   # efficient already: tracks, fonts and lossless audio packing only
-        if not (dropped or fonts is not None or info.container == "mpegts"
-                or _audio_args(keep_audio, s, is_mp4(out.suffix), None, remux=True)):
-            raise NotWorthIt("Nothing to change without re-encoding the picture; original kept")
-        try:
-            steps.report("Copying the video without the tracks in other languages" if dropped
-                         else "Copying the video with smaller subtitle fonts")
-            tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
-                                      on_progress, cancel)
-            steps.report("Checking the result")
-            verify_video(info, out, info.codec, audio_tracks=len(keep_audio),
-                         src_path=src, copied=True)
-            done = ["picture untouched", "rewrapped from a TV recording" if info.container == "mpegts" else "",
-                    tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix), True)]
-            if fonts is not None:
-                done.append(fonts.note())
-            plan.outcome = ", ".join(x for x in done if x)
-            return out, "copy"
-        except BaseException:
-            remove_quietly(out)
-            raise
+        return _remux(src, out, info, plan, s, fonts, keep_audio, dropped, on_progress, cancel)
     codec = codec_for(info, s)
     if codec == "av1" and out.suffix.lower() == ".mov":
         codec = "hevc"                     # (QuickTime files can't hold AV1: a Live Photo's clip stays a .mov)
     encoder = choose_encoder(codec, s.video_encoder)
     if s.video_crop_bars:
-        import dataclasses
-
         steps.report("Looking for black bars")
         bars = detect_bars(src, info, cancel)
         if bars:
@@ -1452,107 +1432,179 @@ def _convert(src: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, on_prog
         return _encode_to_fit(src, out, info, plan, s, codec, encoder, len(keep_audio), on_progress, cancel, fonts)
     from . import chunked
 
-    q = None
-    notes: list[str] = []
-    grain = 0
-    base = dolby_vision_base(info)
-    if base:
-        notes.append(f"Dolby Vision layer left out, {base} picture kept")
-    if encoder == "libsvtav1":
-        steps.report("Checking whether it's a screen recording")
-        try:
-            if screen_recording(src, info, cancel):
-                import dataclasses
-
-                info = dataclasses.replace(info, screen=True)
-                notes.append("screen recording: tuned for text and flat areas")
-        except tools.Cancelled:
-            raise
-        except Exception:  # noqa: BLE001
-            from .log import ignored
-            ignored("video.screen_recording")
-    if encoder == "libsvtav1" and s.video_grain in ("auto", "banding") and not info.screen:
-        steps.report("Checking for film grain")
-        grain = grain_level(src, info, s, encoder, cancel)
-        if grain == BANDING_GRAIN:
-            notes.append("a light grain added to hide banding")
-        elif grain:
-            notes.append(f"film grain re-created on playback (level {grain})")
-
-    def finish(used: str) -> tuple[Path, str]:
-        steps.report("Checking the result")
-        verify_video(info, out, codec, expected_size=frame_size(info, s), audio_tracks=len(keep_audio), src_path=src)
-        steps.report("Measuring how close it looks to the original")
-        score = measure(src, info, out, s, cancel, grain if used == "libsvtav1" else 0)
-        if score is not None:
-            check_quality_budget(score, info, s, used)
-            notes.append(f"{score} ({score.verdict()})")
-        notes.extend((tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix))))
-        if info.crop:
-            notes.append(f"black bars removed ({info.crop[0]}×{info.crop[1]})")
-        if fonts is not None:
-            notes.append(fonts.note())
-        plan.outcome = ", ".join(x for x in notes if x)
-        return out, used
-
-    if chunked.applies(info, s, encoder):
-        try:
-            _, part_notes = chunked.encode(src, out, info, s, encoder, grain, on_progress, cancel, fonts)
-            notes += part_notes
-            result = finish(encoder)
-            chunked.finished(src, s, encoder, grain)
+    job = _VideoEncode(src, out, info, plan, s, fonts, on_progress, cancel, keep_audio, codec, encoder)
+    job.look_at_source()
+    if chunked.applies(job.info, s, encoder):
+        result = job.encode_in_scenes()
+        if result is not None:
             return result
-        except (tools.Cancelled, NotWorthIt):
-            remove_quietly(out)            # (the finished parts stay: the next run carries on from them)
-            raise
-        except Exception as e:  # noqa: BLE001 - encode it as a whole instead
-            from .log import log
+    job.choose_quality()
+    return job.encode_whole()
 
-            log.warning("Scene-by-scene encoding failed for %s, encoding it as a whole: %s", src.name, e)
-            remove_quietly(out)
-            chunked.finished(src, s, encoder, grain)
-            notes = [n for n in notes if n.startswith(("film grain", "a light grain"))] + ["encoded as a whole"]
-    if measures_quality(s):
-        steps.report("Encoding short samples to choose the quality")
-        q, choice = smart_quality(src, info, s, encoder, cancel, grain)
-        if choice.endswith("(grain kept)"):
-            grain = 0
-            notes = [n for n in notes if not n.startswith(("film grain", "a light grain"))]
-        notes.append(choice)
-    hw = s.video_encoder != "cpu" and HW_DECODE    # ("CPU only" keeps the graphics card out of it entirely)
+
+def _remux(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Settings, fonts, keep_audio: list,
+           dropped: list, on_progress, cancel) -> tuple[Path, str]:
+    """The picture is copied as it is; only the tracks, subtitle fonts and audio packing change."""
+    if not (dropped or fonts is not None or info.container == "mpegts"
+            or _audio_args(keep_audio, s, is_mp4(out.suffix), None, remux=True)):
+        raise NotWorthIt("Nothing to change without re-encoding the picture; original kept")
     try:
-        try:
-            steps.report(f"Encoding {codec.upper()} video ({encoder})")
-            try:
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, hw_decode=hw, grain=grain,
-                                                     fonts=fonts),
-                                          info.duration, on_progress, cancel)
-            except tools.ToolError:
-                if not hw:
-                    raise
-                remove_quietly(out)        # hardware decoding failed on this file: decode it on the CPU
-                steps.report(f"Encoding {codec.upper()} video ({encoder}, decoding on the processor)")
-                tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, grain=grain, fonts=fonts), info.duration,
-                                          on_progress, cancel)
-        except tools.ToolError:
-            # Some sources exceed GPU limits (e.g. > 8K, unusual formats). On Auto,
-            # retry on the CPU; on an explicit GPU choice, report the failure.
-            if s.video_encoder != "auto" or encoder == CPU_ENCODERS[codec]:
-                raise
-            remove_quietly(out)
-            encoder, notes = CPU_ENCODERS[codec], []   # the measured choice was for the GPU encoder
-            q, grain = None, 0
-            if measures_quality(s):
-                q, choice = smart_quality(src, info, s, encoder, cancel)
-                notes.append(choice)
-            steps.report(f"The graphics card couldn't encode this video: encoding {codec.upper()} on the processor "
-                         f"({encoder})")
-            tools.run_ffmpeg_progress(build_args(src, out, info, s, encoder, q, fonts=fonts), info.duration, on_progress,
-                                      cancel)
-        return finish(encoder)
+        steps.report("Copying the video without the tracks in other languages" if dropped
+                     else "Copying the video with smaller subtitle fonts")
+        tools.run_ffmpeg_progress(build_args(src, out, info, s, "copy", remux=True, fonts=fonts), info.duration,
+                                  on_progress, cancel)
+        steps.report("Checking the result")
+        verify_video(info, out, info.codec, audio_tracks=len(keep_audio), src_path=src, copied=True)
+        done = ["picture untouched", "rewrapped from a TV recording" if info.container == "mpegts" else "",
+                tracks_note(info, s), _audio_note(keep_audio, s, is_mp4(out.suffix), True),
+                fonts.note() if fonts is not None else ""]
+        plan.outcome = ", ".join(x for x in done if x)
+        return out, "copy"
     except BaseException:
         remove_quietly(out)
         raise
+
+
+_GRAIN_NOTES = ("film grain", "a light grain")
+
+
+@dataclass
+class _VideoEncode:
+    """One video re-encoded: looked at first (Dolby Vision, screen recording, film grain), then encoded scene by
+    scene or as a whole (on the graphics card, falling back to the processor), checked and measured."""
+
+    src: Path
+    out: Path
+    info: VideoInfo
+    plan: Plan
+    s: Settings
+    fonts: Any            # (subfonts.FontPlan | None)
+    on_progress: Callable | None
+    cancel: threading.Event | None
+    keep_audio: list
+    codec: str
+    encoder: str
+    q: int | None = None
+    grain: int = 0
+    notes: list[str] = field(default_factory=list)
+
+    def look_at_source(self) -> None:
+        base = dolby_vision_base(self.info)
+        if base:
+            self.notes.append(f"Dolby Vision layer left out, {base} picture kept")
+        if self.encoder != "libsvtav1":
+            return
+        steps.report("Checking whether it's a screen recording")
+        try:
+            if screen_recording(self.src, self.info, self.cancel):
+                self.info = dataclasses.replace(self.info, screen=True)
+                self.notes.append("screen recording: tuned for text and flat areas")
+        except tools.Cancelled:
+            raise
+        except Exception:  # noqa: BLE001 - logged; then it's encoded as ordinary video
+            from .log import ignored
+            ignored("video.screen_recording")
+        if self.s.video_grain in ("auto", "banding") and not self.info.screen:
+            steps.report("Checking for film grain")
+            self.grain = grain_level(self.src, self.info, self.s, self.encoder, self.cancel)
+            if self.grain == BANDING_GRAIN:
+                self.notes.append("a light grain added to hide banding")
+            elif self.grain:
+                self.notes.append(f"film grain re-created on playback (level {self.grain})")
+
+    def encode_in_scenes(self) -> tuple[Path, str] | None:
+        """Scene by scene (chunked); None if that failed and it should be encoded as a whole."""
+        from . import chunked
+
+        try:
+            _, part_notes = chunked.encode(self.src, self.out, self.info, self.s, self.encoder, self.grain,
+                                           self.on_progress, self.cancel, self.fonts)
+            self.notes += part_notes
+            result = self.finish(self.encoder)
+            chunked.finished(self.src, self.s, self.encoder, self.grain)
+            return result
+        except (tools.Cancelled, NotWorthIt):
+            remove_quietly(self.out)            # (the finished parts stay: the next run carries on from them)
+            raise
+        except Exception as e:  # noqa: BLE001 - logged; encode it as a whole instead
+            from .log import log
+
+            log.warning("Scene-by-scene encoding failed for %s, encoding it as a whole: %s", self.src.name, e)
+            remove_quietly(self.out)
+            chunked.finished(self.src, self.s, self.encoder, self.grain)
+            self.notes = [n for n in self.notes if n.startswith(_GRAIN_NOTES)] + ["encoded as a whole"]
+            return None
+
+    def choose_quality(self) -> None:
+        if not measures_quality(self.s):
+            return
+        steps.report("Encoding short samples to choose the quality")
+        self.q, choice = smart_quality(self.src, self.info, self.s, self.encoder, self.cancel, self.grain)
+        if choice.endswith("(grain kept)"):
+            self.grain = 0
+            self.notes = [n for n in self.notes if not n.startswith(_GRAIN_NOTES)]
+        self.notes.append(choice)
+
+    def encode_whole(self) -> tuple[Path, str]:
+        try:
+            try:
+                self._encode(hw=self.s.video_encoder != "cpu" and HW_DECODE)   # ("CPU only": no graphics card)
+            except tools.ToolError:
+                # Some sources exceed GPU limits (e.g. > 8K, unusual formats). On Auto,
+                # retry on the CPU; on an explicit GPU choice, report the failure.
+                if self.s.video_encoder != "auto" or self.encoder == CPU_ENCODERS[self.codec]:
+                    raise
+                self._encode_on_the_processor()
+            return self.finish(self.encoder)
+        except BaseException:
+            remove_quietly(self.out)
+            raise
+
+    def _ffmpeg(self, **kw) -> None:
+        tools.run_ffmpeg_progress(build_args(self.src, self.out, self.info, self.s, self.encoder, self.q,
+                                             grain=self.grain, fonts=self.fonts, **kw),
+                                  self.info.duration, self.on_progress, self.cancel)
+
+    def _encode(self, hw: bool) -> None:
+        steps.report(f"Encoding {self.codec.upper()} video ({self.encoder})")
+        try:
+            self._ffmpeg(hw_decode=hw)
+        except tools.ToolError:
+            if not hw:
+                raise
+            remove_quietly(self.out)        # hardware decoding failed on this file: decode it on the CPU
+            steps.report(f"Encoding {self.codec.upper()} video ({self.encoder}, decoding on the processor)")
+            self._ffmpeg()
+
+    def _encode_on_the_processor(self) -> None:
+        remove_quietly(self.out)
+        self.encoder, self.notes = CPU_ENCODERS[self.codec], []   # the measured choice was for the GPU encoder
+        self.q, self.grain = None, 0
+        if measures_quality(self.s):
+            self.q, choice = smart_quality(self.src, self.info, self.s, self.encoder, self.cancel)
+            self.notes.append(choice)
+        steps.report(f"The graphics card couldn't encode this video: encoding {self.codec.upper()} on the processor "
+                     f"({self.encoder})")
+        self._ffmpeg()
+
+    def finish(self, used: str) -> tuple[Path, str]:
+        """Checked and measured; the plan says what was done."""
+        info, s = self.info, self.s
+        steps.report("Checking the result")
+        verify_video(info, self.out, self.codec, expected_size=frame_size(info, s), audio_tracks=len(self.keep_audio),
+                     src_path=self.src)
+        steps.report("Measuring how close it looks to the original")
+        score = measure(self.src, info, self.out, s, self.cancel, self.grain if used == "libsvtav1" else 0)
+        if score is not None:
+            check_quality_budget(score, info, s, used)
+            self.notes.append(f"{score} ({score.verdict()})")
+        self.notes.extend((tracks_note(info, s), _audio_note(self.keep_audio, s, is_mp4(self.out.suffix))))
+        if info.crop:
+            self.notes.append(f"black bars removed ({info.crop[0]}×{info.crop[1]})")
+        if self.fonts is not None:
+            self.notes.append(self.fonts.note())
+        self.plan.outcome = ", ".join(x for x in self.notes if x)
+        return self.out, used
 
 
 def _encode_to_fit(src: Path, out: Path, info: VideoInfo, plan: Plan, s: Settings, codec: str, encoder: str,

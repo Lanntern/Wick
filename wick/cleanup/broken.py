@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .. import tools
 from ..formats import AUDIO, AUDIO_EXTS, AVIF, DOCUMENT, EXT_KIND, HEIC, IMAGE_KINDS, VIDEO, VIDEO_EXTS, sniff
+from ..log import ignored
 from .common import Candidate, ScanResult, cancelled, walk_files
 
 ZIP_EXTS = {".zip", ".docx", ".docm", ".dotx", ".pptx", ".pptm", ".potx", ".ppsx", ".xlsx", ".xlsm", ".xltx",
@@ -259,6 +260,7 @@ def find_broken(roots: list[Path], thorough: bool = False, progress: Callable | 
 
             found = broken_check(path, size, thorough)      # (in a decoder worker with fewer rights)
         except Exception:  # noqa: BLE001 - an unexpected error is not proof the file is broken
+            ignored("broken-file check")
             found = None
         with lock:
             done += 1

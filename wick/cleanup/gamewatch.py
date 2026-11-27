@@ -53,7 +53,7 @@ class GameWatcher:
                         self.last_change = time.monotonic()
                         self.changed.set()
                         advance(handle)
-        except Exception:
+        except Exception:  # noqa: BLE001 - logged; the periodic checks carry on
             log.exception("Game update notifications stopped; periodic checks remain enabled")
         finally:
             for handle in handles:

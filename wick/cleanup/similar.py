@@ -12,13 +12,13 @@ from __future__ import annotations
 import os
 import threading
 import time
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import index
 from ..formats import HEIC, IMAGE_KINDS, classify, plural, register_heif
-from .common import Candidate, ProgressFn, ScanResult, cancelled, walk_files
+from ..log import ignored
+from .common import Candidate, Groups, ProgressFn, ScanResult, cancelled, walk_files
 
 STRICTNESS = {"very": 3, "similar": 6}   # max differing bits of 64
 _BANDS = 4
@@ -87,6 +87,7 @@ def inspect(path: Path, px: int = 256):
             sharp = ImageStat.Stat(gray.filter(ImageFilter.FIND_EDGES)).var[0]
             return sharp, gray.resize((px, px), Image.Resampling.LANCZOS)
     except Exception:  # noqa: BLE001 - unreadable or unsupported
+        ignored("similar photos: reading a picture")
         return 0.0, None
 
 
@@ -202,10 +203,11 @@ def _star_groups(members: list[int], prints, sharp: dict[int, float], files, lim
     return out
 
 
-def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,  # noqa: C901 (to split up)
-                 progress: ProgressFn | None = None, cancel: threading.Event | None = None) -> ScanResult:
-    from ..sandbox import similar_fingerprint, similar_inspect
+_WORKERS = min(8, os.cpu_count() or 2)
 
+
+def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int = 50 * 1024,
+                 progress: ProgressFn | None = None, cancel: threading.Event | None = None) -> ScanResult:
     result = ScanResult("similar")
     limit = STRICTNESS.get(strictness, 3)
     files = []
@@ -214,9 +216,36 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
             files.append((path, st))
             if progress and len(files) % 500 == 0:
                 progress(f"Finding photos… {len(files):,}", len(files), 0)
-    if cancelled(cancel):
+    prints = _fingerprints(files, progress, cancel) if not cancelled(cancel) else {}
+    components: list[list[int]] = []
+    if not cancelled(cancel):
+        # Look-alikes, joined into connected sets.
+        if progress:
+            progress("Grouping similar photos…", 0, 0)
+        ids = list(prints)
+        pairs = _close_pairs([prints[i][0] for i in ids], [prints[i][1] / prints[i][2] for i in ids], limit, cancel)
+        groups = Groups(ids)
+        for a, b in pairs:
+            groups.join(ids[a], ids[b])
+        components = [g for g in groups.sets() if len(g) > 1]
+    picked = _pick_keepers(components, files, prints, limit, progress, cancel) if not cancelled(cancel) else None
+    if picked is None:
         result.cancelled = True
         return result
+    sets, looks, sharp = picked
+    sets.sort(key=lambda kg: sum(files[i][1].st_size for i in (kg[0], *kg[1])), reverse=True)
+    for gi, (best, others) in enumerate(sets):
+        result.items += [_look_alike(files, prints, sharp, i, best, looks[i], f"sim{gi}") for i in others]
+    if sets:
+        result.notes.append(f"{plural(len(sets), 'group')} of similar photos. Hover a "
+                            "row to see it; right-click to keep a different one.")
+    return result
+
+
+def _fingerprints(files: list, progress: ProgressFn | None, cancel: threading.Event | None
+                  ) -> dict[int, tuple[int, int, int]]:
+    """Each photo's look (a difference hash, with its size): from the index when unchanged, else read now."""
+    from ..sandbox import similar_fingerprint
 
     prints: dict[int, tuple[int, int, int]] = {}
     todo = []
@@ -227,14 +256,11 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
                 prints[i] = tuple(cached)
         else:
             todo.append(i)
-
     if any(classify(files[i][0]) == HEIC for i in todo):
         from ..scanner import preload_codecs
 
         preload_codecs(heif=True)   # import on this thread before the workers use it
-    workers = min(8, os.cpu_count() or 2)
     ticker = Ticker(progress)
-
     finished: list[int] = []
 
     def fp_work(i: int) -> None:
@@ -246,55 +272,35 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
         finished.append(i)
         ticker.step("Reading photos", len(todo))
 
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
         list(pool.map(fp_work, todo))
     # Only what was read (a stopped scan must not record skipped files as unreadable).
     index.store_values("dhash", [(files[i][0], files[i][1].st_size, files[i][1].st_mtime, list(prints.get(i, ())))
                                  for i in finished])
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
+    return prints
 
-    # Look-alikes, joined into connected sets.
-    if progress:
-        progress("Grouping similar photos…", 0, 0)
-    ids = list(prints)
-    pairs = _close_pairs([prints[i][0] for i in ids], [prints[i][1] / prints[i][2] for i in ids], limit, cancel)
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
-    parent = {i: i for i in ids}
 
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
+def _pick_keepers(components: list[list[int]], files: list, prints: dict, limit: int, progress: ProgressFn | None,
+                  cancel: threading.Event | None):
+    """The photo to keep in each set, and whether each other one looks the same: one decode per photo (in
+    parallel), sharpness picking the burst shot to keep and the thumbnail telling a re-save from a different
+    shot. Sets are done in batches so thumbnails don't pile up. None if stopped."""
+    from ..sandbox import similar_inspect
 
-    for a, b in pairs:
-        parent[root(ids[a])] = root(ids[b])
-    linked: dict[int, list[int]] = defaultdict(list)
-    for i in ids:
-        linked[root(i)].append(i)
-    components = [g for g in linked.values() if len(g) > 1]
-
-    # One decode per photo in a set (in parallel): sharpness picks the burst shot to keep, the thumbnail
-    # tells a re-save from a different shot. Sets are done in batches so thumbnails don't pile up.
-    components.sort(key=len)
+    components = sorted(components, key=len)
     total = sum(len(g) for g in components)
     ticker = Ticker(progress)
     sets: list[tuple[int, list[int]]] = []   # (keeper, others)
     looks: dict[int, bool] = {}
     sharp: dict[int, float] = {}
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    with ThreadPoolExecutor(max_workers=_WORKERS) as pool:
         batch: list[list[int]] = []
         for n, g in enumerate(components):
             batch.append(g)
             if sum(len(x) for x in batch) < 512 and n != len(components) - 1:
                 continue
             if cancelled(cancel):
-                result.cancelled = True
-                return result
+                return None
             members = [i for x in batch for i in x]
             px = 256 if len(members) <= 4096 else 128
 
@@ -311,48 +317,39 @@ def find_similar(roots: list[Path], *, strictness: str = "very", min_size: int =
                     for i in others:
                         looks[i] = looks_identical(seen[i][1], seen[keeper][1])
             batch = []
-    if cancelled(cancel):
-        result.cancelled = True
-        return result
+    return None if cancelled(cancel) else (sets, looks, sharp)
 
-    sets.sort(key=lambda kg: sum(files[i][1].st_size for i in (kg[0], *kg[1])), reverse=True)
-    for gi, (best, others) in enumerate(sets):
-        kp, kst = files[best]
-        for i in others:
-            p, st = files[i]
-            d = _distance(prints[i][0], prints[best][0])
-            same = looks[i]
-            smaller = prints[i][1] * prints[i][2] < prints[best][1] * prints[best][2]
-            why = ["lower resolution"] if smaller else []
-            if sharp[i] < sharp[best] * 0.85:
-                why.append("less sharp")
-            detail = "Looks the same as the copy that stays" if same else "Similar to the copy that stays"
-            if why:
-                detail += f" ({', '.join(why)})"
-            if format_pair(p, kp):
-                detail = (f"The same photo saved as {p.suffix[1:].upper()} and {kp.suffix[1:].upper()}; the "
-                          f"{kp.suffix[1:].upper()} stays" + (" (opens everywhere)" if kp.suffix.lower() in
-                                                             (".jpg", ".jpeg") else ""))
-            extra: dict[str, object] = {"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns,
-                                        "distance": d}
-            size = st.st_size
-            mov = live_companion(p, kp)
-            if mov is not None:
-                try:
-                    size += mov.stat().st_size
-                    extra["companions"] = [str(mov)]
-                    detail += f". Live Photo: its video ({mov.name}) goes with it"
-                except OSError:
-                    pass
-            result.items.append(Candidate(
-                path=p, size=size, keeper=kp, group=f"sim{gi}", detail=detail,
-                selected=same and (smaller or st.st_size <= kst.st_size),   # only obvious copies pre-selected
-                extra=extra,
-            ))
-    if sets:
-        result.notes.append(f"{plural(len(sets), 'group')} of similar photos. Hover a "
-                            "row to see it; right-click to keep a different one.")
-    return result
+
+def _look_alike(files: list, prints: dict, sharp: dict[int, float], i: int, best: int, same: bool,
+                group: str) -> Candidate:
+    """Photo ``i`` as a look-alike of ``best`` (the one that stays)."""
+    kp, kst = files[best]
+    p, st = files[i]
+    smaller = prints[i][1] * prints[i][2] < prints[best][1] * prints[best][2]
+    why = ["lower resolution"] if smaller else []
+    if sharp[i] < sharp[best] * 0.85:
+        why.append("less sharp")
+    detail = "Looks the same as the copy that stays" if same else "Similar to the copy that stays"
+    if why:
+        detail += f" ({', '.join(why)})"
+    if format_pair(p, kp):
+        detail = (f"The same photo saved as {p.suffix[1:].upper()} and {kp.suffix[1:].upper()}; the "
+                  f"{kp.suffix[1:].upper()} stays" + (" (opens everywhere)" if kp.suffix.lower() in
+                                                     (".jpg", ".jpeg") else ""))
+    extra: dict[str, object] = {"same_volume": st.st_dev == kst.st_dev, "mtime_ns": st.st_mtime_ns,
+                                "distance": _distance(prints[i][0], prints[best][0])}
+    size = st.st_size
+    mov = live_companion(p, kp)
+    if mov is not None:
+        try:
+            size += mov.stat().st_size
+            extra["companions"] = [str(mov)]
+            detail += f". Live Photo: its video ({mov.name}) goes with it"
+        except OSError:
+            pass
+    return Candidate(path=p, size=size, keeper=kp, group=group, detail=detail,
+                     selected=same and (smaller or st.st_size <= kst.st_size),   # only obvious copies pre-selected
+                     extra=extra)
 
 
 __all__ = ["find_similar", "fingerprint", "inspect", "sharpness", "STRICTNESS"]

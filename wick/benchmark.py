@@ -65,7 +65,7 @@ def _timed(src: Path, out: Path, s: Settings, kind: str) -> tuple[float, int]:
 def run(progress: Progress | None = None, photos: int = 16, videos: int = 4,
         cancel: threading.Event | None = None) -> str:
     """Run the comparison and return a short plain-text report."""
-    say = progress or (lambda m: None)
+    say = progress or (lambda _m: None)
     from .video import choose_encoder, parallel_videos
 
     base = Settings(image_format="jxl", jpeg_mode="lossy", image_quality=85, video_codec="hevc",

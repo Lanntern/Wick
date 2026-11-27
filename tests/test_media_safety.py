@@ -72,7 +72,7 @@ def test_estimates_learn_from_results(tmp_path):
         calibration.record(e, p, 300, 600)          # always half the estimate
     assert abs(calibration.factor(e, p) - 0.5) < 0.01
     calibration.save()
-    calibration._data = None                         # reload from disk
+    calibration.reload()                             # read from disk again
     assert abs(calibration.factor(e, p) - 0.5) < 0.01
     calibration.reset()
 

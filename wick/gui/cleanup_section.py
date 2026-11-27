@@ -37,6 +37,7 @@ from .filelist import (
     ListPlaceholder,
     SortItem,
     add_header_checkbox,
+    child_items,
     click_to_check,
     file_menu,
     filling,
@@ -44,11 +45,23 @@ from .filelist import (
     make_sortable,
     selected_or_clicked,
     set_sort_keys,
+    top_items,
 )
 from .settings_panel import BIN_NAME
 from .style import Size, Space, Type, tokens, ui_font
 from .thumbs import HoverPreviewer
-from .widgets import Card, ElidedLabel, FlowLayout, ProgressBar, button, dialog_buttons, dialog_layout, hbox, text
+from .widgets import (
+    Card,
+    ElidedLabel,
+    FlowLayout,
+    ProgressBar,
+    available_width,
+    button,
+    dialog_buttons,
+    dialog_layout,
+    hbox,
+    text,
+)
 
 if TYPE_CHECKING:
     from .app_controls import FileTypePicker
@@ -70,11 +83,11 @@ class Tool:
     scan: Callable[[ToolSection, Callable, threading.Event], ScanResult]
     actions: list[tuple[str, str, str]]                    # (action id, button label, kind)
     folder_label: str = "Look in"
-    options: Callable[[ToolSection], list[tuple[str, QWidget]]] = lambda s: []
+    options: Callable[[ToolSection], list[tuple[str, QWidget]]] = lambda _s: []
     note: str = ""
     available: Callable[[], str] = lambda: ""              # returns a reason when unavailable
-    group_title: Callable[[str, list[Candidate]], str] = lambda g, items: g
-    menu: Callable[[ToolSection, list[Candidate]], list] = lambda s, items: []   # extra right-click entries
+    group_title: Callable[[str, list[Candidate]], str] = lambda g, _items: g
+    menu: Callable[[ToolSection, list[Candidate]], list] = lambda _s, _items: []   # extra right-click entries
     extra: dict = field(default_factory=dict)
 
 
@@ -84,7 +97,17 @@ def existing_folders(*names: str) -> list[Path]:
 
 # ---------------------------------------------------------------- workers
 
-class ScanWorker(QThread):
+class SectionWorker(QThread):
+    """A tool's background work (scanning, removing, emptying): stopped by setting ``cancel``."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.cancel = threading.Event()
+        self.active_key = ""        # (a scan of several tools: the one running now)
+        self.combined = False       # one scan for several tools (Scan Several Tools…)
+
+
+class ScanWorker(SectionWorker):
     progress = Signal(str, int, int)
     partial = Signal(str, object)
     done = Signal(object)
@@ -93,7 +116,6 @@ class ScanWorker(QThread):
     def __init__(self, fn, parent=None):
         super().__init__(parent)
         self.fn = fn
-        self.cancel = threading.Event()
         self._pending: dict[str, list] = {}
         self._seen: set[tuple] = set()
         self._sent = 0.0
@@ -134,7 +156,7 @@ class ScanWorker(QThread):
             self.failed.emit(str(e))
 
 
-class _Apply(QThread):
+class _Apply(SectionWorker):
     step = Signal(object, int, int)
     line = Signal(str)
     done = Signal(object, object)
@@ -143,7 +165,6 @@ class _Apply(QThread):
     def __init__(self, items, action, tool, root, parent=None):
         super().__init__(parent)
         self.items, self.action, self.tool, self.root = items, action, tool, root
-        self.cancel = threading.Event()
 
     def run(self) -> None:
         from .. import power
@@ -159,7 +180,7 @@ class _Apply(QThread):
         self.done.emit(outcomes, run_id)
 
 
-class _Purge(QThread):
+class _Purge(SectionWorker):
     step = Signal(str, int, int)
     done = Signal(int, int, object)
     failed = Signal(str)
@@ -167,7 +188,6 @@ class _Purge(QThread):
     def __init__(self, outcomes, parent=None):
         super().__init__(parent)
         self.outcomes = outcomes
-        self.cancel = threading.Event()
 
     def run(self) -> None:
         try:
@@ -207,7 +227,7 @@ class ToolSection(QWidget):
         super().__init__()
         self.tool, self.page = tool, page
         self.qs: QSettings = page.win.qsettings
-        self.worker: QThread | None = None
+        self.worker: SectionWorker | None = None
         self.result: ScanResult | None = None
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -318,11 +338,11 @@ class ToolSection(QWidget):
         self.tree.itemChanged.connect(self._item_changed)
         self.tree.itemDoubleClicked.connect(self._open_item)
         self.tree.itemExpanded.connect(self._expand)
-        make_sortable(self.tree)
+        header = make_sortable(self.tree)
         self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)
-        self.tree.header().remember(f"cleanup-{tool.key}")
+        header.remember(f"cleanup-{tool.key}")
         add_header_checkbox(self.tree, C_NAME, self._update_summary)
-        self.tree.header().set_expander(C_NAME, self._all_open, lambda: self.open_all(not self._all_open()))
+        header.set_expander(C_NAME, self._all_open, lambda: self.open_all(not self._all_open()))
         self.tree.itemExpanded.connect(lambda *_: self.tree.header().viewport().update())
         self.tree.itemCollapsed.connect(lambda *_: self.tree.header().viewport().update())
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -340,15 +360,15 @@ class ToolSection(QWidget):
         bar.setContentsMargins(Space.M, Space.S, Space.M, Space.M)
         bar.setSpacing(Space.S)
         self.select_all = button("Select Suggested", "", None, "Select everything that's verified safe")
-        self.select_all.clicked.connect(lambda: self._set_all(None))
+        self.select_all.clicked.connect(lambda: self.set_all(None))
         self.select_none = button("Select None")
-        self.select_none.clicked.connect(lambda: self._set_all(False))
+        self.select_none.clicked.connect(lambda: self.set_all(False))
         bar.addWidget(self.select_all)
         bar.addWidget(self.select_none)
         bar.addStretch(1)
         self.action_buttons: dict[str, QPushButton] = {}
         self._actions = QWidget()          # beside the selection buttons, or on a line of their own
-        al = QHBoxLayout(self._actions)
+        al = self._actions_row = QHBoxLayout(self._actions)
         al.setContentsMargins(0, 0, 0, 0)
         al.setSpacing(Space.S)
         for action_id, label, kind in tool.actions:
@@ -372,13 +392,7 @@ class ToolSection(QWidget):
         """The width the page really has (this section itself is kept as wide as its buttons need)."""
         from PySide6.QtWidgets import QScrollArea
 
-        p = self.parentWidget()
-        while p is not None and not isinstance(p, QScrollArea):
-            p = p.parentWidget()
-        if p is None:
-            return self.width()
-        margins = p.widget().layout().contentsMargins()
-        return p.viewport().width() - margins.left() - margins.right()
+        return available_width(self, QScrollArea)
 
     def _fit_bar(self) -> None:
         """Never squeeze the buttons: Select None goes first (the list's header checkbox does the same), then
@@ -393,7 +407,7 @@ class ToolSection(QWidget):
             target = self._bar if beside else self._below
             if target.indexOf(self._actions) < 0:
                 target.addWidget(self._actions)
-            for layout in (self._bar, self._below, self._actions.layout(), self._results.lay):
+            for layout in (self._bar, self._below, self._actions_row, self._results.lay):
                 layout.invalidate()          # (each level caches its size: refresh them, inside out)
             return self._results.lay.minimumSize().width()   # the results card, as it would be laid out
 
@@ -532,9 +546,8 @@ class ToolSection(QWidget):
         hide = self.hide_unsuggested.isChecked()
         any_warned = False
         self.tree.blockSignals(True)
-        for i in range(self.tree.topLevelItemCount()):
-            top = self.tree.topLevelItem(i)
-            rows = [top.child(j) for j in range(top.childCount())] or [top]
+        for top in top_items(self.tree):
+            rows = list(child_items(top)) or [top]
             shown = 0
             for it in rows:
                 c = it.data(C_NAME, ROLE_ITEM)
@@ -557,8 +570,8 @@ class ToolSection(QWidget):
             self._fill_items(result)
             self._apply_hidden()
         if result.rebuild is not None and self.tree.topLevelItemCount() <= 3:
-            for i in range(self.tree.topLevelItemCount()):
-                self.tree.topLevelItem(i).setExpanded(True)          # (folder sizes: the first level shows)
+            for top in top_items(self.tree):
+                top.setExpanded(True)          # (folder sizes: the first level shows)
         self.tree.header().viewport().update()
         self._update_summary()
 
@@ -766,11 +779,9 @@ class ToolSection(QWidget):
     # ---- selection
     def _items(self, only_checked: bool = False) -> list[tuple[QTreeWidgetItem, Candidate]]:
         out = []
-        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        stack = list(top_items(self.tree))
         while stack:
             it = stack.pop(0)
-            if it is None:
-                continue
             c = it.data(C_NAME, ROLE_ITEM)
             checked = bool(it.flags() & Qt.ItemFlag.ItemIsUserCheckable) and it.checkState(C_NAME) == Qt.CheckState.Checked
             if isinstance(c, Candidate) and it.flags() & Qt.ItemFlag.ItemIsUserCheckable and not it.isHidden():
@@ -778,10 +789,10 @@ class ToolSection(QWidget):
                     out.append((it, c))
             if checked and isinstance(c, Candidate) and c.is_dir:
                 continue                  # (what's inside a chosen folder goes with it: don't count it twice)
-            stack.extend(it.child(i) for i in range(it.childCount()))
+            stack.extend(child_items(it))
         return out
 
-    def _set_all(self, value: bool | None) -> None:
+    def set_all(self, value: bool | None) -> None:
         self.tree.blockSignals(True)
         for it, c in self._items():
             on = c.selected if value is None else value
@@ -795,8 +806,7 @@ class ToolSection(QWidget):
             state = it.checkState(C_NAME)       # a group's box: its removable rows follow
             if state != Qt.CheckState.PartiallyChecked:
                 self.tree.blockSignals(True)
-                for i in range(it.childCount()):
-                    child = it.child(i)
+                for child in child_items(it):
                     if child.flags() & Qt.ItemFlag.ItemIsUserCheckable and not child.isHidden():
                         child.setCheckState(C_NAME, state)
                 self.tree.blockSignals(False)
@@ -805,13 +815,12 @@ class ToolSection(QWidget):
     def _sync_groups(self) -> None:
         """Each group's box shows its removable rows: all ticked, some, or none."""
         self.tree.blockSignals(True)
-        for i in range(self.tree.topLevelItemCount()):
-            g = self.tree.topLevelItem(i)
-            if g is None or not g.childCount() or isinstance(g.data(C_NAME, ROLE_ITEM), Candidate) \
+        for g in top_items(self.tree):
+            if not g.childCount() or isinstance(g.data(C_NAME, ROLE_ITEM), Candidate) \
                     or not g.flags() & Qt.ItemFlag.ItemIsUserCheckable:
                 continue
-            states = [g.child(k).checkState(C_NAME) for k in range(g.childCount())
-                      if g.child(k).flags() & Qt.ItemFlag.ItemIsUserCheckable and not g.child(k).isHidden()]
+            states = [k.checkState(C_NAME) for k in child_items(g)
+                      if k.flags() & Qt.ItemFlag.ItemIsUserCheckable and not k.isHidden()]
             want = (Qt.CheckState.Unchecked if not states or all(x == Qt.CheckState.Unchecked for x in states) else
                     Qt.CheckState.Checked if all(x == Qt.CheckState.Checked for x in states) else Qt.CheckState.PartiallyChecked)
             if g.checkState(C_NAME) != want:
@@ -1007,7 +1016,7 @@ class ToolSection(QWidget):
         self.bar.setRange(0, n)
         self.worker.start()
 
-    def _applied_one(self, outcome, done: int, total: int) -> None:
+    def _applied_one(self, outcome, done: int, _total: int) -> None:
         self.bar.setValue(done)
         self.status.setText(f"{outcome.message}: {outcome.item.title}")
 
@@ -1016,110 +1025,121 @@ class ToolSection(QWidget):
         for it, c in self._items():
             c.extra["checked"] = it.checkState(C_NAME) == Qt.CheckState.Checked
 
-    def _applied(self, outcomes, run_id) -> None:
+    def _applied(self, outcomes, _run_id) -> None:
         ok = [o for o in outcomes if o.ok]
         failed = [o for o in outcomes if not o.ok]
         if self.tool.key == "takeout":
             self.page.win.history.refresh()
-            if ok:
-                out = Path(ok[0].item.extra.get("takeout_out", ""))
-                if choose(self, "Your photos are merged.", ok[0].message + f".\n\nThey're in {out}.", "Done",
-                          "Show Folder"):
-                    from .file_model import open_in_file_manager
-
-                    open_in_file_manager(str(out))
-            elif failed:
-                inform(self, "The photos couldn't be merged.", failed[0].message)
+            self._merged(ok, failed)
             return
-        done_ids = {id(o.item) for o in ok}
         self._remember_checks()
-        if self.tool.key == "appcompress" and self.result is not None:
+        self._show_outcomes(outcomes, ok)
+        self.page.win.history.refresh()
+        if self.tool.key == "appcompress":
+            self.page.win._refresh_game_watcher()
+            inform(self, "App/game compression finished", "\n".join(f"{o.item.title}: {o.message}" for o in outcomes))
+            return
+        self._tell_what_was_done(ok, failed)
+
+    def _merged(self, ok, failed) -> None:
+        """Google Takeout: where the merged photos are."""
+        if ok:
+            out = Path(ok[0].item.extra.get("takeout_out", ""))
+            if choose(self, "Your photos are merged.", ok[0].message + f".\n\nThey're in {out}.", "Done",
+                      "Show Folder"):
+                from .file_model import open_in_file_manager
+
+                open_in_file_manager(str(out))
+        elif failed:
+            inform(self, "The photos couldn't be merged.", failed[0].message)
+
+    def _show_outcomes(self, outcomes, ok) -> None:
+        """The list after the action: app rows show their new state, folder sizes are counted again, and
+        removed items leave the list."""
+        if self.result is None:
+            return
+        if self.tool.key == "appcompress":
+            decompacted = getattr(self.worker, "action", "") == actions.DECOMPACT
             for outcome in outcomes:
                 item = outcome.item
                 if "disk_after" in item.extra:
                     if item.extra.get("before_first") is None:
                         item.extra["before_first"] = item.extra["before_this_run"]
                     item.extra.update(disk=item.extra["disk_after"], checked=False, outcome=outcome.message,
-                                      state=("Decompressed" if getattr(self.worker, "action", "") == actions.DECOMPACT else
-                                             "Compressed") if outcome.ok else "Check result")
+                                      state=("Decompressed" if decompacted else "Compressed") if outcome.ok
+                                      else "Check result")
                     item.extra["estimate_pending"] = True
                     item.selected, item.size = False, 0
             self._fill(self.result)
-        elif self.result is not None and self.result.rebuild is not None:
+        elif self.result.rebuild is not None:
             for o in ok:
                 if o.item.extra.get("forget"):
                     o.item.extra["forget"]()                     # (sizes above it shrink)
             self._refill_tree()
-        elif self.result is not None:
+        else:
+            done_ids = {id(o.item) for o in ok}
             self.result.items = [c for c in self.result.items if id(c) not in done_ids]
             self._fill(self.result)
-        self.page.win.history.refresh()
-        if self.tool.key == "appcompress":
-            self.page.win._refresh_game_watcher()
-            inform(self, "App/game compression finished", "\n".join(f"{o.item.title}: {o.message}" for o in outcomes))
-            return
-        freed = sum(o.freed for o in ok)
+
+    def _tell_what_was_done(self, ok, failed) -> None:
+        """What was freed (or moved to the bin, with an offer to free it now), and what was skipped and why."""
         info = []
         blocked = [o for o in failed if o.blocked]
         others = [o for o in failed if not o.blocked]
         if blocked:
-            n_b = f"{plural(len(blocked), 'item')}"
-            info.append(f"{n_b} {'are' if len(blocked) != 1 else 'is'} in folders that Windows protects. "
-                        + cfa.HOW)
+            info.append(f"{plural(len(blocked), 'item')} {'are' if len(blocked) != 1 else 'is'} in folders that "
+                        "Windows protects. " + cfa.HOW)
         if others:
             info.append(f"{plural(len(others), 'item')} {'was' if len(others) == 1 else 'were'} skipped:\n" + "\n".join(
                 f"• {o.item.title}: {o.message}" for o in others[:12]))
         if not ok:                           # nothing at all was done: say so, not "Freed 0 B from 0 items"
             title = (f"Nothing was changed: Windows' Controlled folder access blocked {APP_NAME}"
                      if blocked and not others else "Nothing was changed")
-            if blocked:
-                if choose(self, title, "\n\n".join(info), "OK", "Open Windows Security"):
-                    cfa.open_settings()
-            else:
+            if not blocked:
                 inform(self, title, "\n\n".join(info))
+            elif choose(self, title, "\n\n".join(info), "OK", "Open Windows Security"):
+                cfa.open_settings()
             return
         trashed = [o for o in ok if o.trashed_at]
         now = [o for o in ok if not o.trashed_at]
-        if ok and not freed and not trashed:          # (renamed: nothing freed, nothing in the bin)
-            inform(self, f"Done: {plural(len(ok), 'file')} renamed.", "\n\n".join(info))
-            return
         if not trashed:
-            n = f"{plural(len(ok), 'item')}"
-            inform(self, f"Freed {human(freed)} from {n}.", "\n\n".join(info))
+            freed = sum(o.freed for o in ok)
+            # (renamed: nothing freed, nothing in the bin)
+            inform(self, f"Done: {plural(len(ok), 'file')} renamed." if not freed else
+                   f"Freed {human(freed)} from {plural(len(ok), 'item')}.", "\n\n".join(info))
             return
         if now:
             info.insert(0, f"{human(sum(o.freed for o in now))} was freed right away "
                            f"({plural(len(now), 'Docker item')}).")
         freed = sum(o.freed for o in trashed)
-        n = f"{plural(len(trashed), 'item')}"
         # Moving to the bin frees nothing yet: say so, and offer to free exactly this space now.
         info.insert(0, f"The space comes back when they leave the {BIN_NAME}. Until then you can put them back "
                        "from the history. Freeing it now deletes only these items; everything else in the "
                        f"{BIN_NAME} stays.")
-        if choose(self, f"Moved {human(freed)} ({n}) to the {BIN_NAME}.", "\n\n".join(info), "Done",
-                  f"Free {human(freed)} Now…"):
+        if choose(self, f"Moved {human(freed)} ({plural(len(trashed), 'item')}) to the {BIN_NAME}.",
+                  "\n\n".join(info), "Done", f"Free {human(freed)} Now…"):
             self._purge(trashed)
 
     def _refill_tree(self) -> None:
         """Folder sizes after a removal: the rows again with the new sizes, opened where they were."""
         assert self.result is not None and self.result.rebuild is not None
         opened = set()
-        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        stack = list(top_items(self.tree))
         while stack:
             it = stack.pop()
-            if it is not None and it.isExpanded():
+            if it.isExpanded():
                 opened.add(str(it.data(C_NAME, ROLE_ITEM).path))
-                stack.extend(it.child(i) for i in range(it.childCount()))
+                stack.extend(child_items(it))
         bar = self.tree.verticalScrollBar().value()
         self.result.items = self.result.rebuild()
         self._fill(self.result)
-        stack = [self.tree.topLevelItem(i) for i in range(self.tree.topLevelItemCount())]
+        stack = list(top_items(self.tree))
         while stack:
             it = stack.pop()
-            c = it.data(C_NAME, ROLE_ITEM) if it is not None else None
+            c = it.data(C_NAME, ROLE_ITEM)
             if isinstance(c, Candidate) and c.is_dir and str(c.path) in opened:
                 it.setExpanded(True)
-                stack.extend(it.child(i) for i in range(it.childCount()))
+                stack.extend(child_items(it))
         self.tree.verticalScrollBar().setValue(bar)
 
     def _purge(self, outcomes) -> None:

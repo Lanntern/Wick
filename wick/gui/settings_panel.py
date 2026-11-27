@@ -646,7 +646,8 @@ class SettingsPanel(QWidget):
     @staticmethod
     def _show(w: QWidget, on: bool) -> None:
         """Show/hide a control together with its form label."""
-        lay = w.parentWidget().layout() if w.parentWidget() is not None else None
+        parent = w.parentWidget()
+        lay = parent.layout() if parent is not None else None
         if isinstance(lay, QFormLayout) and lay.indexOf(w) >= 0:
             lay.setRowVisible(w, on)
         else:
@@ -654,7 +655,7 @@ class SettingsPanel(QWidget):
 
     def _update_enabled(self) -> None:
         kinds = getattr(self, "_kinds", None)
-        has = (lambda k: True) if not kinds else (lambda k: k in kinds)
+        has = (lambda _k: True) if not kinds else (lambda k: k in kinds)
         show = self._show
         sec = {x.toggle.text(): x for x in self.sections}
 

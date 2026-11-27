@@ -16,7 +16,7 @@ from ..tools import app_dir
 from . import devmode
 from .devmode import CLICKS
 from .filelist import SortItem, make_sortable
-from .main_window import app_icon, open_qsettings
+from .main_window import MainWindow, app_icon, open_qsettings
 from .style import Size, Space, Type, show_tip
 from .widgets import button, text
 
@@ -61,15 +61,14 @@ class AboutDialog(QDialog):
         return super().eventFilter(obj, e)
 
     def _toggle_dev(self) -> None:
-
         qs = open_qsettings()
         on = devmode.toggle(qs)
         devmode.apply(qs)
         win = self.parent()
-        page = win.built("app_settings") if hasattr(win, "built") else None
-        if page is not None:
-            page.update_dev_section()
-        if hasattr(win, "refresh_colors"):
+        if isinstance(win, MainWindow):
+            page = win.built("app_settings")
+            if page is not None:
+                page.update_dev_section()
             win.refresh_colors()
         show_tip("Developer settings are on (Settings, at the bottom)." if on else
                  "Developer settings are hidden.", self._version)

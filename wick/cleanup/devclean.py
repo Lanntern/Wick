@@ -128,13 +128,10 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
                    repos: list[Path] | None = None) -> list[_Found]:
     found: list[_Found] = []
     seen: set[str] = set()
-    home_library = Path.home() / "Library"
     stack = [Path(os.path.abspath(r)) for r in roots]
     root_keys = {os.path.normcase(str(r)) for r in stack}
     looked = 0
-    while stack:
-        if cancelled(cancel):
-            break
+    while stack and not cancelled(cancel):
         d = stack.pop()
         key = os.path.normcase(str(d))
         if key in seen:
@@ -160,30 +157,11 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
                     continue
             except OSError:
                 continue
-            p = Path(e.path)
-            rule = next((r for r in BY_NAME.get(e.name, ()) if not r.next_to or _matches(names, r.next_to)), None)
-            if rule is not None:
-                inner = None
-                if rule.inside:
-                    inner = _listing(p)
-                    if inner is None or not _matches({x.name for x in inner}, rule.inside):
-                        rule = None
-                if rule is not None:
-                    warning = WARN_RULES.get(e.name, "")
-                    if rule.lock and not _matches(names, rule.lock):
-                        warning = "No lock file next to it, so a reinstall may get newer versions"
-                    found.append(_Found(p, d, rule.what, _restore_for(rule, names), warning, rule.kind))
-                    continue
-            low = e.name.lower()
-            if low in NEVER_ENTER or e.name.startswith(".") or p == home_library:
-                continue
-            if IS_WINDOWS:
-                try:
-                    if e.stat(follow_symlinks=False).st_file_attributes & 0x6:   # hidden or system
-                        continue
-                except (OSError, AttributeError):
-                    continue
-            stack.append(p)
+            hit = _rebuildable(e, d, names)
+            if hit is not None:
+                found.append(hit)
+            elif _worth_entering(e):
+                stack.append(Path(e.path))
     # A virtual environment needs a requirements file to be rebuilt as it was.
     for f in found:
         if f.what == "Python virtual environment":
@@ -191,6 +169,35 @@ def _scan_projects(roots: list[Path], progress: ProgressFn | None, cancel: threa
             if not _matches(beside, PY_PROJECT):
                 f.warning = "No requirements file next to it: note which packages it has first"
     return found
+
+
+def _rebuildable(e: os.DirEntry, beside: Path, names: set[str]) -> _Found | None:
+    """Folder ``e`` (in ``beside``, whose entries are ``names``) if a rule says it can be rebuilt."""
+    p = Path(e.path)
+    rule = next((r for r in BY_NAME.get(e.name, ()) if not r.next_to or _matches(names, r.next_to)), None)
+    if rule is None:
+        return None
+    if rule.inside:
+        inner = _listing(p)
+        if inner is None or not _matches({x.name for x in inner}, rule.inside):
+            return None
+    warning = WARN_RULES.get(e.name, "")
+    if rule.lock and not _matches(names, rule.lock):
+        warning = "No lock file next to it, so a reinstall may get newer versions"
+    return _Found(p, beside, rule.what, _restore_for(rule, names), warning, rule.kind)
+
+
+def _worth_entering(e: os.DirEntry) -> bool:
+    """Not hidden, not a system folder, not the Mac's Library, not one never worth looking in."""
+    if e.name.lower() in NEVER_ENTER or e.name.startswith(".") or Path(e.path) == Path.home() / "Library":
+        return False
+    if IS_WINDOWS:
+        try:
+            if e.stat(follow_symlinks=False).st_file_attributes & 0x6:   # hidden or system
+                return False
+        except (OSError, AttributeError):
+            return False
+    return True
 
 
 # ---------------------------------------------------------------- folders the project's .gitignore ignores

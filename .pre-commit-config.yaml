@@ -1,0 +1,52 @@
+# The lint job's checks, before they reach CI. Install once:  pip install pre-commit && pre-commit install
+# --hook-type pre-commit --hook-type pre-push
+# They run the tools installed in this environment (.github/requirements-lint.txt: the versions CI uses), so
+# nothing is downloaded and the results match CI's. Ruff, vulture and the code rules run on every commit; the
+# type check (three runs, one per system) runs before a push.
+default_install_hook_types: [pre-commit, pre-push]
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        entry: python -m ruff check --force-exclude
+        language: system
+        types: [python]
+
+      - id: vulture
+        name: vulture (unused code)
+        entry: python -m vulture
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: code-rules
+        name: code rules (tests/test_code_rules.py)
+        entry: python -m pytest -q -p no:cacheprovider tests/test_code_rules.py
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: mypy-linux
+        name: mypy (Linux)
+        entry: python -m mypy wick --platform linux --always-false IS_WINDOWS --always-false IS_MAC
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: mypy-windows
+        name: mypy (Windows)
+        entry: python -m mypy wick --platform win32 --always-true IS_WINDOWS --always-false IS_MAC
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]
+
+      - id: mypy-macos
+        name: mypy (macOS)
+        entry: python -m mypy wick --platform darwin --always-false IS_WINDOWS --always-true IS_MAC
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-push]

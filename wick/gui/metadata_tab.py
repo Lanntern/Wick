@@ -18,6 +18,8 @@ from ..plan import Plan
 from ..scanner import FileEntry
 from ..settings import Settings
 from .filejob_page import FileJobPage, option_row
+from .filelist import fitter_of
+from .header import header_of
 from .metadata_scan import MetadataScan
 from .settings_panel import BIN_NAME
 from .style import tokens
@@ -50,7 +52,10 @@ class MetadataTab(FileJobPage):
                          "Drop photos or videos to check their metadata",
                          "You'll see the location, camera, owner and dates before anything is removed. The pictures "
                          "themselves are never re-encoded.")
-        self.tree.header().set_check(0, self._header_state, self.tree.header()._check[2])
+        header = header_of(self.tree)
+        toggle = header.check_toggle()
+        assert toggle is not None       # (the select-all checkbox the file-job page put there)
+        header.set_check(0, self._header_state, toggle)
         self._drain_timer = QTimer(self, interval=16)
         self._drain_timer.timeout.connect(self._drain)
         self.confirm_info = ("Only the metadata is removed, and Wick checks that the pictures themselves are "
@@ -262,7 +267,9 @@ class MetadataTab(FileJobPage):
         self.tree.setSortingEnabled(self._sorting)
         self.tree.header().setSectionsClickable(True)
         self.tree.header().viewport().update()
-        self.tree._fitter.fit_soon()
+        fitter = fitter_of(self.tree)
+        if fitter is not None:
+            fitter.fit_soon()
         self._finished()
         if worker.error:
             self.job_status.failed(worker.error)

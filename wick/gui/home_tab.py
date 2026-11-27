@@ -7,6 +7,7 @@ import shutil
 import sys
 import threading
 import time
+from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -30,7 +31,9 @@ from .filelist import (
     keyboard_list,
     make_sortable,
     selected_or_clicked,
+    set_all_checked,
     set_sort_keys,
+    top_items,
 )
 from .space_card import SpaceCard
 from .style import Size, Space, Type, safe_filter
@@ -138,11 +141,12 @@ class HomeTab(Page):
         row = QHBoxLayout()
         row.setSpacing(Space.L)
         card = Card(padding=0, spacing=0, inset=True)
-        head = hbox(text("Top savings", Type.HEADLINE, bold=True), None, margins=(Space.L, Space.M, Space.L, 0))
+        head_title = text("Top savings", Type.HEADLINE, bold=True)
+        head = hbox(head_title, None, margins=(Space.L, Space.M, Space.L, 0))
         self.select_high = button("Select High Confidence")
         self.select_high.clicked.connect(lambda: self._select(lambda c: c == overview.HIGH))
         self.select_none = button("Select None")
-        self.select_none.clicked.connect(lambda: self._select(lambda c: False))
+        self.select_none.clicked.connect(lambda: self._select(lambda _c: False))
         self.send_btn = button("Compress Selected…", "primary", "compress",
                                "Open the selected files on the Compress page to review and compress")
         self.send_btn.clicked.connect(self._send)
@@ -156,7 +160,7 @@ class HomeTab(Page):
         card.lay.addLayout(head)
         self._below = hbox(None, margins=(Space.L, Space.S, Space.L, 0))
         card.lay.addLayout(self._below)
-        self._head, self._head_title = head, head.itemAt(0).widget()
+        self._head, self._head_title = head, head_title
         self._head_card = card
         card.installEventFilter(self)
         self.hint = text("Ranked by how much each file would save.", Type.BODY,
@@ -177,14 +181,15 @@ class HomeTab(Page):
         for col, w in ((C_FILE, 240), (C_TYPE, 80), (C_INFO, 220), (C_SIZE, 90), (C_SAVE, 120), (C_CONF, 120)):
             self.tree.setColumnWidth(col, w)
         self.tree.itemChanged.connect(lambda *_: self._update_send())
-        make_sortable(self.tree)
-        self.tree.header().remember("home")
-        self.tree._fitter.optional = [C_MODIFIED, C_CREATED, C_INFO, C_TYPE]   # a narrow card leaves these out
+        header = make_sortable(self.tree)
+        header.remember("home")
+        assert header.fitter is not None
+        header.fitter.optional = [C_MODIFIED, C_CREATED, C_INFO, C_TYPE]   # a narrow card leaves these out
+        header.fitter.last_min = Space.XXL * 7
         # Right-click a heading to choose columns (dates are off until wanted).
-        self.tree.header().enable_column_menu("home", [C_TYPE, C_INFO, C_SAVE, C_CONF, C_CREATED, C_MODIFIED],
+        header.enable_column_menu("home", [C_TYPE, C_INFO, C_SAVE, C_CONF, C_CREATED, C_MODIFIED],
                                               {C_CREATED, C_MODIFIED})
-        self.tree.header().column_choice_changed = self._fill_created
-        self.tree._fitter.last_min = Space.XXL * 7
+        header.column_choice_changed = self._fill_created
         self.tree.sortByColumn(-1, Qt.SortOrder.AscendingOrder)  # ranked order until a column is clicked
         add_header_checkbox(self.tree, C_FILE, self._update_send)
         click_to_check(self.tree, C_FILE)
@@ -220,6 +225,14 @@ class HomeTab(Page):
         self.hover.enabled = self.qs.value("hover_preview", True, bool)
         self._show_folders()
         self._update_send()
+
+    def shortcuts(self) -> list[tuple[str, Callable[[], object]]]:
+        return [
+            ("Ctrl+A", lambda: set_all_checked(self.tree, True, 0, self._update_send)),
+            ("Ctrl+Shift+A", lambda: set_all_checked(self.tree, False, 0, self._update_send)),
+            ("Ctrl+Return", self._send),
+            ("Ctrl+Enter", self._send),
+        ]
 
     def resizeEvent(self, e) -> None:
         super().resizeEvent(e)
@@ -329,7 +342,7 @@ class HomeTab(Page):
         if self.worker is not None and self.busy():
             self.worker.cancel.set()           # (it stops at its next file; quitting waits for it)
 
-    def _progress(self, msg: str, done: int, total: int) -> None:
+    def _progress(self, _msg: str, done: int, total: int) -> None:
         if total:
             self.progress.setRange(0, total)
             self.progress.setValue(done)
@@ -435,7 +448,7 @@ class HomeTab(Page):
             return
         for i in range(self.tree.topLevelItemCount()):
             it = self.tree.topLevelItem(i)
-            if it is None:
+            if not isinstance(it, SortItem):
                 continue
             e = it.data(C_FILE, Qt.ItemDataRole.UserRole)
             ts = created_time(e.path) if e is not None else None
@@ -466,8 +479,7 @@ class HomeTab(Page):
 
         def by_type(state):
             self.tree.blockSignals(True)
-            for i in range(self.tree.topLevelItemCount()):
-                it = self.tree.topLevelItem(i)
+            for it in top_items(self.tree):
                 e = it.data(C_FILE, Qt.ItemDataRole.UserRole)
                 if e is not None and type_label(e.path, e.kind) == label:
                     it.setCheckState(C_FILE, state)
@@ -489,16 +501,14 @@ class HomeTab(Page):
     # ---- selection
     def _checked(self) -> list[Path]:
         out = []
-        for i in range(self.tree.topLevelItemCount()):
-            it = self.tree.topLevelItem(i)
+        for it in top_items(self.tree):
             if it.checkState(C_FILE) == Qt.CheckState.Checked:
                 out.append(it.data(C_FILE, Qt.ItemDataRole.UserRole).path)
         return out
 
     def _select(self, pred) -> None:
         self.tree.blockSignals(True)
-        for i in range(self.tree.topLevelItemCount()):
-            it = self.tree.topLevelItem(i)
+        for it in top_items(self.tree):
             it.setCheckState(C_FILE, Qt.CheckState.Checked if pred(it.text(C_CONF)) else Qt.CheckState.Unchecked)
         self.tree.blockSignals(False)
         self.tree.header().viewport().update()

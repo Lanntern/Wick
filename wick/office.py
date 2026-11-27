@@ -12,7 +12,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 from pathlib import Path
 
 from . import tools
@@ -91,8 +90,9 @@ def available() -> bool:
     return any(_ms_office(a) for a in _PROG_IDS) or libreoffice() is not None
 
 
-def to_pdf(src: Path, dest: Path, cancel: threading.Event | None = None, timeout: float = 600) -> str:
-    """``src`` as a PDF at ``dest``. Returns the app that made it."""
+def to_pdf(src: Path, dest: Path, timeout: float = 600) -> str:
+    """``src`` as a PDF at ``dest``. Returns the app that made it. LibreOffice can be stopped (tools.cancelling);
+    Microsoft Office can't: stopping it there would leave Word or PowerPoint open, hidden, with the file."""
     from . import pdftools
 
     app = OFFICE_EXTS.get(src.suffix.lower(), "word")
@@ -112,10 +112,9 @@ def to_pdf(src: Path, dest: Path, cancel: threading.Event | None = None, timeout
         work = Path(tempfile.mkdtemp(prefix="wick-office-"))
         try:
             profile = (work / "profile").as_uri()      # (its own profile: works while LibreOffice is open too)
-            proc = subprocess.run([soffice, "--headless", "--norestore", "--nolockcheck",
-                                   f"-env:UserInstallation={profile}", "--convert-to", "pdf", "--outdir",
-                                   str(work / "out"), str(src)], capture_output=True, text=True, timeout=timeout,
-                                  stdin=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            proc = tools.run([soffice, "--headless", "--norestore", "--nolockcheck",
+                              f"-env:UserInstallation={profile}", "--convert-to", "pdf", "--outdir",
+                              str(work / "out"), str(src)], timeout=timeout, check=False)
             made = work / "out" / (src.stem + ".pdf")
             if not made.exists():
                 raise RuntimeError("LibreOffice couldn't make the PDF: "

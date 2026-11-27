@@ -20,15 +20,27 @@ from .probe import AudioInfo, StreamInfo, VideoInfo
 
 SCHEMA = 4   # 3: videos carry their frame cadence; 4: Motion Photos, HDR, VFR, interlacing
 _lock = threading.Lock()
-_conn: sqlite3.Connection | None = None
-_enabled = True
+
+
+class _State:
+    """The open database, and whether the index is used at all (Settings › Remember file details)."""
+
+    def __init__(self) -> None:
+        self.conn: sqlite3.Connection | None = None
+        self.enabled = True
+
+
+_state = _State()
 _stale: set[str] = set()      # entries found again whose "last seen" date is old (see refresh_seen)
 _REFRESH_AFTER = 30 * 86400   # (rewriting it on every scan would cost a write per file)
 
 
 def set_enabled(on: bool) -> None:
-    global _enabled
-    _enabled = on
+    _state.enabled = on
+
+
+def is_enabled() -> bool:
+    return _state.enabled
 
 
 def path() -> Path:
@@ -47,13 +59,12 @@ def _db() -> sqlite3.Connection:
 
 def _rebuild() -> None:
     """Close and remove a damaged index (and its write-ahead files); the next scan fills a new one."""
-    global _conn
-    if _conn is not None:
+    if _state.conn is not None:
         try:
-            _conn.close()
+            _state.conn.close()
         except sqlite3.Error:
             pass
-        _conn = None
+        _state.conn = None
     for suffix in ("", "-wal", "-shm"):
         try:
             os.remove(str(path()) + suffix)
@@ -66,23 +77,22 @@ def _corrupt(e: sqlite3.Error) -> bool:
 
 
 def _open_db() -> sqlite3.Connection:
-    global _conn
-    if _conn is None:
+    if _state.conn is None:
         p = path()
-        _conn = sqlite3.connect(str(p), check_same_thread=False, timeout=10)
-        _conn.execute("PRAGMA journal_mode=WAL")
-        _conn.execute("PRAGMA synchronous=NORMAL")   # (with WAL: still consistent after a crash; no flush per save)
-        _conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
-        row = _conn.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
+        _state.conn = sqlite3.connect(str(p), check_same_thread=False, timeout=10)
+        _state.conn.execute("PRAGMA journal_mode=WAL")
+        _state.conn.execute("PRAGMA synchronous=NORMAL")   # (with WAL: still consistent after a crash; no flush per save)
+        _state.conn.execute("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT)")
+        row = _state.conn.execute("SELECT v FROM meta WHERE k='schema'").fetchone()
         if row is None or int(row[0]) != SCHEMA:
-            _conn.execute("DROP TABLE IF EXISTS files")
-            _conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(SCHEMA),))
-        _conn.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, "
-                      "kind TEXT, info TEXT, seen REAL)")
-        _conn.execute("CREATE TABLE IF NOT EXISTS extra (name TEXT, path TEXT, size INTEGER, mtime REAL, "
-                      "value TEXT, PRIMARY KEY (name, path))")
-        _conn.commit()
-    return _conn
+            _state.conn.execute("DROP TABLE IF EXISTS files")
+            _state.conn.execute("INSERT OR REPLACE INTO meta VALUES ('schema', ?)", (str(SCHEMA),))
+        _state.conn.execute("CREATE TABLE IF NOT EXISTS files (path TEXT PRIMARY KEY, size INTEGER, mtime REAL, "
+                            "kind TEXT, info TEXT, seen REAL)")
+        _state.conn.execute("CREATE TABLE IF NOT EXISTS extra (name TEXT, path TEXT, size INTEGER, mtime REAL, "
+                            "value TEXT, PRIMARY KEY (name, path))")
+        _state.conn.commit()
+    return _state.conn
 
 
 def _key(p: Path) -> str:
@@ -91,7 +101,7 @@ def _key(p: Path) -> str:
 
 def lookup(p: Path, size: int, mtime: float, kind: str):
     """ImageInfo / VideoInfo if known and unchanged, else None."""
-    if not _enabled:
+    if not _state.enabled:
         return None
     try:
         with _lock:
@@ -128,7 +138,7 @@ def lookup(p: Path, size: int, mtime: float, kind: str):
 
 def store(items: list[tuple[Path, int, float, str, Any]]) -> None:
     """items: (path, size, mtime, kind, ImageInfo | VideoInfo | None)."""
-    if not _enabled or not items:
+    if not _state.enabled or not items:
         return
     now = time.time()
     rows = [(_key(p), size, mtime, kind, json.dumps(asdict(info)) if info is not None else "null", now)
@@ -150,7 +160,7 @@ def refresh_seen() -> None:
     with _lock:
         keys = list(_stale)
         _stale.clear()
-    if not _enabled or not keys:
+    if not _state.enabled or not keys:
         return
     now = time.time()
     try:
@@ -166,7 +176,7 @@ def refresh_seen() -> None:
 
 def lookup_value(name: str, p: Path, size: int, mtime: float):
     """A cached computed value (e.g. a photo fingerprint) if the file hasn't changed."""
-    if not _enabled:
+    if not _state.enabled:
         return None
     try:
         with _lock:
@@ -180,7 +190,7 @@ def lookup_value(name: str, p: Path, size: int, mtime: float):
 
 
 def store_values(name: str, items: list[tuple[Path, int, float, object]]) -> None:
-    if not _enabled or not items:
+    if not _state.enabled or not items:
         return
     rows = [(name, _key(p), size, mtime, json.dumps(v)) for p, size, mtime, v in items]
     try:
@@ -207,11 +217,10 @@ def prune(max_age_days: float = 365) -> int:
 
 
 def clear() -> None:
-    global _conn
     with _lock:
-        if _conn is not None:
-            _conn.close()
-            _conn = None
+        if _state.conn is not None:
+            _state.conn.close()
+            _state.conn = None
         for suffix in ("", "-wal", "-shm"):
             try:
                 os.remove(str(path()) + suffix)

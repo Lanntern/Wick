@@ -12,6 +12,8 @@ import os
 import subprocess
 import sys
 
+from .log import ignored
+
 # ISO 639-1 → (ISO 639-2 codes as they appear in files, English name). The first code is the usual tag.
 LANGUAGES: dict[str, tuple[tuple[str, ...], str]] = {
     "ar": (("ara",), "Arabic"), "bg": (("bul",), "Bulgarian"), "bn": (("ben",), "Bengali"),
@@ -129,6 +131,7 @@ def detect() -> list[str]:
     try:
         raw = _windows() if sys.platform == "win32" else _linux()
     except Exception:  # noqa: BLE001 - detection is a convenience
+        ignored("languages: detection")
         raw = []
     out: list[str] = []
     for code in raw:
