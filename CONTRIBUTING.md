@@ -88,6 +88,9 @@ scripts/fetch_tools.py   download Windows encoders
 
 The lint job checks most of these; the rest are here so a change doesn't have to learn them in review.
 
+- **Before each commit:** `pip install pre-commit` (in the same environment as Wick's dependencies), then
+  `pre-commit install` once. Ruff, vulture and the code rules then run on every commit, and the type checks
+  before every push, with the tool versions CI uses (`.pre-commit-config.yaml`).
 - **Checks:** `ruff check .`, `vulture`, and mypy once per system, run with the project's own Python (`python -m mypy`, so it sees PySide6 and the other libraries):
   `python -m mypy wick --platform linux --always-false IS_WINDOWS --always-false IS_MAC` (then `win32` with
   `--always-true IS_WINDOWS`, and `darwin` with `--always-true IS_MAC`). Each run skips the other systems'
